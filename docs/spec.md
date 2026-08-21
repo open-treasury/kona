@@ -25,8 +25,19 @@
 | | |
 |---|---|
 | Branch | `spec/block-0-graph-store` · Epic: Block 0 (PRD §14) |
-| Stack | TypeScript on Bun · React + `@xyflow/react` + dagre · JSONL on disk |
+| Stack | **TypeScript 7** (native) on Bun · React + `@xyflow/react` + dagre · JSONL on disk |
 | Budget | 12–14 h, one operator, four parallel windows |
+
+**Toolchain — TypeScript 7.0 (native Go port, released 2026-07-08).** Bun transpiles and runs TS itself, so `bun test` and `bun build --compile` are unaffected by which `tsc` is installed; `tsc` is the **typecheck gate only**, and there it is 8–12× faster than the JS compiler.
+
+| | |
+|---|---|
+| **Free wins** | `strict: true` and `module: esnext` are now **defaults** — §7's gate and the Bun target both come for nothing. `--checkers` parallelises the check |
+| **Config it forces** | `types: []` is the new default, so Bun's globals need an explicit `"types": ["bun"]`. No `baseUrl` — use `paths`. No `target: es5`, `moduleResolution: node`, `module: amd\|umd\|systemjs` |
+| **⚠ No programmatic API until 7.1** | Anything consuming the compiler API needs TS 6 side-by-side via `@typescript/typescript6` (ships a `tsc6`). **typescript-eslint is named in the announcement as needing it** — so `bun run lint` with typed rules wants that package installed |
+| **⚠ Unverified** | Whether StrykerJS's TypeScript checker works against 7.0. It is the same class of dependency. §7 already makes mutation score a *target, not a gate*, so the downside is bounded — but **check it before relying on the 100% target**, and fall back to `tsc6` if it bites |
+
+*Source: [Announcing TypeScript 7.0](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).*
 
 ---
 
