@@ -860,7 +860,7 @@ kona/
     engine/     ← the 6 ops · 4 invariants · branch resolution.    PURE: no fs, no clock.
     store/      ← fold, .kona/ layout, flock + CAS, waits, outbox, resume.
                   (was store + effects — both are I/O over the same file; merged in §0.6)
-    cli/        ← the 17 verbs, brief, lint.  The only thing that writes.
+    cli/        ← the ~10 verbs, brief.  The only thing that writes.
     viewer/     ← React + xyflow + dagre.  Depends on `schema` ONLY.
     demo/       ← MailboxProvider impls, personas, divergence script.
   plugin/                 # .claude-plugin/plugin.json · skills/ · hooks/ · bin/
