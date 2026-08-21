@@ -14,7 +14,7 @@
 
 **The graph is a fold over an append-only mutation log, and nothing else is the truth.** `.kona/mutations.jsonl` is the system of record, and after §0.5 it is the **only** file — reads fold the log; there is no snapshot to keep coherent. Folding is a pure data operation — it is **not** Temporal-style replay and never re-executes an action. That single inversion is what lets Kona have crash-resume *and* mid-run topology mutation at once; every replay-based engine in the survey buys resume by forbidding mutation (see 03 — Temporal).
 
-- **2 node types · 6 ops · 3 edge kinds · 5 statuses · 3 invariants · 9 verbs · 4 packages. One file.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
+- **2 node types · 6 ops · 1 edge kind · 5 statuses · 3 invariants · 9 verbs · 3 packages. One file.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
 - **Three observed fields, three questions:** `status.state` = *where are we* · `status.outcome` = *what was decided* · `status.output` = *what did this node produce*. Conflating any two is how both probes' worst bugs happened.
 - **`--why` is a required argument on every mutating verb.** No rationale, no commit. All 200 technologies surveyed either lose the *why* or keep it in a file decoupled from the version — that gap is the product.
 - **No rollback, no `delete_node`, and `rollback` is not even reserved as an opcode.** YAWL kept it in the enum while its validator hard-rejected it, which just misled tool authors (see 04 — YAWL).
@@ -95,6 +95,29 @@ Pass one removed machinery, pass two removed vocabulary. Pass three found one **
 **The refusal, recorded because it is the one that matters.** Merging `record_outcome` into `record_output` would give 6 ops → 5 and 3 observed fields → 2. Clean symmetry. **Rejected:** `record_outcome` exists *because* a probe found an accept and a decline emitting identical ops, which made the quorum predicate unevaluable, and the closed enum `confirmed|declined|tentative|timed_out|bounced` is the fix. Merging would undo a probe-driven correction on aesthetic grounds. **Symmetry is not evidence.**
 
 **The 10% expected back:** `events.jsonl` the first time an orphan reply is real · `quorum` as its own type if the model starts mis-typing predicate waits · a `status` verb once someone tires of piping `graph --json` through `jq`.
+
+## 0.8. Simplification, pass four — and where the algorithm converges
+
+Four deletions, all small, plus one refusal and one finding about the algorithm itself.
+
+| Decision | Before | After | The argument |
+|---|---|---|---|
+| Edge kinds | 3 | **1** | `compensates` and `supersedes` were each represented **twice** — as an edge kind *and* as a node field the spec already specified. Keep the fields: invariant 1 asks "does this batch contain a compensation for X", which is a lookup rather than an edge scan. **Edges are now purely control flow; provenance lives in node fields and the log** |
+| Edge record | 6 fields | **3** | No op has taken an `edge_id` since `reroute_edge` went in §0.5, so identity was dead weight. `created_by_version` is derivable by folding. `kind` went with the collapse |
+| Mutation record | `parent_v` | **deleted** | With one writer, append-only, and CAS, a record's parent is *always the previous line*. It came from LangGraph's checkpoint **tree**, which exists to support forking, and there is no fork. The CAS comparison is an argument to `mutate`, not a field |
+| Packages | 4 | **3** | `schema` + `engine` → `core`. The boundary enforced "the viewer cannot reach the store" — and `engine` is not the store, it is pure functions. The rule survives |
+
+**~32 h → ~28 h.**
+
+**The refusal.** `supersede_node` composes exactly into `set_status(node,"dropped")` + a `supersedes` field, and invariant 1 transfers unchanged — 6 ops → 5. **Not taken.** Applying the test set in §0.7: is there probe evidence the named op matters? For `record_outcome`, yes. For this, none either way — and it is the op the demo's premise-break beat runs through. **Composition being exact is not the same as the composition being legible to the model.**
+
+### ⚠ The algorithm has converged
+
+Cuts by pass: **57% → 37% → 29% → 12%.** Pass four found four small things and one refusal.
+
+Musk's steps 4 and 5 are *accelerate cycle time* and *automate*, and you only earn them after 1–3. Further deletion from here is **speculative** — it would be cutting things because they are cuttable, not because evidence says they are unused.
+
+**The next real simplification comes from building it and seeing what nobody touches.** That is exactly what the probes did for the schema — four runs found `record_outcome`, `record_output`, the op-delta form of invariant 1, and the evidenced-recipient rule, none of which reasoning alone produced. Nothing has yet done it for the code. **Stop cutting; start building.**
 
 ---
 
@@ -339,18 +362,18 @@ The most-repeated structural lesson in the survey: **every mature system separat
 
 > **⚠ Types are for the store; vocabulary is for the model — they need not be the same list.** The probes were unambiguous that a *closed, named vocabulary* is what makes LLM output reliable (AFlow's `operator.json`, Self-Discover's seed modules, FlowMind's vetted API set). So the authoring prompt may still say "gate" and "join" as **words**, while the store knows three types. Deleting the types is a code simplification; deleting the words would be a reliability regression, and they are different decisions.
 
-**Edges — three kinds.** `blocks` (with an optional `condition`), `supersedes`, `compensates`.
+**Edges — one kind.** `blocks`, with an optional `condition`. `{from: A, to: B}` means **B requires A**.
 
-**Five deleted in pass two (§0.6):**
+**Two deleted in pass four (§0.8), both because the relationship was already a node field:**
 
-| Deleted | Why |
-|---|---|
-| `conditional-blocks` | It was `blocks` carrying a `condition` field. Two kinds for one concept |
-| `waits-for` | A quorum's population **is** its blocking in-edges. A second name for the same edge |
-| `parent-child` | With `group` gone, membership is a `group` label on the child |
-| `discovered-from`, `caused-by` | Pure provenance, and the mutation log already records `trigger` and `ops`. Two ways to say the same thing — and the review found both **inverted in 3 of 4 briefs**, so the second way was actively costing accuracy |
+| Deleted | Was | Now |
+|---|---|---|
+| `compensates` | an edge from the compensation to the executed node | `compensates: <node_id>` on the compensating task's spec — where §6.6 already put it. Invariant 1 asks "does this batch contain a compensation for X", which is a field lookup, not an edge scan |
+| `supersedes` | an edge from the replacement to the replaced | `supersedes: <node_id>` on the replacement's `provenance` — where §6.2 already put it |
 
-`supersedes` and `compensates` survive because you have to *find* them; the rest was narration the log already carries.
+Both were represented **twice**, and the duplicate was the one that cost accuracy: the review found annotating edges inverted in 3 of 4 briefs (§0.6 deleted the other two for the same reason).
+
+**Edges are now purely control flow. Provenance lives in node fields and the mutation log** — and there is exactly one place to look for each fact.
 
 **⚠ The two edge lanes use OPPOSITE direction conventions, and this must be stated as loudly as the blocking one.**
 
@@ -392,8 +415,8 @@ One line of `mutations.jsonl` per commit.
 
 ```jsonc
 {
-  "v": 42, "parent_v": 41,
-  "schema_version": 1,
+  "v": 42,
+  "schema_version": 1,   // one writer, append-only: a record's parent IS the previous line
 
   "observed_at": "…",            // when Kona learned      } bi-temporal, ENGINE-stamped, never LLM-stamped
   "occurred_at": "…",            // when it actually happened }   deadlines use the second, log order the first
@@ -419,7 +442,7 @@ One line of `mutations.jsonl` per commit.
 
 | Deleted | Was for |
 |---|---|
-| `parents[]` | I justified it as *"the only thing that lets two concurrent mutations be reconciled later."* There is one writer |
+| `parents[]`, and in §0.8 `parent_v` too | I justified `parents[]` as *"the only thing that lets two concurrent mutations be reconciled later."* There is one writer — and with one writer, append-only, and CAS, a record's parent is **always the previous line**. Both came from LangGraph's checkpoint *tree*, which exists to support forking. There is no fork. The CAS comparison is an argument to `mutate`, not a field in the record |
 | `hash` (Merkle chain) | Tamper-evidence on your own local file |
 | `client_id` | Idempotency for a replayed mutation — but append is atomic and CAS guards the version |
 | `context_snapshot_ref`, `prior_context_ref` | YAWL's cornerstone diff. Elegant, and used by exactly zero probe proposals |
@@ -438,7 +461,7 @@ Four calls that are not obvious, each argued:
 
 ```
 add_node(scope, spec)                                        -> $id
-add_edge(from, to, kind, {condition?})                       -> $edge_id
+add_edge(from, to, {condition?})
 set_status(node, status, evidence_ref)
 record_outcome(node, verdict, evidence_ref, attrs?)          confirmed|declined|tentative|timed_out|bounced
 record_output(node, output_name, value_or_ref, evidence_ref) satisfies a declared `outputs` entry
@@ -466,13 +489,11 @@ Deleting them deletes the auto-wiring table with them — the single largest sou
 **The edge record, and why `add_edge` needs a `condition`.** The edge was the least-specified object here: no record shape existed anywhere, so `fold()` — the second-priority test suite — had no target to build. Worse, **Fix 8 makes `condition` mandatory on every out-edge of a `gate`/`wait` and `add_edge` had no parameter for it — so the closed op set literally could not author a legal gate out-edge**, which is the mechanism that stops an irreversible send firing with no approval.
 
 ```jsonc
-{ "id": "e_7f2a", "from": "shortfall_gate", "to": "recruit_goalie",
-  "kind": "blocks",
-  "condition": { "on": "accept" },   // closed: accept|edit|respond|ignore|timeout|bounced|satisfied
-  "created_by_version": 42 }         //   = gate.decision_kinds union wait.resolution
+{ "from": "shortfall_wait", "to": "recruit_goalie",
+  "condition": { "on": "accept" } }   // optional. closed: accept|edit|respond|ignore|timeout|bounced|satisfied
 ```
 
-No `lane` field — derivable from `kind`. Graph envelope: `{schema_version, v, nodes[], edges[]}`.
+**Three fields, and no identity.** §0.8 deleted `id` — no op has taken an `edge_id` since `reroute_edge` went in §0.5, so it was dead weight — and `created_by_version`, derivable by folding: an edge appears at the version its `add_edge` ran. `kind` went with the collapse to one kind. Graph envelope: `{schema_version, v, nodes[], edges[]}`.
 
 **The store fires the out-edge whose `condition.on` matches the terminal resolution, and marks every other out-edge's target `dropped`** (Fix 7). That sentence wires Fix 8 to Fix 7 and makes both implementable.
 
@@ -609,7 +630,7 @@ Real verification is off the table — soundness of workflow nets is EXPSPACE-co
 | 2 | **Quorum stays satisfiable** — population is its set of **blocking in-edges** | The only check that ever caught a genuine *reasoning* error rather than a shape slip |
 | 3 | **Effects are bounded and addressed** — two clauses, one rule, checked wherever an irreversible effect is created or retargeted. **(a) Bounded:** cumulative sends ≤ the budget in the approved plan. **(b) Addressed:** `recipient_ref` must resolve to an entity already in the graph carrying an `evidence_ref` — a recipient existing only in the proposing batch is rejected | (a) §6.9 removed every human gate on topology and named the budget as the replacement. (b) is the v3 probe's headline failure: unable to satisfy a quorum, the mutator **invented counterparties and queued email to them** while everything else passed, because the old suite *rewarded* it. Merged in §0.7 — both are the same question asked at the same moment: *may this effect exist?* |
 
-Plus the write protocol, which is not a graph property: **`parent_v` must equal head, else exit 3 → re-read → re-decide, never blind-merge.**
+Plus the write protocol, which is not a graph property: **`--base-version` must equal head, else exit 3 → re-read → re-decide, never blind-merge.** (It is an *argument* to `mutate`, not a field in the record — §0.8 deleted `parent_v` from the record, since with one writer a record's parent is always the previous line.)
 
 **Terminal = `done | failed | dropped`.** Non-terminal: `active | sending`. `sending` is non-terminal so `record_output` is not caught by rule 1.
 
@@ -625,7 +646,7 @@ Write a `conflict` annotation with a reason and surface it in the viewer for: a 
 
 1. **Role-scoped write authority.** Only the orchestrator mutates topology; subagents only `set_status` and write their own node's output. *This single rule removes most of the need for locking.* Steal ReWOO's Planner/Worker/Solver split and Akka's one-active-writer-per-entity guarantee. (05, 12)
 2. ~~**Atomic claim with a TTL lease.**~~ **Deleted by §0.5 — one writer, nothing to claim.** Was: `kona next --agent X --lease 30m` via `O_EXCL`/atomic rename, exactly one winner. Linda proves this is sufficient, and it is the only mechanism preventing two subagents emailing the same goalie. Expose the *eligible set* through the CLI rather than letting a subagent pick — the blackboard KS-activation-record pattern. (12)
-3. **Compare-and-swap on `parent_v`.** 409 → re-read → re-decide. ~20 lines. (09 — KurrentDB; 04 — ADEPT2)
+3. **Compare-and-swap on `--base-version` against head.** exit 3 → re-read → re-decide. ~20 lines. (09 — KurrentDB; 04 — ADEPT2)
 4. **One macro-step per external event.** One inbound email = acquire lock, apply the full cascade of derived status changes and topology mutations as micro-steps, stamp them with one logical timestamp and one version id, release. Subagents propose; only the macro-step commits. (04 — GSM)
 
 **And the rule that matters more than all four.** Beads #5898: 54 cross-actor overwrites, median 31 minutes apart, none inside any plausible conflict window. The enemy is **hand-offs, not races** — locking prevents zero of those. Therefore **judgment-bearing fields are append-only event streams with actor + timestamp + rationale per entry, and the current value is a projection.** A subagent that reads a stale field and writes over it produces a new event and never destroys the prior one. (see 01)
@@ -863,11 +884,11 @@ The persona replies to that; it lands in the one inbox; the plus-tag names the e
 kona/
   package.json            # workspaces: ["packages/*"], bun
   packages/
-    schema/     ← types, the closed vocabularies, validators.  ZERO deps.
-    engine/     ← the 6 ops · 3 invariants · branch resolution.  PURE: no fs, no clock, NO MODEL.
+    core/       ← types, vocabularies, validators, the 6 ops, 3 invariants, branch resolution.
+                  ZERO deps. PURE: no fs, no clock, NO MODEL. (schema + engine, merged §0.8)
     kona/       ← fold, .kona/ layout, flock + CAS, waits, outbox, resume, the 9 verbs.
                   (store + effects + cli — §0.6 and §0.7. The only thing that writes.)
-    viewer/     ← React + xyflow + dagre.  Depends on `schema` ONLY.
+    viewer/     ← React + xyflow + dagre.  Depends on `core` ONLY.
   demo/                   # throwaway scripts — a directory, not a workspace package (§0.7)
   plugin/                 # .claude-plugin/plugin.json · skills/ · hooks/ · bin/
 ```
@@ -875,30 +896,29 @@ kona/
 **The dependency graph is the architecture, enforced rather than documented:**
 
 ```
-schema ──┬── engine ──┴── kona ──────> plugin/bin/kona
-         ├── viewer   ┘                        (bun build --compile)
-         └── demo
+core ──┬── kona ──────> plugin/bin/kona
+       └── viewer
 ```
 
 | Boundary | Why it is a package and not a folder |
 |---|---|
-| **`schema` is a leaf with zero dependencies** | §6.10 requires the viewer hold *zero* authoritative state and read only through `kona graph --json`. As a package boundary that is **structural**: `viewer` cannot import `store`, because it does not depend on it. Today that rule is a sentence someone can violate in one import |
-| **`engine` is pure — no `fs`, no `Date.now()`** | It takes `(graph, batch)` and returns a new graph or a rejection. That is what makes the 100% mutation-score target on `validate()` cheap rather than heroic (§7), and it is why the per-module Stryker floors map onto packages one-for-one |
-| **`store` owns every byte written** | The single-writer rule (§6.7.3) is enforceable by inspection: exactly one package calls `writeFile`, and `cli` is the only caller of `store` |
-| **`demo` depends on `schema` + the port, never on internals** | §6.11's whole claim is that the mailbox layer is commoditised and swappable. If `demo` can reach into `store`, that stops being true within a day |
-| **`plugin/` is not a package** | It is a Claude Code plugin directory with its own manifest shape. The build drops the compiled binary into `plugin/bin/`, which Claude Code adds to PATH automatically (§6.9, verified) |
+| **`core` is a leaf with zero dependencies** | §6.10 requires the viewer hold *zero* authoritative state and read only through `kona graph --json`. As a package boundary that is **structural**: `viewer` cannot import `kona`, because it does not depend on it. Today that rule is a sentence someone can violate in one import |
+| **`core` is pure — no `fs`, no `Date.now()`, no model** | It takes `(graph, batch)` and returns a new graph or a rejection. That is what makes the 100% mutation-score target on `validate()` cheap rather than heroic (§7), and it is the §6.8.2 law expressed as a dependency |
+| **`kona` owns every byte written** | The single-writer rule (§6.7.3) is enforceable by inspection: exactly one package calls `writeFile` |
+| **`demo/` is a directory, not a package** | It is throwaway scripts. §6.11's claim that the mailbox layer is swappable holds because `demo/` can only see `core` and the port |
+| **`plugin/` is not a package either** | It is a Claude Code plugin directory with its own manifest shape. The build drops the compiled binary into `plugin/bin/`, which Claude Code adds to PATH automatically (§6.9, verified) |
 
 **It also maps onto the four windows exactly**, which is the practical payoff during the build:
 
 | Window | Owns |
 |---|---|
-| W1 | `schema` → `engine` |
-| W2 | `kona` (store + effects + cli) |
-| W3 | `viewer` (starts the moment `schema` compiles — it needs types, not a working store) |
-| W4 | `demo` (needs `schema` and the port interface only) |
+| W1 | `core` (types, ops, invariants) |
+| W2 | `kona` (fold, flock+CAS, waits, outbox, resume, the 9 verbs) |
+| W3 | `viewer` — starts the moment `core` compiles; it needs types, not a working store |
+| W4 | `demo/` — needs `core` and the port interface only |
 | Operator | `cli`, `plugin/`, integration |
 
-W3 and W4 previously had to wait for a working `kona graph --json`. Against a package boundary they only need `schema` to compile — which is T1.2, at ~50 minutes.
+W3 and W4 previously had to wait for a working `kona graph --json`. Against a package boundary they only need `core` to compile — which is T1.2, at ~50 minutes.
 
 **Cost: about 30 minutes on T1.1**, and one rule to hold: no cyclic dependencies, checked by `bun run build` failing rather than by discipline.
 
