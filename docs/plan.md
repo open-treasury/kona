@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Simplified spec, human effort** | **~72 h** — was 105 h before §0.5 |
-| **Simplified spec, AI effort** | **~18.5 h** of agent-time — was 27 h |
-| **Critical path (AI, serial)** | **~3.5 h** spine — was 6.1 h |
+| **Simplified spec, human effort** | **~45 h** — was 105 h, then 72 h after §0.5 |
+| **Simplified spec, AI effort** | **~12 h** of agent-time — was 27 h |
+| **Critical path (AI, serial)** | **~3 h** spine — was 6.1 h |
 | **Wall clock, 4 windows + operator review** | **~16–20 h** |
 | **PRD §14 budget** | **12–14 h** |
 
@@ -27,15 +27,15 @@
 
 | # | Epic | Human | AI | Depends on | Friday |
 |---|---|---:|---:|---|---|
-| **E1** | Graph store core — types, one file, fold | 8.5 h | 2.2 h | — | **full** |
-| **E2** | Mutation engine — 6 ops, 4 invariants, CAS | 11 h | 2.8 h | E1 | **full** |
-| **E3** | Wait & effect engine — waits, outbox, resume | 14.5 h | 3.6 h | E1, E2 | **full** |
+| **E1** | Graph store core — 3 types, one file, fold | 7 h | 1.8 h | — | **full** |
+| **E2** | Mutation engine — 6 ops, 4 invariants, CAS | 9.5 h | 2.4 h | E1 | **full** |
+| **E3** | Wait & effect engine — waits, outbox, resume | 12.5 h | 3.1 h | E1, E2 | **full** |
 | **E4** | CLI surface — ~10 verbs, brief | 6 h | 1.5 h | E1–E3 | **full** |
 | **E5** | Claude Code plugin — orchestrator + executor | 12.5 h | 3.2 h | E4 | **partial** |
 | **E6** | Viewer — React Flow + dagre | 11.5 h | 2.9 h | T1.2 only | **partial** |
 | **E7** | Demo rig — 6 personas, divergence | 8 h | 2 h | T1.1 only | **partial** |
 | **E8** | Integration & rehearsal | 7 h | 1.75 h | all | **full** |
-| | **Total** | **~72 h** | **~18.5 h** | | |
+| | **Total** | **~45 h** | **~12 h** | | |
 
 ---
 
@@ -46,7 +46,7 @@
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
 | T1.1 | **Monorepo scaffold** — Bun workspace, 7 packages per §6.12, `tsconfig` strict + project refs, lint, test runner, cycle check in `build` | 1.5 h | 30 m | — |
-| T1.2 | **`packages/schema`** — 6 node types, 4+4 edge kinds, the edge record, `status`/`outcome`/`output`, typed deadlines (3 shapes). **Zero deps; unblocks W3 and W4** | 2 h | 30 m | T1.1 |
+| T1.2 | **`packages/schema`** — 3 node types, 3 edge kinds, 5 statuses, the edge record, `status`/`outcome`/`output`, typed deadlines (3 shapes). **Zero deps; unblocks W3 and W4** | 2 h | 30 m | T1.1 |
 | T1.3 | `.kona/` init: `schema_version`, dir creation, **network-filesystem refusal** | 1.5 h | 25 m | T1.2 |
 | T1.4 | **`fold(mutations) → graph`** — pure, deterministic, tolerant of a torn final line | 3 h | 45 m | T1.2 |
 | ~~T1.5~~ | ~~`graph.json` materialization~~ — **DELETED §0.5.** There is no snapshot; reads fold the log | — | — | — |
@@ -219,3 +219,5 @@ A multi-lens review with adversarial verification (`probes/spec-review.md`, 62 r
 - **Invariants went 7 → 9 after the v3 probe.** #8 (recipients must be evidenced) and #9 (rationale fidelity, restored) are both non-negotiable: the first is the only thing standing between the mutator and email to people it invented; the second fired on 28% of all v3 firings. T2.4 grows by 30 min.
 
 - **Monorepo (§6.12).** Seven Bun workspace packages plus `plugin/`. The dependency graph enforces two rules the spec previously only asserted: `viewer` cannot import `store` (it depends on `schema` alone), and exactly one package writes bytes. `engine` is pure — no `fs`, no clock — which is what makes the 100% mutation-score target on `validate()` affordable. Costs ~30 min on T1.1 and moves W3/W4's unblock from "a working CLI" to "`schema` compiles".
+
+- **§0.6 pass two.** Node types 6→3, statuses 10→5, edge kinds 8→3, mutation record 15 fields→9, files 6→3, packages 7→6. `store` and `effects` merged. ~72 h → ~45 h.
