@@ -39,6 +39,17 @@
 
 *Source: [Announcing TypeScript 7.0](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).*
 
+**Platform — macOS is the tested target; Windows and Linux are designed for, not verified.** Most of the design is already portable by accident: §0.5 deleted the derived snapshot, which took **atomic rename** — the single worst Windows footgun — with it, and node ids are `[a-z0-9-]` so macOS's case-insensitive filesystem cannot collide with Linux's case-sensitive one. Four things need a deliberate choice, and all four are cheap **now** and annoying later:
+
+| | Decision |
+|---|---|
+| **The lock** | **An `O_EXCL` lockfile, not `flock`.** `fs.open(path, 'wx')` fails atomically if the file exists — on all three platforms. `flock` is POSIX-only and Windows has no equivalent. Same amount of code; write the portable one first. Store `{pid, started_at}` inside and treat a lock older than the longest legal write as stale |
+| **Network-FS refusal** | Detecting a network mount properly needs `statfs` magic numbers on Linux, `statfs` flags on macOS and `GetDriveType` on Windows — none exposed by Bun. **Use a path heuristic** (Dropbox · iCloud · OneDrive · Google Drive) plus a `--force` escape. The risk is lower than it was, since only the append path remains |
+| **`kona view`** | Three commands for one job: `open` · `xdg-open` · `start`. Or print the URL and let the user click it, which is what a localhost tool should probably do anyway |
+| **The fold** | **Strip a trailing `\r` per line.** One line of code that covers both CRLF (git `autocrlf` on Windows, if a pursuit is ever committed) and part of the torn-line case §7 already tests |
+
+Distribution: `bun build --compile` emits a platform-specific binary, so shipping `plugin/bin/` cross-platform means a target per OS. **For Friday, ship the TS and require Bun** — one artifact, no matrix.
+
 ---
 
 ## 2. Context
@@ -88,7 +99,7 @@ Greenfield: `docs/` only. No source, no toolchain, no CI. Block 0's output is th
 ```
 .kona/
   mutations.jsonl   # THE FILE. append-only, fsync'd. Never compacted, never GC'd.
-  lock              # flock target, held only during a write
+  lock              # O_EXCL lockfile, held only during a write (portable; see §1)
 ```
 
 **Write order is the durability story:** `append → fsync → then take the side effect.` Never the reverse.

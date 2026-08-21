@@ -68,7 +68,7 @@
 | T2.4 | **The 4 enforced invariants** (§6.7.1) + a zod parser for shape + CAS check. **#4 recipient-evidence is the highest-value check in the codebase** | 2 h | 30 m | T2.1 |
 | ~~T2.5~~ | ~~Invariants 9–16~~ — **cut**; five moved to `kona lint` (T4.3), two dropped | — | — | — |
 | T2.6 | **Branch resolution** (NEVER CUT) — store drops untaken branches transitively; dropped source excluded from merge; readiness fails safe | 3 h | 45 m | T2.1 |
-| T2.7 | `flock` + compare-and-swap on `--base-version` + exit 3 | 2 h | 30 m | T1.4 |
+| T2.7 | **`O_EXCL` lockfile** (portable — not `flock`) + compare-and-swap on `--base-version` + exit 3 | 2 h | 30 m | T1.4 |
 | T2.8 | Mutation record write — rationale required, `outcome: null`, bi-temporal stamps | 1.5 h | 25 m | T2.7 |
 | ~~T2.9~~ | ~~Suppression rule~~ — **DELETED §0.5.** Was already cut-order 1 | — | — | — |
 
