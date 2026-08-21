@@ -45,7 +45,7 @@
 
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
-| T1.1 | **Monorepo scaffold** — Bun workspace, 7 packages per §6.12, `tsconfig` strict + project refs, lint, test runner, cycle check in `build` | 1.5 h | 30 m | — |
+| T1.1 | **Monorepo scaffold** — Bun workspace, **4 packages** per §6.12 (+ `demo/`, `plugin/`), `tsconfig` strict + project refs, lint, test runner, cycle check in `build` | 1.5 h | 30 m | — |
 | T1.2 | **`packages/schema`** — 2 node types, 3 edge kinds, 5 statuses, the edge record, `status`/`outcome`/`output`, typed deadlines (3 shapes). **Zero deps; unblocks W3 and W4** | 2 h | 30 m | T1.1 |
 | T1.3 | `.kona/` init: `schema_version`, dir creation, **network-filesystem refusal** | 1.5 h | 25 m | T1.2 |
 | T1.4 | **`fold(mutations) → graph`** — pure, deterministic, tolerant of a torn final line | 3 h | 45 m | T1.2 |
@@ -99,7 +99,7 @@
 | T4.2 | **`kona brief`** — the node's subgraph + identity, correlation, preconditions (fail-closed) | 2 h | 30 m | T3.1, T2.4 |
 | ~~T4.3~~ | ~~`kona lint`~~ — **DELETED §0.5.** Was already cut-order 2 | — | — | — |
 | ~~T4.4~~ | ~~`plan`/`apply` frozen artifact~~ — **DELETED §0.5.** Was already cut-order 3 | — | — | — |
-| T4.5 | `kona status` / `history` / `why` | 2 h | 30 m | T4.1 |
+| ~~T4.5~~ | ~~`kona status` / `history` / `why`~~ — **DELETED §0.7.** All three are projections of `graph --json`; a verb wrapping a verb is a shell alias | — | — | — |
 
 ---
 
