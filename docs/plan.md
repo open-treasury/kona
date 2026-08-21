@@ -1,6 +1,6 @@
 # Kona — Execution Plan
 
-**Status:** Draft · **Date:** 2026-08-21 · **Source:** [`spec.md`](./spec.md) v-current, [`prd.md`](./prd.md) v4.3
+**Status: Approved** (2026-08-21) · **Date:** 2026-08-21 · **Source:** [`spec.md`](./spec.md) v-current, [`prd.md`](./prd.md) v5.1
 **Convention:** one module = one epic · every task ≤ 4h human effort · AI effort estimated separately and more atomically.
 
 ---

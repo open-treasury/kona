@@ -1,6 +1,7 @@
 # PRD: Project Kona
 
 ## 1. Meta Information
+* **Status:** Approved (2026-08-21)
 * **Date:** 2026-08-21
 * **Owner:** Ilya Vorobiev
 * **Event:** Long Horizon Agents Build Day @ AGI House

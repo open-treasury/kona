@@ -1,6 +1,6 @@
 # SPEC — Kona
 
-**Status:** Draft · **Owner:** Ilya Vorobiev · **Date:** 2026-08-21
+**Status: Approved** (Ilya, 2026-08-21) · **Owner:** Ilya Vorobiev
 **PRD:** [`prd.md`](./prd.md) · **Plan:** [`plan.md`](./plan.md) · **Evidence:** [`probes/`](./probes/) · **Prior art:** [`research/`](./research/)
 
 > This says what Kona *is*. How it got here — four simplification passes, six probe runs, an eight-lens review — lives in `probes/` and git. Decisions carry a one-clause reason only where re-introducing the mistake is likely.
