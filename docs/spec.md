@@ -648,7 +648,7 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 | `kona lint` | read | post-authoring checks: inverted edge direction, sequence-implied-by-numbering, unreachable nodes |
 | `kona graph --json [--version N]` | read | **the one supported read contract.** Powers the viewer and the scrubber |
 | `kona status [--json]` | read | head version, counts by state, ready nodes, armed waits + time remaining, open gates, `sending` unknowns |
-| `kona next --agent <id> --lease 30m` | claim | return eligible unleased nodes **and take a lease**. The only way a subagent gets work. **Never returns an uninstantiated branch template inside an unexpanded `group`** — the probe walked a fresh agent straight into `send_scope_package` with `<bidder_id>` unbound |
+| `kona next` | read | the ready frontier — nodes whose every blocking in-edge is terminal-success. **Computed, never stored.** No leases (§0.5); with one writer there is nothing to claim |
 | `kona brief <node>` | read | **the fresh subagent's entire world: its subgraph + identity, correlation, preconditions — see §6.8.1.** Refuses rather than returning a partial brief |
 | `kona why <node>` | read | the rationale chain for one node |
 | `kona set-status <node> --state … --why "…"` | mutate | executor status transition + conditions |
@@ -690,11 +690,11 @@ Plus `disclosable` — a per-field marking of what may appear in outbound conten
 10. Ban load-bearing prose: any constraint gating a decision lives in a typed field; `instruction` is reserved for the human *(12 defects)*
 11. **Never trust a self-reported lint pass.** Two trials claimed a validation they had not correctly run. `kona validate` is the gate; the model's own note is not evidence
 
-**Exit status is small; the reason is in the message.** `0` ok · `1` refused · `3` stale base version · `4` invariant violation · `5` node leased.
+**Exit status is small; the reason is in the message.** `0` ok · `1` refused · `3` stale base version · `4` invariant violation. *(`5` node-leased was removed with leases in §0.5 — with one writer there is nothing to lease.)*
 
 ⚠ **`409`/`422`/`423` cannot be exit statuses** — they are 8-bit, so Bun/Node truncate: `process.exit(409)` yields `$?` = 153. The concurrency contract is consumed by an LLM orchestrator and by subagents shelling out to `kona`, and every one of them would branch on a code that never appears. Where §6.7.3 and §7 say "409", they mean the **symbolic** code below, not `$?`.
 
-**Every non-zero exit writes one line to stderr beginning with a symbolic reason code:** `STALE_BASE_VERSION` (+ current head) · `INVARIANT_VIOLATION` (+ invariant number and node id) · `NODE_LEASED` · `REFUSED` (+ reason). The mandated refusals that otherwise have no code — network-FS refusal, partial-brief refusal, uninstantiated-template refusal, budget exhaustion, the `sending`-crash human ask, scope-constraint refusal, payload-mismatch — all land under `1` + `REFUSED` + reason. Said here because four windows will otherwise each invent a shape. No JSON error envelope: `--json` is deliberately scoped to reads.
+**Every non-zero exit writes one line to stderr beginning with a symbolic reason code:** `STALE_BASE_VERSION` (+ current head) · `INVARIANT_VIOLATION` (+ invariant number and node id) · `REFUSED` (+ reason). The mandated refusals that otherwise have no code — network-FS refusal, partial-brief refusal, uninstantiated-template refusal, budget exhaustion, the `sending`-crash human ask, scope-constraint refusal, payload-mismatch — all land under `1` + `REFUSED` + reason. Said here because four windows will otherwise each invent a shape. No JSON error envelope: `--json` is deliberately scoped to reads.
 
 **Hardcode the five queries the viewer needs** — ready nodes, blocked-on-wait, waits past deadline, recent mutations, rationale chain. **No query language.** (see 09 — Neo4j)
 
