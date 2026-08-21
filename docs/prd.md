@@ -4,7 +4,7 @@
 * **Date:** 2026-08-21
 * **Owner:** Ilya Vorobiev
 * **Event:** Long Horizon Agents Build Day @ AGI House
-* **Version:** v5.0 — §4, §7 and §15 R3 corrected against the 200-technology prior-art review (`docs/research/`); the novelty claim is now narrower and survives a fact-check, which v3.9's "empty quadrant" did not. §7: mid-run mutation is now fully automatic — one pre-execution approval, no gates thereafter. §7: mid-run mutation is automatic except for introducing a new counterparty — the v3 probe found the mutator inventing people to email. §9: the fan-out now visibly diverges (Priya / Pat / Sam-referring-Marcus), which is what separates it from `withParam`. §14/§16: mailbox strategy changed from 30 agent-provisioned inboxes to one plus-addressed mailbox ($0).
+* **Version:** v5.1 — §4, §7 and §15 R3 corrected against the 200-technology prior-art review (`docs/research/`); the novelty claim is now narrower and survives a fact-check, which v3.9's "empty quadrant" did not. §7: mid-run mutation is now fully automatic — one pre-execution approval, no gates thereafter. §4: adds the one-line positioning — Beads with state machines, plus a plugin — and the determinism law behind it. §7: mid-run mutation is automatic except for introducing a new counterparty — the v3 probe found the mutator inventing people to email. §9: the fan-out now visibly diverges (Priya / Pat / Sam-referring-Marcus), which is what separates it from `withParam`. §14/§16: mailbox strategy changed from 30 agent-provisioned inboxes to one plus-addressed mailbox ($0).
 
 ## 2. What Kona Does (plain words)
 We help people who delegate multi-day tasks to AI agents **see what the agent is doing and actually get the task finished** — the agent's plan becomes a live, visible file that explains itself and survives any crash.
@@ -33,6 +33,8 @@ Every property Kona claims already exists somewhere. The landscape, by quadrant:
 * **Track in lists.** Beads: a CLI-mutated local store with git-synced history — agent-mutable, multi-agent, crash-resumable; the right storage pattern, the wrong semantics (issues, not state machines). TodoWrite / Manus / Devin plans: the agent updates a flat list mid-run — status flips, no topology, no rationale.
 
 **The honest lineage:** runtime structural mutation of a running workflow was solved by adaptive BPM (ADEPT2/AristaFlow, van der Aalst's "flexibility by change") in 2005–2012 — *including versioned change logs with a rationale field* — and failed commercially because the mutator was an expert human with a BPMN editor, and change was expensive and blameful. The theory is 20 years old. The economically viable mutator — an LLM — is 2 years old.
+
+**The one-line positioning, and it is the most useful sentence in this document.** **Kona is Beads with state machines, plus the plugin Beads never had.** Beads is a deterministic CLI holding an *issue* graph that agents drive by prompt; it is the closest prior art and the PRD concedes it already. Kona is a deterministic CLI holding an **execution** graph — waits with deadlines, irreversible effects, quorums — and it ships the agent loop as a Claude Code plugin rather than leaving it to whatever the user writes in `AGENTS.md`. **The binary contains no model at all** (`spec.md` §6.8.2); every judgment lives in the plugin. That split is what makes the store testable, crash-resume decidable, and the cost bounded by events rather than turns.
 
 **The empty intersection.** No single property above is new. The three-way intersection is, and Kona is the only place all three hold at once:
 

@@ -18,6 +18,7 @@
 - **Three observed fields, three questions:** `status.state` = *where are we* · `status.outcome` = *what was decided* · `status.output` = *what did this node produce*. Conflating any two is how both probes' worst bugs happened.
 - **`--why` is a required argument on every mutating verb.** No rationale, no commit. All 200 technologies surveyed either lose the *why* or keep it in a file decoupled from the version — that gap is the product.
 - **No rollback, no `delete_node`, and `rollback` is not even reserved as an opcode.** YAWL kept it in the enum while its validator hard-rejected it, which just misled tool authors (see 04 — YAWL).
+- **⚖ THE LAW: Kona contains no model.** Not one call, anywhere in the binary. Every verb is a pure function of `mutations.jsonl` + the clock + the mailbox cursor. Judgment lives entirely in the Claude Code plugin. **Kona is Beads with state machines; the plugin is what Beads never had.**
 - **Only the orchestrator mutates topology.** Subagents `set_status` and write their own node's output. That one rule removes most of the need for locking (§6.7).
 - **Mid-run mutation is fully automatic — no approval gates on topology, ever.** One pre-execution approval scopes the whole pursuit; a declared effect budget is the circuit breaker. Gate on irreversible *effects*, never on *mutations* (§6.9).
 - **Stack:** TypeScript on Bun (CLI + viewer, one toolchain) · React + Vite + `@xyflow/react` + dagre, fully controlled, read-only · JSONL + JSON on disk. No database, no daemon, no CRDT, no server.
@@ -696,6 +697,31 @@ Plus `disclosable` — a per-field marking of what may appear in outbound conten
 
 **Hardcode the five queries the viewer needs** — ready nodes, blocked-on-wait, waits past deadline, recent mutations, rationale chain. **No query language.** (see 09 — Neo4j)
 
+### 6.8.2. ⚖ The determinism law — Kona contains no model
+
+**The `kona` binary never calls a language model. Not once, not anywhere, not as a fallback.** Every verb is a pure function of three inputs: `mutations.jsonl`, the wall clock, and the mailbox cursor. Given the same three it returns the same answer, forever.
+
+| Question | Who answers it | How |
+|---|---|---|
+| What is ready? | **kona** | every blocking in-edge terminal-success. A graph walk |
+| Did a reply arrive for this wait? | **kona** | plus-tag match, then `In-Reply-To`. String comparison |
+| Has this deadline passed? | **kona** | clock comparison |
+| Is this quorum still satisfiable? | **kona** | `matching + still_live >= n`. Arithmetic |
+| Which branches did the resolution not take? | **kona** | the untaken `condition` arms. Set difference |
+| Is this batch legal? | **kona** | the four invariants |
+| **Did Dana say yes or no?** | **the plugin** | a model reads the mail and calls `record_outcome` |
+| **What should the plan become now?** | **the plugin** | a model emits ops; `kona mutate` stores them |
+| **What does this node's work actually involve?** | **the plugin** | an executor subagent |
+
+**Why it is a law and not a preference — four consequences that all follow from it:**
+
+1. **The store is testable to 100%.** §7's mutation-score target on `validate()` and `fold()` is only affordable because there is nothing stochastic to mock. A single model call anywhere in the binary would make every one of those tests a flake.
+2. **Crash-resume is decidable.** `kona resume` produces one answer, not a plausible one. If it needed judgment it could resume differently twice from the same file, and property (f) would be a claim rather than a guarantee.
+3. **Cost is bounded by events, not by turns.** The pursuit costs one model call per *decision*, not per loop iteration.
+4. **It is the honest positioning.** Beads is a deterministic CLI that agents drive; its state is an issue graph. Kona is a deterministic CLI that agents drive; its state is an **execution** graph with waits, effects and irreversibility — **plus the plugin Beads never had.** That sentence is the whole product, and the law is what makes the first half true.
+
+**The corollary for the loop.** The plugin owns the loop, because only a Claude Code session can spawn subagents. But the loop carries no bookkeeping: it asks `kona next` what is runnable and `kona events --since <v>` what changed, dispatches verbatim, and calls a model **only** when an event needs a decision. Today's design has the orchestrator reasoning about its own progress on every turn — roughly six model turns per cycle, of which one is a decision. That contradicts the product's own thesis: **Kona exists so a model need not hold pursuit state in its context, and an LLM orchestrator holds loop state in its context.**
+
 ### 6.9. Block 2 — the Claude Code plugin and the approval step
 
 **Harness constraints — verified against Claude Code docs 2026-08-21, not assumed:**
@@ -717,7 +743,7 @@ Plus `disclosable` — a per-field marking of what may appear in outbound conten
 |---|---|
 | `/kona:plan <brief>` | LLM authors the graph as a **batch of typed ops** against the node catalogue → CLI validates → frozen artifact → viewer renders → human approves |
 | `/kona:apply <hash>` | Consumes *that artifact*; must not re-derive or re-prompt |
-| `/kona:run` | Orchestrator loop: `kona next` → dispatch fresh-context subagent → subagent works, records status, **proposes** ops → orchestrator commits as one macro-step |
+| `/kona:run` | **The loop, carrying no bookkeeping.** `kona next` → dispatch verbatim → `kona events --since <v>` → **call a model only when an event needs a decision** → `kona mutate`. Repeat. ~1 model call per cycle, not ~6 (§6.8.2) |
 
 **The approval object is a frozen, content-hashed plan artifact.** This is the only defensible answer to "what exactly did the human approve?" (see 06 — Terraform)
 
