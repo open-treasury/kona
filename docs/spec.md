@@ -14,7 +14,7 @@
 
 **The graph is a fold over an append-only mutation log, and nothing else is the truth.** `.kona/mutations.jsonl` is the system of record, and after §0.5 it is the **only** file — reads fold the log; there is no snapshot to keep coherent. Folding is a pure data operation — it is **not** Temporal-style replay and never re-executes an action. That single inversion is what lets Kona have crash-resume *and* mid-run topology mutation at once; every replay-based engine in the survey buys resume by forbidding mutation (see 03 — Temporal).
 
-- **3 node types · 6 ops · 3 edge kinds · 5 statuses · 4 invariants · ~10 CLI verbs. One file.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
+- **2 node types · 6 ops · 3 edge kinds · 5 statuses · 3 invariants · 9 verbs · 4 packages. One file.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
 - **Three observed fields, three questions:** `status.state` = *where are we* · `status.outcome` = *what was decided* · `status.output` = *what did this node produce*. Conflating any two is how both probes' worst bugs happened.
 - **`--why` is a required argument on every mutating verb.** No rationale, no commit. All 200 technologies surveyed either lose the *why* or keep it in a file decoupled from the version — that gap is the product.
 - **No rollback, no `delete_node`, and `rollback` is not even reserved as an opcode.** YAWL kept it in the enum while its validator hard-rejected it, which just misled tool authors (see 04 — YAWL).
@@ -74,6 +74,27 @@ Applied 2026-08-21, after the spec was complete and reviewed. Running Musk's alg
 **The tension worth recording, because it is a genuine trade rather than a win.** The probes were unambiguous that a *closed, named vocabulary* is what makes LLM output reliable. `gate` is a better word than `wait{match:{kind:"human"}}` is a concept. So this pass resolves it by separating the two: **the store knows three types; the authoring prompt may still say six words.** Deleting the types is a code simplification. Deleting the words would be a reliability regression.
 
 **The 10% expected back:** `client_id` the first time a retry double-appends · `blobs/` at ~100 messages · `gate` as a real type if the model starts mis-typing waits · `parents[]` the day there are two writers.
+
+## 0.7. Simplification, pass three — the determinism law, and the last of the taxonomy
+
+Pass one removed machinery, pass two removed vocabulary. Pass three found one **law** and five leftovers.
+
+**⚖ The law (§6.8.2): the `kona` binary never calls a language model.** Every verb is a pure function of `mutations.jsonl` + the clock + the mailbox cursor; judgment lives entirely in the plugin. It is a law rather than a preference because §7's 100% mutation-score target is only affordable with nothing stochastic to mock, `kona resume` must produce *one* answer rather than a plausible one, and it is the positioning: **Kona is Beads with state machines, plus the plugin Beads never had.**
+
+| Decision | Before | After | The argument |
+|---|---|---|---|
+| Node types | 3 | **2** | `quorum` is `wait{match:{kind:"predicate"}}`. `on_unsatisfied` *is* `on_timeout`, the satisfiability check is unchanged — and **the quorum gains a mandatory deadline it never had**, closing the liveness hole where a quorum with no clock hangs forever |
+| Files | 3 | **2** | `events.jsonl` was a convenience log; the trigger inlines into the mutation record. `kona poll` scans the mailbox cursor instead of reading a file |
+| Invariants | 4 | **3** | Budget and evidenced-recipient are the same question asked at the same moment — *may this effect exist?* One rule, two clauses |
+| CLI verbs | ~10 | **9** | `set-status`/`record-outcome`/`record-output` **are ops** — one-op `mutate` batches. `status`/`history`/`why` are projections of `graph --json`. A verb wrapping another verb is a shell alias |
+| Packages | 6 | **4** | `demo` is throwaway scripts, not a workspace package. `store` + `cli` merge — both exist so exactly one thing writes bytes, and merging concentrates that |
+| Orchestrator | LLM loop, ~6 turns/cycle | **~1 model call/cycle** | Eight of nine loop steps need no judgment. The ninth — *what should the plan become* — is the product |
+
+**~45 h → ~32 h.**
+
+**The refusal, recorded because it is the one that matters.** Merging `record_outcome` into `record_output` would give 6 ops → 5 and 3 observed fields → 2. Clean symmetry. **Rejected:** `record_outcome` exists *because* a probe found an accept and a decline emitting identical ops, which made the quorum predicate unevaluable, and the closed enum `confirmed|declined|tentative|timed_out|bounced` is the fix. Merging would undo a probe-driven correction on aesthetic grounds. **Symmetry is not evidence.**
+
+**The 10% expected back:** `events.jsonl` the first time an orphan reply is real · `quorum` as its own type if the model starts mis-typing predicate waits · a `status` verb once someone tires of piping `graph --json` through `jq`.
 
 ---
 
@@ -207,11 +228,10 @@ The research is unanimous: **every system that works constrains the LLM to named
 ```
 .kona/
   mutations.jsonl   # THE FILE. append-only, fsync'd. Never compacted, never GC'd.
-  events.jsonl      # inbound world events (replies, deadline fires, bounces). append-only.
   lock              # flock target; exists only while a mutation is in flight
 ```
 
-**Three deleted in pass two (§0.6):** `blobs/` — pointers-not-payloads exists for a read budget six personas do not have (~6 KB of scripted replies total; inline them, add the indirection back at ~100 messages). `plan/` — went with the frozen-artifact ticket §0.5 already cut. `schema.json` — ships inside the binary; it does not need to be on disk.
+**`events.jsonl` deleted in §0.7** — the trigger is inlined into the mutation record (`trigger: {relation, kind, from, in_reply_to, body}`), so the file was a convenience log. What it held that the record does not is an *orphan* event, one matching no wait; with six scripted personas that does not arise, and if it did, a mutation with `ops: []` and a rationale is a better record than a side file. `kona poll` now scans the mailbox from each wait's cursor rather than reading a log. **Three more deleted in §0.6:** `blobs/` — pointers-not-payloads exists for a read budget six personas do not have (~6 KB of scripted replies total; inline them, add the indirection back at ~100 messages). `plan/` — went with the frozen-artifact ticket §0.5 already cut. `schema.json` — ships inside the binary; it does not need to be on disk.
 
 **Write order is the whole durability story:**
 `append the mutation → fsync → then take the side effect.`
@@ -306,16 +326,16 @@ The most-repeated structural lesson in the survey: **every mature system separat
 | type | What it is | Required beyond `id`, `type`, `label` |
 |---|---|---|
 | `task` | does one thing. A compensation is a `task` with `compensates: <node_id>` | `instruction`, `effect_class`, `outputs`, `effect` (if pivot/compensatable) |
-| `wait` | blocks on something. **A human decision is `match:{kind:"human"}`** — the four decision kinds are `outcome.verdict` values | `match`, `deadline`, `on_timeout` |
-| `quorum` | predicate over its blocking in-edges | `predicate`, `on_unsatisfied` |
+| `wait` | blocks on something. **Three match kinds, one type:** `{kind:"event"}` an inbound reply · `{kind:"human"}` a decision (the four decision kinds are `outcome.verdict` values) · `{kind:"predicate"}` a condition over its own blocking in-edges — what used to be `quorum` | `match`, `deadline`, `on_timeout` |
 
-**Three deleted in pass two (§0.6), each because it was not a *kind of thing*:**
+**Four deleted across passes two and three, each because it was not a *kind of thing*:**
 
 | Deleted | Was | Now |
 |---|---|---|
 | `gate` | needs a human | `wait` with `match:{kind:"human"}`. The spec already said *"a gate is a wait whose event is a human"* — if that sentence is true, it was never a type |
 | `join` | merge point over in-edges | **A property of in-degree.** Any node with >1 blocking in-edge is a join; `merge: all\|any` moves onto that node |
 | `group` | fan-out container | Edges plus a `group` label on the children. It existed so the viewer could collapse, and §0.5 deleted collapse |
+| `quorum` | predicate over a node set | `wait{match:{kind:"predicate"}}`. **Three things fall out free:** `on_unsatisfied` *is* `on_timeout`; the satisfiability invariant is unchanged; and **the quorum gains a mandatory deadline it never had** — closing the liveness hole where a quorum with no clock hangs forever, which is exactly the valid-but-stuck shape the v2 probe kept producing |
 
 > **⚠ Types are for the store; vocabulary is for the model — they need not be the same list.** The probes were unambiguous that a *closed, named vocabulary* is what makes LLM output reliable (AFlow's `operator.json`, Self-Discover's seed modules, FlowMind's vetted API set). So the authoring prompt may still say "gate" and "join" as **words**, while the store knows three types. Deleting the types is a code simplification; deleting the words would be a reliability regression, and they are different decisions.
 
@@ -567,7 +587,7 @@ Every action node is typed by reversibility — `pure | reversible | compensatab
 
 ### 6.7. Invariants and concurrency
 
-#### 6.7.1. Enforce — four checks, and a parser
+#### 6.7.1. Enforce — three checks, and a parser
 
 Real verification is off the table — soundness of workflow nets is EXPSPACE-complete, and undecidable for reset nets. So the store ships a cheap linear-time floor. The simplification pass (§0.5) cut it from nine checks to four, on the grounds that **five of the nine were not invariants at all**.
 
@@ -581,14 +601,13 @@ Real verification is off the table — soundness of workflow nets is EXPSPACE-co
 | reachability both ways | Every one of its six firings was an orphan caused by auto-wiring ambiguity — and §6.4 just deleted the auto-wiring |
 | rationale fidelity | Fired 37× in v3, but it costs real implementation to derive `expected_effect` from ops, and it protects a human reading prose *at a scale this build no longer has*. With six arms and one gate, the human reads the actual diff |
 
-**ENFORCE — rejects the commit, names the offending node.**
+**ENFORCE — three checks, each rejecting the commit and naming the offending node.**
 
 | # | Invariant | Why it survives |
 |---|---|---|
 | 1 | **Terminal & effect protection.** An **op-delta predicate**, per-op against pre-commit head state: for a node terminal at commit time, no op may add or reroute a *blocking* edge into it, or target it at all except `supersede_node`/`record_outcome`/`record_output`. No supersede of a node with a non-empty `effect_log` unless the same batch carries its compensation. Existing blocking edges into terminal nodes are untouched | This **is** the no-rollback guarantee. Written as a post-state predicate it rejected every commit once any node reached `done` |
 | 2 | **Quorum stays satisfiable** — population is its set of **blocking in-edges** | The only check that ever caught a genuine *reasoning* error rather than a shape slip |
-| 3 | **Effect budget** — cumulative irreversible sends ≤ the budget in the approved plan | §6.9 removed every human gate on topology and named this as the replacement. Without it, automatic mutation has no backstop |
-| 4 | **Recipients must be evidenced** — no op may create or retarget an irreversible effect whose `recipient_ref` does not resolve to an entity already in the graph carrying an `evidence_ref`. A recipient that exists only in the proposing batch is rejected | The v3 probe's headline failure: unable to satisfy a quorum, the mutator **invented counterparties and queued email to them** while everything else passed — because the old suite *rewarded* it |
+| 3 | **Effects are bounded and addressed** — two clauses, one rule, checked wherever an irreversible effect is created or retargeted. **(a) Bounded:** cumulative sends ≤ the budget in the approved plan. **(b) Addressed:** `recipient_ref` must resolve to an entity already in the graph carrying an `evidence_ref` — a recipient existing only in the proposing batch is rejected | (a) §6.9 removed every human gate on topology and named the budget as the replacement. (b) is the v3 probe's headline failure: unable to satisfy a quorum, the mutator **invented counterparties and queued email to them** while everything else passed, because the old suite *rewarded* it. Merged in §0.7 — both are the same question asked at the same moment: *may this effect exist?* |
 
 Plus the write protocol, which is not a graph property: **`parent_v` must equal head, else exit 3 → re-read → re-decide, never blind-merge.**
 
@@ -626,7 +645,7 @@ State it in the README and **test it as a test, not as a slogan**: `kill -9` mid
 | 3 | Every open wait's predicate, deadline, correlation address, cursor, `last_checked_at` |
 | 4 | For every irreversible node: `effect_key` and the full `effect_log` result |
 | 5 | Every unresolved gate and who owns it — pending approvals must be *in the file* |
-| 6 | The rationale chain for any node — `kona why <node>` |
+| 6 | The rationale chain for any node — a projection of `kona graph --json` |
 | 7 | The approved baseline — which version the human approved — so post-hoc alignment is possible |
 
 **Resume is reconcile-then-repair, not just load.** The file says "waiting on Bob" while Bob replied during the crash window. `load_graph() → reconcile_waits_against_world(inbox, clock) → repair`, and **each repair is itself logged as a mutation with a rationale.** YAWL's `cleanseRestoredRunners()` is the model. (see 04)
@@ -640,54 +659,16 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 | Verb | Kind | Contract |
 |---|---|---|
 | `kona init` | setup | create `.kona/`, write `schema_version`, refuse on a network filesystem |
-| `kona plan --brief <f> -o <plan>` | author | validate a proposed op batch → emit a frozen content-hashed artifact. **Does not commit** |
-| `kona apply <plan> --why "…"` | mutate | commit a previously-approved artifact verbatim; fails if the hash does not match |
-| `kona mutate --ops <f> --base-version N --why "…"` | mutate | the general path: validate → `flock` → CAS → append → fsync → materialize |
-| `kona validate <plan>` | read | dry-run the 4 enforced invariants; the LLM must pass this before proposing |
-| `kona lint` | read | post-authoring checks: inverted edge direction, sequence-implied-by-numbering, unreachable nodes |
-| `kona graph --json [--version N]` | read | **the one supported read contract.** Powers the viewer and the scrubber |
-| `kona status [--json]` | read | head version, counts by state, ready nodes, armed waits + time remaining, open gates, `sending` unknowns |
-| `kona next` | read | the ready frontier — nodes whose every blocking in-edge is terminal-success. **Computed, never stored.** No leases (§0.5); with one writer there is nothing to claim |
-| `kona brief <node>` | read | **the fresh subagent's entire world: its subgraph + identity, correlation, preconditions — see §6.8.1.** Refuses rather than returning a partial brief |
-| `kona why <node>` | read | the rationale chain for one node |
-| `kona set-status <node> --state … --why "…"` | mutate | executor status transition + conditions |
-| `kona effect reserve\|record` | effect | the §6.6 outbox sequence |
-| `kona event add --kind … --evidence <ref>` | ingest | append to `events.jsonl`; **also the demo's injection path and the live-failure fallback** |
-| `kona resume` | reconcile | the §6.7.4 reconcile-then-repair |
-| `kona history [--node <id>]` | read | the rationale timeline — feeds the viewer's second panel and the agent's self-query |
-| `kona view [--port]` | viewer | start the localhost viewer. **User-run, never plugin-spawned** (§6.10) |
+| `kona mutate --ops <f> --base-version N --why "…"` | mutate | **the only write path.** validate → `flock` → CAS → append → fsync. `set_status`, `record_outcome` and `record_output` are *ops*, so they are one-op batches — not verbs |
+| `kona graph --json [--version N]` | read | **the only read contract.** `status`, `history` and `why` were separate verbs until §0.7; all three are projections of this |
+| `kona next` | read | the ready frontier — every blocking in-edge terminal-success. Computed, never stored |
+| `kona brief <node>` | read | the node's subgraph + identity, correlation, fail-closed preconditions (§6.8.1) |
+| `kona poll` | read | scan each armed wait's mailbox cursor and report what changed. Deterministic: plus-tag, then `In-Reply-To` |
+| `kona resume` | reconcile | fold, fire overdue timeouts, reconcile waits against the world, report `sending` unknowns |
+| `kona effect reserve\|record` | effect | the §6.6 outbox sequence — the only verbs that touch the world |
+| `kona view [--port]` | viewer | start the localhost viewer. **User-run, never plugin-spawned** |
 
-#### 6.8.1. `kona brief` — the subgraph plus three · `kona lint` — eleven rules
-
-**`kona brief <node>` returns the node's subgraph plus three things the graph cannot know, or it refuses.**
-
-The v1 probe found 0/8 fresh subagents could execute; the v2 fix added nine required blocks and got 10/10. **The simplification pass observes that six of those nine were derivable all along** — once `outputs` is declared and `record_output` fills it, `resolved_inputs`, `node_status`, `gate_decisions`, `recipient`, `time` and `effect_ledger` are all just a walk over the folded graph. They were blocks because the graph could not answer them, and now it can.
-
-**Three genuinely are not in the graph:**
-
-| Block | Contents | Why the graph cannot know it |
-|---|---|---|
-| `identity` | sending mailbox, display name, signature, **and an authority statement** ("you may commit up to £X" / "you may not commit funds") | Missing in 4/4 v1 briefs; in three the only identity available was a personal Gmail, wrong for a bid desk |
-| `correlation` | the **fully-expanded literal** reply-to address and subject tag | One trial emitted `kona+offsite-booking@<kona-inbox>` verbatim — a perfect send that could never correlate |
-| `preconditions_satisfied` | computed by the CLI, **fails CLOSED**: every declared input resolved · every upstream gate returned · budget remaining · this node's `effect_key` reserved-and-unfired | 7/8 v1 HIGH-risk cases were "send exactly what was approved at `<gate>`" where the gate had not returned. In v2 this block failed **open** |
-
-Plus `disclosable` — a per-field marking of what may appear in outbound content. The v2 probe's one repeated behavioural defect (2/2) was the agent reading a wait's internal timeout and turning it into an outbound promise nobody authorised.
-
-**The executor's return contract, tightened by the v2 probe.** `EXECUTED` must mean *bytes moved*. Both EXECUTE arms composed a complete, correct payload and stopped at the transport — then one reported `decision: EXECUTED` anyway. A runner reading only that field marks an unrecallable effect as done when nothing was sent. So: **`EXECUTED`** (effect fired, `effect_log` written) · **`COMPOSED`** (payload ready, not dispatched; node stays `sending`) · **`REFUSED`** with **`refusal_reason` mandatory** — one trial left it `"(n/a)"` and filed the real blocker under `missing_context`, which a script parsing refusals would never see.
-
-**`kona lint` runs at author time — before a human is asked to approve.** Rules come straight from the 90 authoring defects.
-
-1. Reject any node with >1 blocking in-edge and no declared `merge` *(catches all 8 OR-join deadlocks)*
-2. Reject unknown fields — the vocabulary is closed, or divergence never stops *(7 defects)*
-3. Every `gate` `decision_kind`, every `quorum.on_unsatisfied`, every `wait.on_timeout` names a **reachable** target *(8 dead-end defects, including an unreachable compensation)*
-4. Deadline feasibility: parses, is future at approval, chain monotone against the event it serves *(`rsvp-deadline-can-postdate-game`, `wait-deadline-in-past-at-creation`)*
-5. `effect_budget` ≥ computed worst-case pivots including `max_fanout` *(10 defects)*
-6. Every `inputs[].ref` resolves to a **declared output**, not merely to a node id
-7. Every pivot declares a recipient source and a correlation address, and both resolve — **no unexpanded template variables**
-8. Edge-direction check extended to **annotating** edges; assert blocking in-degree ≥ 1 for every non-root *(the `cancel_booking` second-root bug)*
-9. Reviewability budget: warn above N nodes / M chars of instruction *(6/8 were unreviewable in 30s)*
-10. Ban load-bearing prose: any constraint gating a decision lives in a typed field; `instruction` is reserved for the human *(12 defects)*
-11. **Never trust a self-reported lint pass.** Two trials claimed a validation they had not correctly run. `kona validate` is the gate; the model's own note is not evidence
+Nine verbs, and §0.7 deleted six by observing what they were: **`set-status` / `record-outcome` / `record-output` are ops** (a one-op `mutate` batch), and **`status` / `history` / `why` are projections of `graph --json`**. A verb that wraps another verb is a shell alias, not an interface.
 
 **Exit status is small; the reason is in the message.** `0` ok · `1` refused · `3` stale base version · `4` invariant violation. *(`5` node-leased was removed with leases in §0.5 — with one writer there is nothing to lease.)*
 
@@ -708,7 +689,7 @@ Plus `disclosable` — a per-field marking of what may appear in outbound conten
 | Has this deadline passed? | **kona** | clock comparison |
 | Is this quorum still satisfiable? | **kona** | `matching + still_live >= n`. Arithmetic |
 | Which branches did the resolution not take? | **kona** | the untaken `condition` arms. Set difference |
-| Is this batch legal? | **kona** | the four invariants |
+| Is this batch legal? | **kona** | the three invariants |
 | **Did Dana say yes or no?** | **the plugin** | a model reads the mail and calls `record_outcome` |
 | **What should the plan become now?** | **the plugin** | a model emits ops; `kona mutate` stores them |
 | **What does this node's work actually involve?** | **the plugin** | an executor subagent |
@@ -720,7 +701,7 @@ Plus `disclosable` — a per-field marking of what may appear in outbound conten
 3. **Cost is bounded by events, not by turns.** The pursuit costs one model call per *decision*, not per loop iteration.
 4. **It is the honest positioning.** Beads is a deterministic CLI that agents drive; its state is an issue graph. Kona is a deterministic CLI that agents drive; its state is an **execution** graph with waits, effects and irreversibility — **plus the plugin Beads never had.** That sentence is the whole product, and the law is what makes the first half true.
 
-**The corollary for the loop.** The plugin owns the loop, because only a Claude Code session can spawn subagents. But the loop carries no bookkeeping: it asks `kona next` what is runnable and `kona events --since <v>` what changed, dispatches verbatim, and calls a model **only** when an event needs a decision. Today's design has the orchestrator reasoning about its own progress on every turn — roughly six model turns per cycle, of which one is a decision. That contradicts the product's own thesis: **Kona exists so a model need not hold pursuit state in its context, and an LLM orchestrator holds loop state in its context.**
+**The corollary for the loop.** The plugin owns the loop, because only a Claude Code session can spawn subagents. But the loop carries no bookkeeping: it asks `kona next` what is runnable and `kona poll` what changed, dispatches verbatim, and calls a model **only** when an event needs a decision. Today's design has the orchestrator reasoning about its own progress on every turn — roughly six model turns per cycle, of which one is a decision. That contradicts the product's own thesis: **Kona exists so a model need not hold pursuit state in its context, and an LLM orchestrator holds loop state in its context.**
 
 ### 6.9. Block 2 — the Claude Code plugin and the approval step
 
@@ -743,7 +724,7 @@ Plus `disclosable` — a per-field marking of what may appear in outbound conten
 |---|---|
 | `/kona:plan <brief>` | LLM authors the graph as a **batch of typed ops** against the node catalogue → CLI validates → frozen artifact → viewer renders → human approves |
 | `/kona:apply <hash>` | Consumes *that artifact*; must not re-derive or re-prompt |
-| `/kona:run` | **The loop, carrying no bookkeeping.** `kona next` → dispatch verbatim → `kona events --since <v>` → **call a model only when an event needs a decision** → `kona mutate`. Repeat. ~1 model call per cycle, not ~6 (§6.8.2) |
+| `/kona:run` | **The loop, carrying no bookkeeping.** `kona next` → dispatch verbatim → `kona poll` → **call a model only when an event needs a decision** → `kona mutate`. Repeat. ~1 model call per cycle, not ~6 (§6.8.2) |
 
 **The approval object is a frozen, content-hashed plan artifact.** This is the only defensible answer to "what exactly did the human approve?" (see 06 — Terraform)
 
@@ -882,21 +863,19 @@ The persona replies to that; it lands in the one inbox; the plus-tag names the e
 kona/
   package.json            # workspaces: ["packages/*"], bun
   packages/
-    schema/     ← types, the closed vocabularies, JSON-schema validators. ZERO deps.
-    engine/     ← the 6 ops · 4 invariants · branch resolution.    PURE: no fs, no clock.
-    store/      ← fold, .kona/ layout, flock + CAS, waits, outbox, resume.
-                  (was store + effects — both are I/O over the same file; merged in §0.6)
-    cli/        ← the ~10 verbs, brief.  The only thing that writes.
+    schema/     ← types, the closed vocabularies, validators.  ZERO deps.
+    engine/     ← the 6 ops · 3 invariants · branch resolution.  PURE: no fs, no clock, NO MODEL.
+    kona/       ← fold, .kona/ layout, flock + CAS, waits, outbox, resume, the 9 verbs.
+                  (store + effects + cli — §0.6 and §0.7. The only thing that writes.)
     viewer/     ← React + xyflow + dagre.  Depends on `schema` ONLY.
-    demo/       ← MailboxProvider impls, personas, divergence script.
+  demo/                   # throwaway scripts — a directory, not a workspace package (§0.7)
   plugin/                 # .claude-plugin/plugin.json · skills/ · hooks/ · bin/
 ```
 
 **The dependency graph is the architecture, enforced rather than documented:**
 
 ```
-schema ──┬── engine ──┐
-         ├── store  ──┴── cli ──────> plugin/bin/kona
+schema ──┬── engine ──┴── kona ──────> plugin/bin/kona
          ├── viewer   ┘                        (bun build --compile)
          └── demo
 ```
@@ -914,7 +893,7 @@ schema ──┬── engine ──┐
 | Window | Owns |
 |---|---|
 | W1 | `schema` → `engine` |
-| W2 | `store` → `effects` |
+| W2 | `kona` (store + effects + cli) |
 | W3 | `viewer` (starts the moment `schema` compiles — it needs types, not a working store) |
 | W4 | `demo` (needs `schema` and the port interface only) |
 | Operator | `cli`, `plugin/`, integration |
@@ -934,7 +913,7 @@ W3 and W4 previously had to wait for a working `kona graph --json`. Against a pa
 **Cons**
 - No semantic merge. Conflicting proposals get a `409` and one agent re-decides — correct, but it burns a model call.
 - Fold cost is O(history). Irrelevant at demo scale; compaction is future work and must compact *state* while keeping *rationale*, never the reverse.
-- The invariant set is a floor, not soundness. Four cheap linear-time checks; everything else is a logged judgment call. Say this proactively — it is the honest "hard problem for the product, not the prototype" line (PRD R4).
+- The invariant set is a floor, not soundness. Three cheap linear-time checks; everything else is a logged judgment call. Say this proactively — it is the honest "hard problem for the product, not the prototype" line (PRD R4).
 - The `sending`-crash window requires a human. Honest rather than convenient.
 
 **Consequences — three corrections the research forces on the pitch**
@@ -963,7 +942,7 @@ Only two gates actually block: **lint clean** and **typecheck clean**. Both are 
 
 | Module | `break` | Why |
 |---|---:|---|
-| `validate()` — the 4 enforced invariants (§6.7.1) | **100** | Pure, branch-heavy, and a surviving mutant is **a bad graph that commits**. Highest-value target in the codebase |
+| `validate()` — the 3 enforced invariants (§6.7.1) | **100** | Pure, branch-heavy, and a surviving mutant is **a bad graph that commits**. Highest-value target in the codebase |
 | `fold()` — mutations → graph (§6.1) | **100** | Pure function, and it *is* the file's correctness |
 | `effect_key` lifecycle + outbox (§6.6) | **100** | Guards duplicate irreversible sends — precisely what mutation testing is for |
 | CAS / `flock` / lease (§6.7.3) | **95** | Some timing paths cannot be mutated meaningfully |
@@ -993,7 +972,7 @@ Flagged here rather than silently absorbed. **Ilya's call — see §11 Q6.**
 | Unit | Critical behaviours |
 |---|---|
 | `fold(mutations) → graph` | determinism; full fold ≡ snapshot+tail; tolerates a truncated final line (torn write); partial-tolerant on an unknown node type |
-| `validate(graph, ops)` | one test per invariant #1–#4, each asserting **rejection with the right reason** |
+| `validate(graph, ops)` | one test per invariant #1–#3, each asserting **rejection with the right reason** |
 | Suppression rule | a semantically-equal re-plan writes **no** version |
 | `effect_key` lifecycle | minted at creation, payload-independent; **same key + different `payload_hash` ⇒ loud error, not a second send**; the three crash windows (§6.6) resolve to retry / retry / **ask-human**; key match + payload mismatch ⇒ loud error; `done` never re-fires |
 | CAS + lock | stale `--base-version` ⇒ 409 + head; concurrent writers serialise; lock released on crash; **never held across a wait** |
@@ -1038,7 +1017,7 @@ Viewer rendering, readability at 30+ nodes, and the demo rig go through the **tw
 ### Feature-specific
 
 - [ ] **`--why` is a required argument on every mutating verb.** A commit without a rationale is impossible, not discouraged *(D4)*
-- [ ] All 4 enforced invariants checked pre-commit; the parser rejects malformed shape before graph logic runs, each with a distinct human-readable rejection naming the node
+- [ ] All 3 enforced invariants checked pre-commit; the parser rejects malformed shape before graph logic runs, each with a distinct human-readable rejection naming the node
 - [ ] **Rejected mutations are logged**, not silently dropped — a refused mutation is procedural memory too *(§6.7.2)*
 - [ ] No `delete_node` verb and no `rollback` opcode anywhere in code or schema
 - [ ] `deadline` and `on_timeout` schema-required on every `wait`; a wait without them fails validation
