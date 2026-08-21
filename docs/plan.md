@@ -9,9 +9,9 @@
 
 | | |
 |---|---|
-| **Full spec, human effort** | **~105 h** (≈ 13 solo working days) |
-| **Full spec, AI effort** | **~27 h** of agent-time |
-| **Critical path (AI, serial — cannot be parallelised away)** | **~6.1 h** spine, ~10 h if the durability chain is serialised |
+| **Simplified spec, human effort** | **~72 h** — was 105 h before §0.5 |
+| **Simplified spec, AI effort** | **~18.5 h** of agent-time — was 27 h |
+| **Critical path (AI, serial)** | **~3.5 h** spine — was 6.1 h |
 | **Wall clock, 4 windows + operator review** | **~16–20 h** |
 | **PRD §14 budget** | **12–14 h** |
 
@@ -27,15 +27,15 @@
 
 | # | Epic | Human | AI | Depends on | Friday |
 |---|---|---:|---:|---|---|
-| **E1** | Graph store core — types, on-disk, fold | 10.5 h | 2.75 h | — | **full** |
-| **E2** | Mutation engine — 11 ops, 9 invariants, CAS | 20 h | 5.05 h | E1 | **partial** |
-| **E3** | Wait & effect engine — waits, outbox, resume | 17 h | 4.3 h | E1, E2 | **full** |
-| **E4** | CLI surface — 17 verbs, brief, lint | 13 h | 3.25 h | E1–E3 | **partial** |
+| **E1** | Graph store core — types, one file, fold | 8.5 h | 2.2 h | — | **full** |
+| **E2** | Mutation engine — 6 ops, 4 invariants, CAS | 11 h | 2.8 h | E1 | **full** |
+| **E3** | Wait & effect engine — waits, outbox, resume | 14.5 h | 3.6 h | E1, E2 | **full** |
+| **E4** | CLI surface — ~10 verbs, brief | 6 h | 1.5 h | E1–E3 | **full** |
 | **E5** | Claude Code plugin — orchestrator + executor | 12.5 h | 3.2 h | E4 | **partial** |
-| **E6** | Viewer — React Flow + dagre | 15.5 h | 3.9 h | E4.1 only | **partial** |
-| **E7** | Demo rig — mailbox, personas, divergence | 10.5 h | 2.7 h | T1.1 only | **partial** |
+| **E6** | Viewer — React Flow + dagre | 11.5 h | 2.9 h | T1.2 only | **partial** |
+| **E7** | Demo rig — 6 personas, divergence | 8 h | 2 h | T1.1 only | **partial** |
 | **E8** | Integration & rehearsal | 7 h | 1.75 h | all | **full** |
-| | **Total** | **105.5 h** | **26.8 h** | | |
+| | **Total** | **~72 h** | **~18.5 h** | | |
 
 ---
 
@@ -49,7 +49,7 @@
 | T1.2 | **`packages/schema`** — 6 node types, 4+4 edge kinds, the edge record, `status`/`outcome`/`output`, typed deadlines (3 shapes). **Zero deps; unblocks W3 and W4** | 2 h | 30 m | T1.1 |
 | T1.3 | `.kona/` init: `schema_version`, dir creation, **network-filesystem refusal** | 1.5 h | 25 m | T1.2 |
 | T1.4 | **`fold(mutations) → graph`** — pure, deterministic, tolerant of a torn final line | 3 h | 45 m | T1.2 |
-| T1.5 | `graph.json` materialization — write-temp + atomic rename, head check, rebuild-on-mismatch | 2 h | 30 m | T1.4 |
+| ~~T1.5~~ | ~~`graph.json` materialization~~ — **DELETED §0.5.** There is no snapshot; reads fold the log | — | — | — |
 | T1.6 | `blobs/` content-addressed store (sha256, pointers-not-payloads) | 1 h | 15 m | T1.3 |
 
 **Gate:** `rm .kona/graph.json` → next command rebuilds it byte-identically. That single test proves the architecture.
@@ -62,15 +62,15 @@
 
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
-| T2.1 | The 11 ops — apply functions, fixed internal order (additions/rewires → cancellations) | 4 h | 1 h | T1.4 |
+| T2.1 | **The 6 ops** — apply functions, fixed internal order (additions/rewires → cancellations) | 2.5 h | 40 m | T1.4 |
 | T2.2 | Symbolic ref resolution — `$0`, `$2.children.dana`; reject forward/unresolved refs | 2 h | 30 m | T2.1 |
-| T2.3 | Auto-wiring per op (the §6.4 table) — the fix that eliminated every orphan in v2 | 2 h | 30 m | T2.1 |
-| T2.4 | **The 9 enforced invariants** (§6.7.1) + CAS check. **#8 recipient-evidence is the highest-value one in the codebase** — it is what stops the mutator inventing people to email | 3.5 h | 50 m | T2.1 |
+| ~~T2.3~~ | ~~Auto-wiring per op~~ — **DELETED §0.5** with the five ops that needed it | — | — | — |
+| T2.4 | **The 4 enforced invariants** (§6.7.1) + a zod parser for shape + CAS check. **#4 recipient-evidence is the highest-value check in the codebase** | 2 h | 30 m | T2.1 |
 | ~~T2.5~~ | ~~Invariants 9–16~~ — **cut**; five moved to `kona lint` (T4.3), two dropped | — | — | — |
-| T2.6 | **Branch resolution** — store drops untaken branches; dropped edges excluded from merge; zero-live-in-edge → `on_unsatisfied` | 3 h | 45 m | T2.1 |
-| T2.7 | `flock` + compare-and-swap on `parent_v` + exit 409 | 2 h | 30 m | T1.5 |
+| T2.6 | **Branch resolution** (NEVER CUT) — store drops untaken branches transitively; dropped source excluded from merge; readiness fails safe | 3 h | 45 m | T2.1 |
+| T2.7 | `flock` + compare-and-swap on `parent_v` + exit 3 | 2 h | 30 m | T1.4 |
 | T2.8 | Mutation record write — rationale required, `outcome: null`, bi-temporal stamps | 1.5 h | 25 m | T2.7 |
-| T2.9 | Suppression rule — semantic content hash, no-op-with-revalidation on unchanged | 2 h | 30 m | T2.8 |
+| ~~T2.9~~ | ~~Suppression rule~~ — **DELETED §0.5.** Was already cut-order 1 | — | — | — |
 
 ---
 
@@ -84,7 +84,7 @@
 | T3.2 | Correlation derivation + inbound matching — `+kona-<node_id>`, first-match-wins, dedupe on `message_id` | 3 h | 45 m | T3.1 |
 | T3.3 | **Outbox** — `effect reserve` → fsync → send → `effect record`; the three crash windows | 3 h | 45 m | T2.8 |
 | T3.4 | Effect ledger + budget enforcement (invariant 8's circuit breaker) | 1.5 h | 25 m | T3.3 |
-| T3.5 | Leases + `kona next` eligibility (`O_EXCL`, TTL, reclaim) | 2.5 h | 40 m | T2.7 |
+| ~~T3.5~~ | ~~Leases + eligibility queue~~ — **DELETED §0.5.** One writer. First thing to add back | — | — | — |
 | T3.6 | **`kona resume`** — the six-step reconcile-then-repair; each repair logged as a mutation | 4 h | 1 h | T3.1, T3.3 |
 
 **Gate:** `kill -9` mid-send → resume finds `sending`, re-sends nothing, surfaces it for a human.
@@ -96,9 +96,9 @@
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
 | T4.1 | Verb scaffolding, `--json` on every read, exit codes 0/409/422/423 | 2 h | 30 m | T1.3 |
-| T4.2 | **`kona brief`** — the 9 required blocks; refuses rather than returning a partial | 4 h | 1 h | T3.1, T2.4 |
-| T4.3 | `kona lint` — 11 author-time rules **+ L1–L5 moved down from the invariant set** | 3.5 h | 50 m | T2.4 |
-| T4.4 | `kona plan` / `apply` — frozen content-hashed artifact | 2 h | 30 m | T2.4 |
+| T4.2 | **`kona brief`** — the node's subgraph + identity, correlation, preconditions (fail-closed) | 2 h | 30 m | T3.1, T2.4 |
+| ~~T4.3~~ | ~~`kona lint`~~ — **DELETED §0.5.** Was already cut-order 2 | — | — | — |
+| ~~T4.4~~ | ~~`plan`/`apply` frozen artifact~~ — **DELETED §0.5.** Was already cut-order 3 | — | — | — |
 | T4.5 | `kona status` / `history` / `why` | 2 h | 30 m | T4.1 |
 
 ---
@@ -110,7 +110,7 @@
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
 | T5.1 | Plugin skeleton — `.claude-plugin/plugin.json`, `bin/` (ships the binary), `hooks/` | 1.5 h | 25 m | T4.1 |
-| T5.2 | `/kona:plan` authoring skill — §6.2 catalogue **verbatim**, edge-direction convention, premise check | 3 h | 45 m | T4.4 |
+| T5.2 | `/kona:plan` authoring skill — catalogue **verbatim**, edge-direction convention, premise check | 3 h | 45 m | T2.4 |
 | T5.3 | `/kona:run` orchestrator loop — read → dispatch → merge, one macro-step per event, **+ the §6.9 new-counterparty gate** | 4 h | 1 h | T4.2, T3.5 |
 | T5.4 | Executor subagent skill — consumes `brief`, returns `EXECUTED`/`COMPOSED`/`REFUSED` | 3 h | 45 m | T4.2 |
 | T5.5 | `SessionStart` hook → `kona resume` (makes kill-and-resume automatic) | 1 h | 15 m | T3.6 |
@@ -123,9 +123,9 @@
 | T6.6 | **Diff animation prototype — build this FIRST** (§6.10 rule 16) | 2 h | 30 m | T6.1 |
 | T6.2 | Node types + inline state (status chip, deadline countdown, quorum counter, blocked-reason text) | 3 h | 45 m | T6.1 |
 | T6.3 | dagre layout **memoized on `graph_version`** (Burr #834) | 2 h | 30 m | T6.1 |
-| T6.4 | Group collapse + edge redirection to container | 3 h | 45 m | T6.3 |
+| ~~T6.4~~ | ~~Group collapse~~ — **DELETED §0.5.** Six arms are readable flat. Was 3 h and "never cut" until the count upstream changed | — | — | — |
 | T6.5a | **Rationale timeline panel** (never-cut) | 2 h | 30 m | T6.2 |
-| T6.5b | Version scrubber (cut-order 5) | 1 h | 15 m | T6.5a |
+| ~~T6.5b~~ | ~~Version scrubber~~ — **DELETED §0.5.** Was already cut-order 5 | — | — | — |
 
 ### E7 — Demo rig
 
@@ -133,7 +133,7 @@
 |---|---|---:|---:|---|
 | T7.1 | `MailboxProvider` port + Mailpit implementation | 2.5 h | 40 m | **T1.1** |
 | T7.2 | Gmail plus-addressing implementation | 2 h | 30 m | T7.1 |
-| T7.3 | Persona generation + reply simulator | 3 h | 45 m | T7.1 |
+| T7.3 | **6** personas + reply simulator | 1.5 h | 25 m | T7.1 |
 | T7.4 | **Divergence script** — Priya conditional / Pat silent / Sam→Marcus | 2 h | 30 m | T7.3 |
 | T7.5 | `kona event add` injection path (doubles as the live-failure fallback) | 1 h | 15 m | T4.1 |
 
@@ -151,12 +151,12 @@
 
 ```
 T1.1 → T1.2 → T1.4 → T2.1 → T2.4 → T4.2 → T5.3 → T8.1
- 20m    30m    45m    60m    45m    60m    60m    45m          = 6.1 h AI
+ 30m    30m    45m    40m    30m    30m    60m    45m          = 5.2 h AI
                         ↘ T2.7 → T2.8 → T3.3 → T3.6 ──────↗
                            30m    25m    45m    60m           (+2.7 h if serialised)
 ```
 
-**Critical path ≈ 6.1 h AI-time**, rising to **~11.5 h** if the durability chain (T2.7→T3.6) is not run in a parallel window. Add operator review at roughly 1.5× and the wall clock is **~16–20 h for the full spec**.
+**Critical path ≈ 3.5–5.2 h AI-time** (§0.5 removed T1.5 from the spine and halved T2.1/T2.4/T4.2), rising to **~11.5 h** if the durability chain (T2.7→T3.6) is not run in a parallel window. Add operator review at roughly 1.5× and the wall clock is **~16–20 h for the full spec**.
 
 **The unblocking moment.** After **T2.1 + T2.7 + T4.1** (≈ 2.5 h AI), `kona mutate` and `kona graph --json` work against a *stub* validator. That is the moment three windows open at once. **Do not build all 16 invariants first** — it is the biggest available scheduling error, and it keeps E6/E7 idle for hours.
 
