@@ -203,7 +203,8 @@ The most-repeated structural lesson in the survey: **every mature system separat
       "recipient_ref": "roster.contacts#dana",   // a ref, never a literal address in prose
       "correlation": "kona+goalie-dana@…",        // FULLY EXPANDED. no template variables
       "payload_ref": "sha256:…",
-      "effect_key": "ek_9f2a…"      // minted at NODE CREATION, not at execution
+      "effect_key": "ek_9f2a…"      // = hash(node_id, created_by_version). PAYLOAD-INDEPENDENT by design;
+                                    //   payload_ref / payload_hash are written at RESERVE, not at authoring
     },
 
     "obviated_if": "quorum:goalie >= 1",            // (see 12 — BB1)
@@ -351,7 +352,7 @@ Four calls that are not obvious, each argued:
 
 ```
 add_node(scope, spec)                        -> $id
-add_edge(from, to, kind)                     -> $edge_id
+add_edge(from, to, kind, {condition?})       -> $edge_id
 fan_out(node, template_id, keys[])           -> {group: $id, join: $id, children: {key: $id}}
 reroute_edge(edge_id, new_to)
 set_status(node, status, evidence_ref)
@@ -366,6 +367,21 @@ resolve_gate(node, decision, text)                                 (human)
 **`record_output` is the eleventh op, and it is what makes `inputs[].ref` mean anything.** A node declares `outputs`; `record_output` fills one in; `kona brief` resolves a downstream node's `inputs[].ref` against it. Without this pair the reference-by-node-id design is decorative — proven, not theorised: 0/8 fresh subagents could execute, because every upstream ref resolved to nothing (`probes/authoring-briefing.md`). The store rejects a `record_output` whose `output_name` is not in that node's declared `outputs`.
 
 **Fix 5 — `record_outcome` is the tenth op, and it closes the deepest hole the probe found.** All ten scenarios independently hit it: `roster_quorum` reads `count(confirmed)` and `count(role=goalie, confirmed)`, and **nothing in the 9-op vocabulary could write either field.** `set_status` moves a lifecycle enum; `evidence_ref` is free text. So an ACCEPT and a DECLINE emitted *identical ops* and the quorum predicate — the thing the whole pursuit turns on — was unevaluable. A 10-op closed schema is still closed. `verdict` is typed and closed; `attrs` carries predicate-visible facts (`{role: "goalie"}`) and nothing else.
+
+**The edge record, and why `add_edge` needs a `condition`.** The edge was the least-specified object here: no record shape existed anywhere, so `fold()` — the second-priority test suite — had no target to build. Worse, **Fix 8 makes `condition` mandatory on every out-edge of a `gate`/`wait` and `add_edge` had no parameter for it — so the closed op set literally could not author a legal gate out-edge**, which is the mechanism that stops an irreversible send firing with no approval.
+
+```jsonc
+{ "id": "e_7f2a", "from": "shortfall_gate", "to": "recruit_goalie",
+  "kind": "conditional-blocks",
+  "condition": { "on": "accept" },   // closed: accept|edit|respond|ignore|timeout|bounced|satisfied
+  "created_by_version": 42 }         //   = gate.decision_kinds union wait.resolution
+```
+
+No `lane` field — derivable from `kind`. Graph envelope: `{schema_version, v, nodes[], edges[]}`.
+
+**The store fires the out-edge whose `condition.on` matches the terminal resolution, and marks every other out-edge's target `dropped`** (Fix 7). That sentence wires Fix 8 to Fix 7 and makes both implementable.
+
+**Enforced by invariant 1, not by lint.** `kona lint` is an author-time read verb and the cut-order deletes it — so `add_node($0,{type:'gate'})` + `add_edge($0, send_offer, 'blocks')` would commit with all seven invariants green, the gate would time out, `blocks` would clear, and the pivot would send unapproved. That is the v2 probe's worst-safety class re-entering through the very path the store is meant to guard.
 
 **`fan_out`'s expansion rule, stated so it is implementable.** The review found `template_id` referenced but never defined — no shape, no storage, no lifecycle — which made the headline op's first implementation question unanswerable. Resolved **without** adding a template directory (a second store would contradict §6.1's one-file principle and give crash-resume another thing to reconcile):
 
@@ -389,15 +405,21 @@ resolve_gate(node, decision, text)                                 (human)
 **Fix 7 — branch resolution semantics, the sentence the contract never had.** The v2 probe's dominant *silent* failure was deadlock from mutually-exclusive branches AND-joined downstream, and its root cause was that nothing defined what happens to a branch that is never taken. Agents flagged it as an assumption they had to invent, invented it differently each time, and built on it. Defined now:
 
 > When a `wait` or `gate` reaches a terminal resolution, **the store** — not the agent — marks every outgoing branch it did not take as `dropped`, with a system-generated rationale.
-> A `dropped` in-edge is **excluded from merge evaluation: it neither satisfies nor blocks.**
-> A `join`/`quorum` whose remaining live in-edges are all terminal is satisfied. One with **zero** live in-edges routes to `on_unsatisfied`, never hangs.
+> An in-edge whose **source node** is `dropped` is **excluded from merge evaluation: it neither satisfies nor blocks.** (Edges carry no state; `kind`, `condition` and `created_by_version` are the whole edge record — "a dropped in-edge" was unrepresentable as written.)
+>
+> **The unit of a drop is the node, applied transitively.** On terminal resolution the store marks the target of each untaken `conditional-blocks` edge `dropped`, then repeatedly marks any node whose *every* blocking in-edge originates at a `dropped` or `superseded` node. **It stops at any node still holding a blocking in-edge from a live node** — that node is a shared descendant and must survive.
+>
+> **Readiness fails safe, and the exclusion does not generalise to it.** A node is ready iff it is not itself `dropped`/`superseded` **and** every blocking in-edge has a source in a terminal-*success* state with any `condition` on that edge true. **A `dropped` source never satisfies readiness**; the merge-evaluation exclusion above applies **only** to `join`/`quorum`. Without this split, the second node on an untaken branch has an in-edge that "neither blocks nor satisfies", therefore no blocker, therefore lands on the frontier — and `kona next` dispatches the untaken branch, pivot send included.
+> A `join`/`quorum` whose remaining live in-edges are all terminal is satisfied. One with **zero** live in-edges routes to `on_unsatisfied` — a field §6.2 gives only to `quorum`, so **`join` gains it too** — and never hangs.
+>
+> **"Obviated" means `dropped`.** §6.5's `obviated_if` and §7.2's "auto-obviated" use a word absent from the status enum; it resolves to `dropped` with a system rationale.
 
 Two consequences worth stating, because they remove whole defect classes:
 
 - **The agent never writes a tidying op again.** Retiring a dead follow-up was 5 of v2's 10 rejections — invariant 4 punishing exactly the housekeeping the store should have done itself. Fix (a) is not a separate change; it falls out of this one. Invariant 4 now reads: `on_timeout` must name a node that is non-terminal **while the wait itself is non-terminal**. Once the wait resolves, its timeout target's state is irrelevant.
 - **Mutually-exclusive branches can no longer deadlock a downstream merge**, because the untaken one is dropped and dropped edges are excluded rather than pending.
 
-**Fix 8 — a gate's out-edges must be conditioned.** `blocks` means "any **successful** completion" — a `failed` node clears no `blocks` edge and fires its `conditional-blocks` failure branch instead. Before that qualifier, a gate resolved with `ignore`, or timed out, still cleared a `blocks` edge — meaning an irreversible send could fire with no approval, which is the opposite of what the gate is for. v2's validator called it exactly: *"either a deadlock or toothless."* Every out-edge of a `gate` or `wait` is now `conditional-blocks` carrying an explicit `condition` (`on: accept` / `on: ignore|timeout`); an unconditioned `blocks` edge out of either is rejected by lint. No new edge kind needed — the `condition` field added above does the work.
+**Fix 8 — a gate's out-edges must be conditioned.** `blocks` means "any **successful** completion" — a `failed` node clears no `blocks` edge and fires its `conditional-blocks` failure branch instead. Before that qualifier, a gate resolved with `ignore`, or timed out, still cleared a `blocks` edge — meaning an irreversible send could fire with no approval, which is the opposite of what the gate is for. v2's validator called it exactly: *"either a deadlock or toothless."* Every out-edge of a `gate` or `wait` is now `conditional-blocks` carrying an explicit `condition` (`on: accept` / `on: ignore|timeout`); an unconditioned `blocks` edge out of either is **rejected by invariant 1 at commit time**. No new edge kind needed — the `condition` field added above does the work.
 
 **Fix 9 — quorum population is declared by membership, not by an id glob.** `over: "invite@*"` made node ids load-bearing for predicate evaluation, and once ids became server-minted (fix 3) a newly added invite could not be *proven* in-population — 2 of v2's 10 rejections. A node is in a quorum's population iff it has a `waits-for` edge into that quorum. `over` is derived from edges; the string glob is gone.
 
@@ -446,6 +468,18 @@ Each refusal is argued: reserving an unimplemented `rollback` is itself a trap (
 | **`last_checked_at` stamp** | So the viewer distinguishes "patiently waiting" from "stuck" — the exact hazard Colledanchise names for event-driven behavior trees. (06) |
 | **`obviated_if` per wait** | When goalie #2 says yes, the other thirteen waits are automatically marked obviated **with a rationale** rather than rotting in the viewer. *The single most directly transplantable idea in the coordination category.* (12 — BB1) |
 
+**The quorum predicate — one closed form, because invariant 6 is otherwise uncodeable.** "Quorum stays satisfiable" is one of the seven enforced checks and the one §7.2's premise-break beat turns on, and the spec never showed what a predicate contains. §6.8 also says "no query language" while five expression strings were floating around. One form, for `quorum.predicate` only:
+
+```jsonc
+{ "count": { "verdict": "confirmed", "attrs": { "role": "goalie" } }, "op": ">=", "n": 1 }
+```
+
+Evaluated **only** over the population (nodes with a `waits-for` edge into this quorum), reading **only** `status.outcome.verdict` and `status.outcome.attrs`; attrs matched as subset-equality on literals; no other names resolve; unknown keys rejected. Invariant 6 then codes in one line:
+
+> satisfiable iff `matching_confirmed + still_live_population >= n`
+
+The other four expression strings collapse with it: **`obviated_if` becomes a reference**, `{"quorum": "<node_id>", "satisfied": true}`, which deletes the undefined bare token (`"quorum:goalie >= 1"` — what did `goalie` resolve to?) without a second evaluator. **`if_part` is deleted** — optional, unused, CMMN residue. **Deadline `expr` is restricted** to `<inputs[].ref> ± <duration>` resolving through `record_output` and falling back to `backstop`, which makes lint rule 4's "parses, is future, chain monotone" finite. And from the v2 probe: **`record_outcome` overwrites** a node's outcome, and the quorum count is **recomputed from the population on every read, never stored** — so two agents cannot both increment it.
+
 **Reject LangGraph's interrupt model explicitly, and say why.** LangGraph re-runs the node on resume because its durable unit is a *code position*; the resulting multi-interrupt resume bugs are a multi-year defect area (#2870 → #3072 → #4028 → #6626 → #8579, the last still open Aug 2026). Kona's durable unit is a node record with an explicit status, so resume is *"read the file, see `waiting`, do nothing."* **Every one of those bug classes is a symptom of replay semantics Kona does not need to have.** (see 11)
 
 ### 6.6. Irreversible effects — intent, act, record
@@ -470,7 +504,8 @@ You cannot make a local state change and an external side effect atomic. 2PC is 
 
 | Rule | Why |
 |---|---|
-| `effect_key = hash(node_id, recipient, resolved_body, v)`, minted at **node creation** | Bazel's law generalises: a cache key is only safe when it covers everything that determines the output. An under-specified key is a double-sent email. (14) |
+| **`effect_key = hash(node_id, created_by_version)`**, minted at node creation and **deliberately payload-independent** | ⚠ The formula was `hash(node_id, recipient, resolved_body, v)` until 2026-08-21, and it **inverted its own guarantee**. Neither input exists at creation — §6.2 requires the recipient be a `ref` ("never a literal address") and the body resolves from `record_output` at dispatch. Worse: with the body inside the key, a *rewritten* body yields a *different* key, so the parameter-comparison rule below was unreachable by construction, dedup passed, and the second email sent. That is the D3 double-send, caused by the guard against it |
+| **`payload_hash = hash(resolved_recipient, resolved_body)`**, computed at **reserve** and stored beside the key | Bazel's law applies to the *comparison*, not the key: **the key names the slot; the payload hash proves the bytes are the ones that were approved.** `kona effect reserve` refuses any reserve on a node that already holds a reservation or a non-empty `effect_log` |
 | Store the **result**, not a flag — `{message_id, sent_at, provider, sandbox_or_real, outcome}` | Downstream waits must match replies against **which** send they correspond to, after fan-out produced several near-identical emails. (11 — Stripe) |
 | **Parameter-comparison rule:** key matches but body differs ⇒ **loud error in the viewer** | Never a silent no-op and never a second email. A genuine Kona-specific hazard precisely because the mutator rewrites node payloads. (11 — Stripe) |
 | A node with a non-empty `effect_log` is **never re-executed** — the CLI refuses | Structural, not a convention. XState's corollary: `invoke`s *do* restart, so classify effects and only auto-restart `pure`/`reversible`. (11, 06) |
@@ -493,7 +528,7 @@ Real verification is off the table: soundness of workflow nets is **EXPSPACE-com
 
 | # | Invariant | Why it earns its place |
 |---|---|---|
-| 1 | **Schema validity** — every node has a legal `type` and all required fields incl. `label` | Free; it is type-checking. Fired 7× then 1× |
+| 1 | **Schema validity** — every node has a legal `type` and all required fields incl. `label`; **every edge has a legal `kind` for its endpoints, and every out-edge of a `gate`/`wait` is `conditional-blocks` carrying a `condition`** | Free; it is type-checking. Fired 7× then 1× |
 | 2 | **No cycles** among `blocks` edges | 5 lines. Beads enforces the same thing on `bd dep add` |
 | 3 | **Reachability both ways** — every node reachable from root and able to reach a terminal | Fired 6× across runs; every firing was a real orphan |
 | 4 | **Every wait/gate has a `deadline` and an `on_timeout`**, the target non-terminal *while the wait is non-terminal* | **The single check that prevents a silent multi-day hang.** A message in spam is *sent*: no bounce, no reply, no error |
@@ -612,7 +647,11 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 10. Ban load-bearing prose: any constraint gating a decision lives in a typed field; `instruction` is reserved for the human *(12 defects)*
 11. **Never trust a self-reported lint pass.** Two trials claimed a validation they had not correctly run. `kona validate` is the gate; the model's own note is not evidence
 
-**Exit codes are part of the contract:** `0` ok · `409` stale base version · `422` invariant violation (body names the invariant and the node) · `423` node leased by another agent.
+**Exit status is small; the reason is in the message.** `0` ok · `1` refused · `3` stale base version · `4` invariant violation · `5` node leased.
+
+⚠ **`409`/`422`/`423` cannot be exit statuses** — they are 8-bit, so Bun/Node truncate: `process.exit(409)` yields `$?` = 153. The concurrency contract is consumed by an LLM orchestrator and by subagents shelling out to `kona`, and every one of them would branch on a code that never appears. Where §6.7.3 and §7 say "409", they mean the **symbolic** code below, not `$?`.
+
+**Every non-zero exit writes one line to stderr beginning with a symbolic reason code:** `STALE_BASE_VERSION` (+ current head) · `INVARIANT_VIOLATION` (+ invariant number and node id) · `NODE_LEASED` · `REFUSED` (+ reason). The mandated refusals that otherwise have no code — network-FS refusal, partial-brief refusal, uninstantiated-template refusal, budget exhaustion, the `sending`-crash human ask, scope-constraint refusal, payload-mismatch — all land under `1` + `REFUSED` + reason. Said here because four windows will otherwise each invent a shape. No JSON error envelope: `--json` is deliberately scoped to reads.
 
 **Hardcode the five queries the viewer needs** — ready nodes, blocked-on-wait, waits past deadline, recent mutations, rationale chain. **No query language.** (see 09 — Neo4j)
 
@@ -832,7 +871,7 @@ Flagged here rather than silently absorbed. **Ilya's call — see §11 Q6.**
 | `fold(mutations) → graph` | determinism; full fold ≡ snapshot+tail; tolerates a truncated final line (torn write); partial-tolerant on an unknown node type |
 | `validate(graph, ops)` | one test per invariant #1–#7, each asserting **rejection with the right reason** |
 | Suppression rule | a semantically-equal re-plan writes **no** version |
-| `effect_key` lifecycle | minted at creation; the three crash windows (§6.6) resolve to retry / retry / **ask-human**; key match + payload mismatch ⇒ loud error; `done` never re-fires |
+| `effect_key` lifecycle | minted at creation, payload-independent; **same key + different `payload_hash` ⇒ loud error, not a second send**; the three crash windows (§6.6) resolve to retry / retry / **ask-human**; key match + payload mismatch ⇒ loud error; `done` never re-fires |
 | CAS + lock | stale `--base-version` ⇒ 409 + head; concurrent writers serialise; lock released on crash; **never held across a wait** |
 | Lease manager | two agents cannot hold one node; expired leases reclaimed |
 | Op ordering | additions/rewires strictly before cancellations |
@@ -868,7 +907,7 @@ Viewer rendering, readability at 30+ nodes, and the demo rig go through the **tw
 - [ ] `bun run typecheck` clean (`strict`) — **gate**
 - [ ] `bun run lint` clean, zero warnings — **gate**
 - [ ] *(optional, §7)* coverage and Stryker targets — aim for them on `validate()` and `fold()` first; not blocking
-- [ ] `kona --help` documents every verb; every read supports `--json`; exit codes match §6.8
+- [ ] `kona --help` documents every verb; every read supports `--json`; **a shell-level test asserts `$?` for each failure class equals the §6.8 value and is ≤ 125**, and asserts the stderr reason code
 - [ ] `schema_version` in every on-disk file
 - [ ] SPEC updated wherever the implementation diverged
 
