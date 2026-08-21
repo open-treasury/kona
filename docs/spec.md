@@ -12,7 +12,7 @@
 
 ## 0. TL;DR
 
-**The graph is a fold over an append-only mutation log, and nothing else is the truth.** `.kona/mutations.jsonl` is the system of record; `graph.json` is a derived projection you can delete at any time. Folding is a pure data operation — it is **not** Temporal-style replay and never re-executes an action. That single inversion is what lets Kona have crash-resume *and* mid-run topology mutation at once; every replay-based engine in the survey buys resume by forbidding mutation (see 03 — Temporal).
+**The graph is a fold over an append-only mutation log, and nothing else is the truth.** `.kona/mutations.jsonl` is the system of record, and after §0.5 it is the **only** file — reads fold the log; there is no snapshot to keep coherent. Folding is a pure data operation — it is **not** Temporal-style replay and never re-executes an action. That single inversion is what lets Kona have crash-resume *and* mid-run topology mutation at once; every replay-based engine in the survey buys resume by forbidding mutation (see 03 — Temporal).
 
 - **6 node types · 6 mutation ops · 4 enforced invariants · ~10 CLI verbs. One file.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
 - **Three observed fields, three questions:** `status.state` = *where are we* · `status.outcome` = *what was decided* · `status.output` = *what did this node produce*. Conflating any two is how both probes' worst bugs happened.
@@ -126,7 +126,7 @@ Four genuine architectural forks. Everything in §6 follows from these.
 | **O1** Existing durable engine (Temporal / LangGraph / Burr) + sidecar | Engine owns execution; a parallel file describes the graph | **Rejected — fatal.** Temporal forbids mid-flight mutation by construction; LangGraph checkpoints carry `channel_values` and **zero** topology; Burr's writer refuses to rewrite `graph.json` (*"Graph already exists … Not overwriting"*). Two sources of truth diverge immediately. (03, 02) |
 | **O2** Embedded versioned SQL (Dolt) | Cell-level branch/diff/merge | **Rejected.** Beads' Dolt migration failed in the field badly enough that community members published third-party migration gists; cell merge yields logically *valid-but-wrong* rows — exactly what the invariants exist to prevent. (01, 09) |
 | **O3** SQLite + WAL + a `mutations` table | CLI sole writer, `BEGIN IMMEDIATE`, viewer read-only | **Honest runner-up**, and the documented migration path. Rejected for the demo: it costs the `cat`-able file and the readable diff — two of the three visceral deltas R1 depends on — and adds a schema-migration surface mid-hackathon. (09) |
-| **O4** **Append-only JSONL + derived JSON snapshot** | `mutations.jsonl` is truth; `graph.json` is a rebuildable projection; `flock` + CAS | ✅ **CHOSEN** — see below |
+| **O4** **Append-only JSONL, folded on read** | `mutations.jsonl` is truth; `flock` + CAS. *(Chosen with a derived snapshot; §0.5 later deleted the snapshot too)* | ✅ **CHOSEN** — see below |
 | **O5** CRDT (Automerge / Yjs / Loro) | Multi-writer merge, no coordination | **Rejected.** Convergence ≠ validity; nothing in Automerge can *reject* a merge. Kona has a single authoritative writer on one machine — precisely the centralised case where CRDT complexity buys nothing. Named in PRD R6 as a scope-blowout signal. (09) |
 | **O6** Git-as-database, commit per mutation | `git merge` as the write protocol | **Rejected.** Line-based and semantically blind. Beads' clobber data — 54 cross-actor overwrites, median 31 min apart, none inside any plausible conflict window — proves the enemy is **hand-offs, not races**, so merging would have prevented zero of them. (01, 09) |
 
@@ -294,7 +294,7 @@ The most-repeated structural lesson in the survey: **every mature system separat
 | `quorum` | predicate over a set defined by a **key expression**, not a hand-drawn edge list | `predicate`, `over`, `on_unsatisfied` |
 | `group` | fan-out container. **A real node the LLM emits, not a viewer annotation** | `members`, `fan_out_over`, `reports_into`, `max_children`, `child_template` |
 
-**The `group` and `quorum` fields above are not additions — they are debts.** The old invariant #7 required every fan-out child to declare the join/quorum it reports into and gave no field to say it in — it is now *dropped*, subsumed by quorum population being derived from `waits-for` edges (§6.7.1). It is recorded here because all eight authoring trials independently invented `reports_into`, `on_unsatisfied`, and a `condition` on branch edges. When 8/8 independent runs invent the same fields, the schema was short those fields.
+**The `group` and `quorum` fields above are not additions — they are debts.** A now-deleted invariant required every fan-out child to declare the join/quorum it reports into and gave no field to say it in — it is now *dropped*, subsumed by quorum population being derived from `waits-for` edges (§6.7.1). It is recorded here because all eight authoring trials independently invented `reports_into`, `on_unsatisfied`, and a `condition` on branch edges. When 8/8 independent runs invent the same fields, the schema was short those fields.
 
 **`gate` takes a `deadline` and `on_timeout` too, exactly like a `wait`.** A gate is a wait whose event is a human. The probe found ten valid-but-permanently-stuck graphs, most caused by an undecided gate freezing a plan past its own quorum deadline with no invariant to catch it.
 
@@ -423,47 +423,11 @@ No `lane` field — derivable from `kind`. Graph envelope: `{schema_version, v, 
 
 **Enforced by invariant 1, not by lint.** `kona lint` is an author-time read verb and the cut-order deletes it — so `add_node($0,{type:'gate'})` + `add_edge($0, send_offer, 'blocks')` would commit with all seven invariants green, the gate would time out, `blocks` would clear, and the pivot would send unapproved. That is the v2 probe's worst-safety class re-entering through the very path the store is meant to guard.
 
-**`fan_out`'s expansion rule, stated so it is implementable.** The review found `template_id` referenced but never defined — no shape, no storage, no lifecycle — which made the headline op's first implementation question unanswerable. Resolved **without** adding a template directory (a second store would contradict §6.1's one-file principle and give crash-resume another thing to reconcile):
-
-- `child_spec` is an ordinary node spec that may contain `{{key}}`. `template_id` is a caller-supplied **lineage label** — free string, no registry, nothing resolves it; it is stamped onto each child's `provenance.template_id` so §7.2's assertion (a) can find it.
-- At commit the store copies `child_spec` once per key, substituting `{{key}}` in exactly three whitelisted places — `label`, `effect.recipient_ref`, `effect.correlation` — mints the child id as `<group_slug>-<key>`, sets `provenance.instance_key` and `provenance.group`, mints a **distinct `effect_key` per child**, and **rejects the whole batch if any `{{…}}` survives an expansion.**
-- `reports_into` names an existing `join` or `quorum`; **default is the newly minted join.** This closes a real hole the review found: a fan-out spawned to repair a quorum wired its children into its *own* new join, so three irreversible emails went out and their confirmations counted toward nothing — while all seven invariants passed, because the original quorum's population was untouched and therefore trivially still satisfiable.
-- `add_node(scope, …)` may also carry `provenance.template_id`, or a mid-run arm added singly cannot satisfy §7.2 assertion (a).
+**`fan_out`'s expansion rule** — *removed by §0.5 along with the op. A fan-out is now `add_node` × N + `add_edge` × N in one batch, and the caller writes the child specs directly, so there is no template to expand and nothing to substitute.*
 
 **Fix 3 — intra-batch symbolic references.** Ops return ids, but a batch is static JSON, so a batch cannot name what it just created. Nine of ten scenarios fabricated ids to work around this. Ops therefore return **`$0`, `$1`, … positionally**, referencing the op's index in this batch; `fan_out` returns a structured handle (`$2.children.dana`). The store resolves symbols at commit and rejects any unresolved or forward reference. Caller-supplied ids are **not** accepted — that was the other workaround and it risks colliding with a live node and writing to the wrong one.
 
-**Fix 2 — what each op auto-wires, stated explicitly.** Ambiguity here caused *every* orphan in the probe and all five invariant-#3 firings.
-
-| Op | Edges it creates automatically | You must add |
-|---|---|---|
-| `add_node(scope, …)` | `scope -parent-child-> $new` **only if** `scope` is a `group`; otherwise **nothing** | every `blocks` edge, always |
-| `fan_out(node, …)` | `node -blocks-> group`, `group -parent-child-> each child`, `each child -waits-for-> join` | edges out of `join` |
-| `add_wait(node, …)` | `node -blocks-> $wait`, `$wait -conditional-blocks-> on_timeout` | edges out of `$wait` on the success path |
-| `insert_compensation(node, …)` | `node -compensates-> $new` (annotating) | any `blocks` edge if the compensation must run before something |
-| `record_outcome` | nothing — it writes data, not topology | — |
-
-**Fix 7 — branch resolution semantics, the sentence the contract never had.** The v2 probe's dominant *silent* failure was deadlock from mutually-exclusive branches AND-joined downstream, and its root cause was that nothing defined what happens to a branch that is never taken. Agents flagged it as an assumption they had to invent, invented it differently each time, and built on it. Defined now:
-
-> When a `wait` or `gate` reaches a terminal resolution, **the store** — not the agent — marks every outgoing branch it did not take as `dropped`, with a system-generated rationale.
-> An in-edge whose **source node** is `dropped` is **excluded from merge evaluation: it neither satisfies nor blocks.** (Edges carry no state; `kind`, `condition` and `created_by_version` are the whole edge record — "a dropped in-edge" was unrepresentable as written.)
->
-> **The unit of a drop is the node, applied transitively.** On terminal resolution the store marks the target of each untaken `conditional-blocks` edge `dropped`, then repeatedly marks any node whose *every* blocking in-edge originates at a `dropped` or `superseded` node. **It stops at any node still holding a blocking in-edge from a live node** — that node is a shared descendant and must survive.
->
-> **Readiness fails safe, and the exclusion does not generalise to it.** A node is ready iff it is not itself `dropped`/`superseded` **and** every blocking in-edge has a source in a terminal-*success* state with any `condition` on that edge true. **A `dropped` source never satisfies readiness**; the merge-evaluation exclusion above applies **only** to `join`/`quorum`. Without this split, the second node on an untaken branch has an in-edge that "neither blocks nor satisfies", therefore no blocker, therefore lands on the frontier — and `kona next` dispatches the untaken branch, pivot send included.
-> A `join`/`quorum` whose remaining live in-edges are all terminal is satisfied. One with **zero** live in-edges routes to `on_unsatisfied` — a field §6.2 gives only to `quorum`, so **`join` gains it too** — and never hangs.
->
-> **"Obviated" means `dropped`.** §6.5's `obviated_if` and §7.2's "auto-obviated" use a word absent from the status enum; it resolves to `dropped` with a system rationale.
-
-Two consequences worth stating, because they remove whole defect classes:
-
-- **The agent never writes a tidying op again.** Retiring a dead follow-up was 5 of v2's 10 rejections — invariant 4 punishing exactly the housekeeping the store should have done itself. Fix (a) is not a separate change; it falls out of this one. Invariant 4 now reads: `on_timeout` must name a node that is non-terminal **while the wait itself is non-terminal**. Once the wait resolves, its timeout target's state is irrelevant.
-- **Mutually-exclusive branches can no longer deadlock a downstream merge**, because the untaken one is dropped and dropped edges are excluded rather than pending.
-
-**Fix 8 — a gate's out-edges must be conditioned.** `blocks` means "any **successful** completion" — a `failed` node clears no `blocks` edge and fires its `conditional-blocks` failure branch instead. Before that qualifier, a gate resolved with `ignore`, or timed out, still cleared a `blocks` edge — meaning an irreversible send could fire with no approval, which is the opposite of what the gate is for. v2's validator called it exactly: *"either a deadlock or toothless."* Every out-edge of a `gate` or `wait` is now `conditional-blocks` carrying an explicit `condition` (`on: accept` / `on: ignore|timeout`); an unconditioned `blocks` edge out of either is **rejected by invariant 1 at commit time**. No new edge kind needed — the `condition` field added above does the work.
-
-**Fix 9 — quorum population is declared by membership, not by an id glob.** `over: "invite@*"` made node ids load-bearing for predicate evaluation, and once ids became server-minted (fix 3) a newly added invite could not be *proven* in-population — 2 of v2's 10 rejections. A node is in a quorum's population iff it has a `waits-for` edge into that quorum. `over` is derived from edges; the string glob is gone.
-
-**Fix 10 — `add_wait` takes a `label`.** `label` is required on every node and `add_wait`'s signature had nowhere to supply one — a self-contradiction flagged in 8 of 10 scenarios.
+**Fix 2 — the auto-wiring table** — *removed by §0.5.* Every op that auto-wired edges (`fan_out`, `add_wait`, `insert_compensation`) is gone, so **no op creates an edge you did not write.** `add_node` and `add_edge` do exactly what they say. This deletes the largest single ambiguity in the contract and, with it, every orphan the v2 probe produced.
 
 **Fix 6 — batch semantics are pinned, not left to inference.** Ops apply **in array order**. **Invariants 1, 2, 3, 4, 6 and 7 are post-state predicates**, checked once against post-commit state. **Invariant 5 is an op-delta predicate**, checked per-op against pre-commit head state — see §6.7.1 for why that distinction is load-bearing rather than pedantic. Four scenarios built batches whose legality flipped depending on this, which means some of the probe's accepts were conditional on the validator sharing the proposer's guess. Internal apply order is still additions-and-rewires before cancellations (Zeebe, §6.4 below) — the array is validated against that order and rejected if it violates it, rather than being silently reordered.
 
@@ -508,13 +472,13 @@ Each refusal is argued: reserving an unimplemented `rollback` is itself a trap (
 | **`last_checked_at` stamp** | So the viewer distinguishes "patiently waiting" from "stuck" — the exact hazard Colledanchise names for event-driven behavior trees. (06) |
 | **`obviated_if` per wait** | When goalie #2 says yes, the other thirteen waits are automatically marked obviated **with a rationale** rather than rotting in the viewer. *The single most directly transplantable idea in the coordination category.* (12 — BB1) |
 
-**The quorum predicate — one closed form, because invariant 6 is otherwise uncodeable.** "Quorum stays satisfiable" is one of the seven enforced checks and the one §7.2's premise-break beat turns on, and the spec never showed what a predicate contains. §6.8 also says "no query language" while five expression strings were floating around. One form, for `quorum.predicate` only:
+**The quorum predicate — one closed form, because invariant 2 is otherwise uncodeable.** "Quorum stays satisfiable" is one of the four enforced checks and the one §7.2's premise-break beat turns on, and the spec never showed what a predicate contains. §6.8 also says "no query language" while five expression strings were floating around. One form, for `quorum.predicate` only:
 
 ```jsonc
 { "count": { "verdict": "confirmed", "attrs": { "role": "goalie" } }, "op": ">=", "n": 1 }
 ```
 
-Evaluated **only** over the population (nodes with a `waits-for` edge into this quorum), reading **only** `status.outcome.verdict` and `status.outcome.attrs`; attrs matched as subset-equality on literals; no other names resolve; unknown keys rejected. Invariant 6 then codes in one line:
+Evaluated **only** over the population (nodes with a `waits-for` edge into this quorum), reading **only** `status.outcome.verdict` and `status.outcome.attrs`; attrs matched as subset-equality on literals; no other names resolve; unknown keys rejected. Invariant 2 then codes in one line:
 
 > satisfiable iff `matching_confirmed + still_live_population >= n`
 
@@ -524,7 +488,7 @@ The other four expression strings collapse with it: **`obviated_if` becomes a re
 
 | State | Rule |
 |---|---|
-| **A reply arrives after its wait already resolved** (timeout fired, follow-up sent) | The event lands as an **annotating `caused-by` edge onto the terminal wait** — legal under invariant 5 — and records `verdict: late`. It **never reopens the closed wait.** It may trigger a *new* node; it may not resurrect an old one |
+| **A reply arrives after its wait already resolved** (timeout fired, follow-up sent) | The event lands as an **annotating `caused-by` edge onto the terminal wait** — legal under invariant 1, which forbids only *blocking* edges into a terminal node — and records `verdict: late`. It **never reopens the closed wait.** It may trigger a *new* node; it may not resurrect an old one |
 | **A reply that is neither yes nor no** ("maybe, let me check") | `record_outcome(verdict: tentative)` writes the fact but **does not resolve the wait.** The wait stays armed on its original deadline. `tentative` never counts toward a quorum's `confirmed` |
 | **A quorum becomes satisfied while N waits are still armed** | **The store obviates them** — same mechanism as branch resolution (Fix 7): every still-armed wait in a satisfied quorum's population is marked `dropped` with a system rationale, transitively per the drop rule. **No set-selector op is needed**, and no agent has to remember. In v3 this was left to the mutator, which named three of nine and left six pivot-class sends live — validly |
 
@@ -564,7 +528,7 @@ You cannot make a local state change and an external side effect atomic. 2PC is 
 | The **`effect_log` `outcome` field** — *not* `status.state` — distinguishes `queued → sent → delivered → bounced` | `sent` is not `delivered` and the graph must say which. These are effect outcomes; the node's own `status.state` stays inside the closed enum, or invariant 1 would reject the CLI's own effect path. (13) |
 | **Restart budget:** `max_reattempts` within `window`; on exhaustion escalate to a gate, never loop | Without a budget an LLM mutator retries forever and burns a mailbox. (12 — Erlang/OTP) |
 
-Every action node is typed by reversibility — `pure | reversible | compensatable | pivot` — and the invariant follows: **compensatable nodes require a declared compensation** (invariant 5, enforced). **Pivot nodes require an upstream gate — and "upstream" is satisfied by the root plan approval**, which is what §6.9 means by "approve once, not thirty times". So this is a *property of the approved plan*, checked by `kona lint` at author time, **not** a per-commit invariant; the per-commit guard on pivots is invariant 7 (budget) plus invariant 8 (evidenced recipient). Stated plainly because asserting it as enforced when nothing enforces it is worse than not claiming it. That turns "Kona has no rollback" from an apology into an enforced schema invariant. (see 11 — Revisable by Design; 09 — Sagas)
+Every action node is typed by reversibility — `pure | reversible | compensatable | pivot` — and the invariant follows: **compensatable nodes require a declared compensation** (invariant 1, enforced). **Pivot nodes require an upstream gate — and "upstream" is satisfied by the root plan approval**, which is what §6.9 means by "approve once, not thirty times". So this is a *property of the approved plan*, checked by `kona lint` at author time, **not** a per-commit invariant; the per-commit guard on pivots is invariant 3 (budget) plus invariant 4 (evidenced recipient). Stated plainly because asserting it as enforced when nothing enforces it is worse than not claiming it. That turns "Kona has no rollback" from an apology into an enforced schema invariant. (see 11 — Revisable by Design; 09 — Sagas)
 
 ### 6.7. Invariants and concurrency
 
@@ -606,7 +570,7 @@ Write a `conflict` annotation with a reason and surface it in the viewer for: a 
 #### 6.7.3. Concurrency — four rules, in order of how much they buy
 
 1. **Role-scoped write authority.** Only the orchestrator mutates topology; subagents only `set_status` and write their own node's output. *This single rule removes most of the need for locking.* Steal ReWOO's Planner/Worker/Solver split and Akka's one-active-writer-per-entity guarantee. (05, 12)
-2. **Atomic claim with a TTL lease.** `kona next --agent X --lease 30m`, implemented as `O_EXCL`/atomic rename. Two subagents call concurrently; exactly one wins. Linda proves this is sufficient, and it is the only mechanism preventing two subagents emailing the same goalie. Expose the *eligible set* through the CLI rather than letting a subagent pick — the blackboard KS-activation-record pattern. (12)
+2. ~~**Atomic claim with a TTL lease.**~~ **Deleted by §0.5 — one writer, nothing to claim.** Was: `kona next --agent X --lease 30m` via `O_EXCL`/atomic rename, exactly one winner. Linda proves this is sufficient, and it is the only mechanism preventing two subagents emailing the same goalie. Expose the *eligible set* through the CLI rather than letting a subagent pick — the blackboard KS-activation-record pattern. (12)
 3. **Compare-and-swap on `parent_v`.** 409 → re-read → re-decide. ~20 lines. (09 — KurrentDB; 04 — ADEPT2)
 4. **One macro-step per external event.** One inbound email = acquire lock, apply the full cascade of derived status changes and topology mutations as micro-steps, stamp them with one logical timestamp and one version id, release. Subagents propose; only the macro-step commits. (04 — GSM)
 
@@ -752,19 +716,19 @@ The gate is narrow on purpose. It does not reintroduce the adaptive-BPM failure 
 | **A declared effect budget is the circuit breaker, and it replaces every gate we removed.** **Invariant 7** caps `max_fanout` and total irreversible sends against the budget declared in the approved plan. Exceeding it pauses the pursuit and asks. It fires approximately never — and it is the honest answer to "so it can just email anyone?" | 03 — Airflow's `max_map_length` |
 | **`gate` nodes survive, but only when the *plan* declares a human decision** ("Ilya picks the final date"). Authored into the graph by the model at planning time, never injected by the system at mutation time | 01 — Linear's `elicitation` activity |
 
-> **⚠ Read §6.6 and §6.9 together.** §6.9 leaves *mutations* — changing the plan — ungated. §6.6 governs *effects*: a `pivot` node requires an upstream gate, the effect budget bounds the rest, and since the v3 probe, invariant 8 refuses any effect aimed at an unevidenced recipient. An authoring trial reasoned through exactly this ambiguity, chose the §6.9 reading, and **shipped a graph with 12 irreversible sends and no upstream gate**; another dodged the rule by classifying an email send as `compensatable`. The sentence to hold on to: **the plan changes freely; the world does not.**
+> **⚠ Read §6.6 and §6.9 together.** §6.9 leaves *mutations* — changing the plan — ungated. §6.6 governs *effects*: a `pivot` node requires an upstream gate, the effect budget bounds the rest, and invariant 4 refuses any effect aimed at an unevidenced recipient. An authoring trial reasoned through exactly this ambiguity, chose the §6.9 reading, and **shipped a graph with 12 irreversible sends and no upstream gate**; another dodged the rule by classifying an email send as `compensatable`. The sentence to hold on to: **the plan changes freely; the world does not.**
 
 **What actually carries the safety, stated precisely** (§6.7.1) — because the honest version is narrower than "an invariant handles it":
 
 | Guard | Where it lives | Strength |
 |---|---|---|
-| Superseding a node that already emailed someone requires a compensation in the same commit | **invariant 5**, enforced | hard |
-| A quorum must remain satisfiable | **invariant 6**, enforced | hard |
-| Cumulative irreversible sends ≤ the approved budget | **invariant 7**, enforced | hard — this is the circuit breaker that replaced the gates |
-| A new precondition may not contradict an already-executed action | **report-only** (§6.7.2) since the 16→7 cut | *soft — annotated in the viewer, does not block* |
+| Superseding a node that already emailed someone requires a compensation in the same commit | **invariant 1**, enforced | hard |
+| A quorum must remain satisfiable | **invariant 2**, enforced | hard |
+| Cumulative irreversible sends ≤ the approved budget | **invariant 3**, enforced | hard — this is the circuit breaker that replaced the gates |
+| A new precondition may not contradict an already-executed action | **report-only** (§6.7.2) | *soft — annotated in the viewer, does not block* |
 | The executing node's preconditions actually hold | `kona brief`'s fail-closed `preconditions_satisfied` (§6.8.1) | hard, at execution rather than at commit |
 
-So: **mid-run, the store enforces structure and the budget; it does not adjudicate whether a mutation is *wise*.** The mutation path's real floor is invariant 7 plus the brief's fail-closed check — not a general contradiction detector. Say it that way rather than claiming more. Net effect on the demo: one approval at the start, then it runs untouched — and the goalie re-plan becomes a moment you *watch* rather than a modal you dismiss.
+So: **mid-run, the store enforces structure and the budget; it does not adjudicate whether a mutation is *wise*.** The mutation path's real floor is invariant 3 plus the brief's fail-closed check — not a general contradiction detector. Say it that way rather than claiming more. Net effect on the demo: one approval at the start, then it runs untouched — and the goalie re-plan becomes a moment you *watch* rather than a modal you dismiss.
 | **No timed auto-proceed** | A 30-second countdown is fine for a sandboxed VM and unacceptable when the side effect is an email to a real person; it trains people to rubber-stamp (01 — Devin) |
 | **A denial is a mutation.** The human's verbatim text becomes the `rationale`; the four-way taxonomy is `accept \| edit \| respond \| ignore` with a per-node config of which are permitted | Makes the human a first-class mutator and reuses D4 for free — refusals become procedural memory, not a status flip (11 — HumanLayer, LangGraph) |
 | **Validate before you version** | A human approval that fails validation is rejected *before* it is written; the log records decisions, not malformed attempts (11 — Temporal Update validator) |
@@ -859,7 +823,7 @@ kona/
   package.json            # workspaces: ["packages/*"], bun
   packages/
     schema/     ← types, the closed vocabularies, JSON-schema validators. ZERO deps.
-    engine/     ← the 11 ops · 9 invariants · branch resolution.   PURE: no fs, no clock.
+    engine/     ← the 6 ops · 4 invariants · branch resolution.    PURE: no fs, no clock.
     store/      ← fold, .kona/ layout, blobs, atomic materialize, flock + CAS.
     effects/    ← waits, correlation, outbox, effect_key, ledger, resume.
     cli/        ← the 17 verbs, brief, lint.  The only thing that writes.
@@ -985,9 +949,9 @@ Flagged here rather than silently absorbed. **Ilya's call — see §11 Q6.**
 | **`kill -9` mid-mutation** | restart makes progress with zero session state; only overdue timeouts fire; **nothing re-sent** |
 | **Duplicate-send guard** | crash between reserve and record ⇒ `sending`, no re-send, human surfaced |
 | **Fan-out → quorum** | 30 instances, replies out of order, quorum flips exactly once, the other 28 waits auto-**obviated with a rationale** |
-| **Premise break** | goalie declines ⇒ quorum unsatisfiable ⇒ **invariant 6** forces a re-plan branch rather than a silent bad graph |
+| **Premise break** | goalie declines ⇒ quorum unsatisfiable ⇒ **invariant 2** forces a re-plan branch rather than a silent bad graph |
 | **Divergent arms** — *the end-to-end acceptance test for the whole product claim* | Run the pursuit to completion from an approved v1 plan in which every arm has the identical shape `invite → wait → {yes\|no\|silent}`. Then assert against the final graph: **(a)** it contains ≥1 node whose `template_id` appears nowhere in v1 — i.e. structure the approved plan never described; **(b)** ≥1 counterparty node exists whose `instance_key` was not in the v1 roster input; **(c)** at least three arms have **pairwise different node counts**; **(d)** ≥1 arm has an edge leaving its own `group` into another sub-flow. If (a)–(d) pass, the run produced structure no parameterised fan-out could. If they fail, the system demonstrably behaved as `withParam` regardless of how the code is written |
-| **Snapshot loss** | `rm .kona/graph.json` ⇒ next command rebuilds identically |
+| **Fold determinism** | folding the same log twice yields an identical graph; a torn final line is tolerated |
 | **Two subagents, one graph** | concurrent proposals; one commits, one 409s and re-decides; no corruption, no double-send |
 | **Late reply after timeout** | lands as a logged event on an obviated node; does **not** silently reopen a closed sub-flow |
 
@@ -1024,7 +988,7 @@ Viewer rendering, readability at 30+ nodes, and the demo rig go through the **tw
 - [ ] `kona resume` on a fresh terminal prints correct status in **< 60 s** with no session state *(US5)*
 - [ ] Every irreversible node carries an `effect_key` minted at creation; the three crash windows behave per §6.6 *(D3)*
 - [ ] **No approval gate exists on any topology mutation** — the whole pursuit runs on one pre-execution approval *(§6.9)*
-- [ ] The plan declares an effect budget; exceeding it pauses the pursuit rather than sending *(invariant 7)*
+- [ ] The plan declares an effect budget; exceeding it pauses the pursuit rather than sending *(invariant 3)*
 - [ ] Only the orchestrator mutates topology; a subagent attempting it is refused *(D5)*
 - [ ] Viewer holds zero authoritative state; dagre memoized on `graph_version` *(Burr #834)*
 - [ ] Fan-out groups collapse by default with edges redirected to the container *(R2)*
@@ -1091,15 +1055,15 @@ Viewer rendering, readability at 30+ nodes, and the demo rig go through the **tw
 
 | # | Question | Status |
 |---|---|---|
-| **Q4** | ~~Is the mutator premise validated?~~ — **CLOSED 2026-08-21, answer: NO as originally specified; YES with one narrow gate** | v3 at n=60: raw accept 47%, converging to **78%** over three attempts — so the retry loop works — but **silent defects on 47 of 47 accepted commits, 0/60 accepted-and-clean**, and 36% of accepted commits permanently stuck. The decisive failure: the mutator **invented counterparties and queued irreversible email to them**, passing every invariant, because the suite rewarded it. Resolution: **invariant 8** (recipients must be evidenced) + **invariant 9** (rationale fidelity, restored — 37 firings, 28% of all) + **one gate** in §6.9 on new irreversible effects to unevidenced recipients + **three vocabulary rules** (§6.5) for the states retry never converged on. Full data in `probes/q4-mutator-v3.md` |
+| **Q4** | ~~Is the mutator premise validated?~~ — **CLOSED 2026-08-21, answer: NO as originally specified; YES with one narrow gate** | v3 at n=60: raw accept 47%, converging to **78%** over three attempts — so the retry loop works — but **silent defects on 47 of 47 accepted commits, 0/60 accepted-and-clean**, and 36% of accepted commits permanently stuck. The decisive failure: the mutator **invented counterparties and queued irreversible email to them**, passing every invariant, because the suite rewarded it. Resolution: **an evidenced-recipient invariant** (now #4) + rationale fidelity (later cut again by §0.5 — see there) + **one gate** in §6.9 on new irreversible effects to unevidenced recipients + **three vocabulary rules** (§6.5) for the states retry never converged on. Full data in `probes/q4-mutator-v3.md` |
 
-**What the retry loop is actually worth.** Read carefully, because the headline number misleads: retry only ever addresses *loud* failures, and a silent defect never triggers one. Across 60 events, no-retry produced 30 defective commits; three attempts produced **47** — 53 extra attempts converted 19 loud rejections into 19 silent commits, ~7 of them permanently stuck graphs the store would otherwise have rejected out loud. **Under the pre-v3 invariant suite the retry loop had negative expected value.** Invariants 8 and 9 are what make it positive; re-measure before trusting it.
+**What the retry loop is actually worth.** Read carefully, because the headline number misleads: retry only ever addresses *loud* failures, and a silent defect never triggers one. Across 60 events, no-retry produced 30 defective commits; three attempts produced **47** — 53 extra attempts converted 19 loud rejections into 19 silent commits, ~7 of them permanently stuck graphs the store would otherwise have rejected out loud. **Under the pre-v3 invariant suite the retry loop had negative expected value.** The evidenced-recipient invariant is what makes it positive; re-measure before trusting it.
 
 ### Open — need a decision
 
 | # | Question | Status | Default |
 |---|---|---|---|
-| **Q9** | **Five contract bugs the v2 probe found**, all cheap: (a) **invariant 4 punishes tidying** — retiring a timeout branch that can never fire leaves `on_timeout` naming a terminal node, and this is **5 of the 10 rejections**; relax it to apply only while the wait is non-terminal. (b) **`quorum.over="invite@*"` is an id glob** and symbolic refs mean the server mints ids, so a new invite cannot be proven in-population — declare membership explicitly. (c) **Unfired conditional branches are undefined** — the root cause of the dominant silent deadlock; agents invented an assumption and built on it. (d) **`add_wait` has no label slot** though `label` is required. (e) **A gate is "deadlock or toothless"** — no accept-only edge kind exists | Specified, not applied | Apply all five, then v3 at n≥60 |
+| **Q9** | **Five contract bugs the v2 probe found**, all cheap: (a) **the on-timeout invariant punished tidying** — retiring a timeout branch that can never fire leaves `on_timeout` naming a terminal node, and this is **5 of the 10 rejections**; relax it to apply only while the wait is non-terminal. (b) **`quorum.over="invite@*"` is an id glob** and symbolic refs mean the server mints ids, so a new invite cannot be proven in-population — declare membership explicitly. (c) **Unfired conditional branches are undefined** — the root cause of the dominant silent deadlock; agents invented an assumption and built on it. (d) **`add_wait` has no label slot** though `label` is required. (e) **A gate is "deadlock or toothless"** — no accept-only edge kind exists | Specified, not applied | Apply all five, then v3 at n≥60 |
 
 ### Open — only closable by building
 
