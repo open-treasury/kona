@@ -14,7 +14,7 @@
 
 **The graph is a fold over an append-only mutation log, and nothing else is the truth.** `.kona/mutations.jsonl` is the system of record; `graph.json` is a derived projection you can delete at any time. Folding is a pure data operation — it is **not** Temporal-style replay and never re-executes an action. That single inversion is what lets Kona have crash-resume *and* mid-run topology mutation at once; every replay-based engine in the survey buys resume by forbidding mutation (see 03 — Temporal).
 
-- **6 node types · 11 mutation ops · 7 enforced invariants (+5 lint rules) · ~17 CLI verbs. Nothing else.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
+- **6 node types · 11 mutation ops · 9 enforced invariants (+4 lint rules) · ~17 CLI verbs. Nothing else.** Conceptual sprawl is a named cause of death (see 01 — Gas Town). Ops grew 9→11 because two probes found the vocabulary could not express what it needed to (an accept and a decline emitted identical ops; every `inputs[].ref` resolved to nothing). Invariants **shrank** 11→7 for the opposite reason: across 40 proposals only 4–5 ever fired, and one of them was rejecting *correct* work. See `probes/`.
 - **Three observed fields, three questions:** `status.state` = *where are we* · `status.outcome` = *what was decided* · `status.output` = *what did this node produce*. Conflating any two is how both probes' worst bugs happened.
 - **`--why` is a required argument on every mutating verb.** No rationale, no commit. All 200 technologies surveyed either lose the *why* or keep it in a file decoupled from the version — that gap is the product.
 - **No rollback, no `delete_node`, and `rollback` is not even reserved as an opcode.** YAWL kept it in the enum while its validator hard-rejected it, which just misled tool authors (see 04 — YAWL).
@@ -480,6 +480,16 @@ Evaluated **only** over the population (nodes with a `waits-for` edge into this 
 
 The other four expression strings collapse with it: **`obviated_if` becomes a reference**, `{"quorum": "<node_id>", "satisfied": true}`, which deletes the undefined bare token (`"quorum:goalie >= 1"` — what did `goalie` resolve to?) without a second evaluator. **`if_part` is deleted** — optional, unused, CMMN residue. **Deadline `expr` is restricted** to `<inputs[].ref> ± <duration>` resolving through `record_output` and falling back to `backstop`, which makes lint rule 4's "parses, is future, chain monotone" finite. And from the v2 probe: **`record_outcome` overwrites** a node's outcome, and the quorum count is **recomputed from the population on every read, never stored** — so two agents cannot both increment it.
 
+**Three states the contract had no vocabulary for — and the retry loop never converged on any of them.** v3's convergence was bimodal: **82% on seven scenarios, 10% on three.** The three were late-reply-after-timeout, ambiguous reply, and quorum-met-with-waits-still-armed. More attempts do not help, because these are vocabulary gaps rather than legality errors. Each gets a rule:
+
+| State | Rule |
+|---|---|
+| **A reply arrives after its wait already resolved** (timeout fired, follow-up sent) | The event lands as an **annotating `caused-by` edge onto the terminal wait** — legal under invariant 5 — and records `verdict: late`. It **never reopens the closed wait.** It may trigger a *new* node; it may not resurrect an old one |
+| **A reply that is neither yes nor no** ("maybe, let me check") | `record_outcome(verdict: tentative)` writes the fact but **does not resolve the wait.** The wait stays armed on its original deadline. `tentative` never counts toward a quorum's `confirmed` |
+| **A quorum becomes satisfied while N waits are still armed** | **The store obviates them** — same mechanism as branch resolution (Fix 7): every still-armed wait in a satisfied quorum's population is marked `dropped` with a system rationale, transitively per the drop rule. **No set-selector op is needed**, and no agent has to remember. In v3 this was left to the mutator, which named three of nine and left six pivot-class sends live — validly |
+
+The pattern is the same one Fix 7 established and it is worth stating as a principle: **when the housekeeping is derivable, the store does it.** Every time the contract asked the model to tidy up, the model either forgot, did it partially, or was rejected for doing it.
+
 **Reject LangGraph's interrupt model explicitly, and say why.** LangGraph re-runs the node on resume because its durable unit is a *code position*; the resulting multi-interrupt resume bugs are a multi-year defect area (#2870 → #3072 → #4028 → #6626 → #8579, the last still open Aug 2026). Kona's durable unit is a node record with an explicit status, so resume is *"read the file, see `waiting`, do nothing."* **Every one of those bug classes is a symptom of replay semantics Kona does not need to have.** (see 11)
 
 ### 6.6. Irreversible effects — intent, act, record
@@ -518,7 +528,7 @@ Every action node is typed by reversibility — `pure | reversible | compensatab
 
 ### 6.7. Invariants and concurrency
 
-#### 6.7.1. Enforce — seven checks, and why the other nine moved to lint
+#### 6.7.1. Enforce — nine checks: seven from the probes, two the v3 run put back
 
 Real verification is off the table: soundness of workflow nets is **EXPSPACE-complete**, and undecidable for reset nets (a "cancel this whole sub-flow" arc, i.e. exactly what abandonment is). Camunda concedes the same hole in production prose: *"The process engine is not able to detect modifications that create such situations. It is up to the user of this API."* So the store ships a cheap linear-time floor — and the floor got **smaller**, not bigger, once the probes said which checks earn their place.
 
@@ -536,6 +546,9 @@ Real verification is off the table: soundness of workflow nets is **EXPSPACE-com
 | 6 | **Quorum stays satisfiable** — population is the set of `waits-for` edges into it | The only invariant that ever caught a genuine *reasoning* error rather than a schema slip — twice |
 | 7 | **Effect budget + `max_fanout`** — cumulative irreversible sends ≤ the budget declared in the approved plan | **§6.9 removed every human gate on topology and named this as the replacement.** Drop it and "fully automatic mutation" has no backstop at all |
 
+| 8 | **Recipients must be evidenced.** No op may create or retarget an irreversible (`pivot`/`compensatable`) effect whose `recipient_ref` does not resolve to an entity already present in the graph and carrying an `evidence_ref` to a real inbound event or a declared `record_output`. **A recipient that exists only in the proposing batch is rejected.** | ⚠ **The v3 probe's headline failure.** Faced with a quorum it could not satisfy, the mutator *invented people* — `jordan, riley, casey, morgan, alex, taylor, jamie` — and queued irreversible email to them, in multiple scenarios, while every other invariant passed. It passed because **the old set rewarded it**: the cheapest way to make invariant 6 satisfiable is to add candidates, and nothing required them to be real. This invariant closes the loop that the rest of the suite opens |
+| 9 | **Rationale fidelity.** `expected_effect` must be machine-derivable from the ops — no overclaim, no miscount | Fired **37 times in v3, 28% of all firings**, the single most productive check in the run. It was moved to lint in the 16→7 cut; the v3 data reverses that. Without it a human approves prose that does not match the batch |
+
 Plus the write protocol, which is not a graph property: **`parent_v` must equal head, else 409 → re-read → re-decide, never blind-merge.**
 
 **MOVED TO `kona lint` (§6.8.1) — warns at author time, does not block a mutation.**
@@ -546,7 +559,7 @@ Plus the write protocol, which is not a graph property: **`parent_v` must equal 
 | refs resolve to a declared output | L2 | Already handled at run time: `kona brief` marks it `UNRESOLVED` and the executor refuses (proven 2/2) |
 | effects complete and funded (recipient, correlation) | L3 | Author-time property. A missing recipient is a bad plan, not a bad mutation |
 | liveness | L4 | Expensive to compute per commit, and the §6.4 *branch resolution* rule removes the deadlock class structurally rather than bya per-commit check |
-| rationale fidelity | L5 | About whether a human should trust the diff — a review concern, not a corruption one |
+| ~~rationale fidelity~~ | **restored as invariant 9** | v3 reversed this: 37 firings, 28% of all. Approving prose that contradicts the ops *is* a corruption concern |
 | fan-out declares `reports_into` | *dropped* | Subsumed: quorum population is now derived from `waits-for` edges, so there is nothing left to declare |
 | no unevidenced status/outcome | *dropped to report* | Fired once in 40 and is a judgment call, not a structural one. Annotate it (§6.7.2) |
 
@@ -601,7 +614,7 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 | `kona plan --brief <f> -o <plan>` | author | validate a proposed op batch → emit a frozen content-hashed artifact. **Does not commit** |
 | `kona apply <plan> --why "…"` | mutate | commit a previously-approved artifact verbatim; fails if the hash does not match |
 | `kona mutate --ops <f> --base-version N --why "…"` | mutate | the general path: validate → `flock` → CAS → append → fsync → materialize |
-| `kona validate <plan>` | read | dry-run the 7 enforced invariants; the LLM must pass this before proposing |
+| `kona validate <plan>` | read | dry-run the 9 enforced invariants; the LLM must pass this before proposing |
 | `kona lint` | read | post-authoring checks: inverted edge direction, sequence-implied-by-numbering, unreachable nodes |
 | `kona graph --json [--version N]` | read | **the one supported read contract.** Powers the viewer and the scrubber |
 | `kona status [--json]` | read | head version, counts by state, ready nodes, armed waits + time remaining, open gates, `sending` unknowns |
@@ -694,12 +707,22 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 
 | Rule | Why |
 |---|---|
-| **DECIDED — mid-run mutation is fully automatic. There are no approval gates on TOPOLOGY, ever — which says nothing about EFFECTS, gated by §6.6.** Gate on irreversible *effects*, not on *mutations*: a mutation is versioned, rationale-carrying data in a file that the viewer shows the instant it lands, and it is never itself dangerous. Sending an email is. Those are already separate events (§6.6), so the gate belongs on the effect | Adaptive BPM died because change was **expensive and blameful**; putting a human back in the mutation path re-creates the exact failure Kona claims to have removed (04 — Reijers). It also breaks the demo's own claim: a pursuit cannot survive an overnight crash if a modal is waiting for a human at 2am. Terraform is the precedent — it does not ask you to approve plan *revisions*, only `apply` (06) |
+| **DECIDED 2026-08-21, then AMENDED by the v3 probe. Mid-run mutation is automatic — with exactly one gate, on exactly one thing.**
+
+> **Automatic:** every topology mutation. Fan-out over a known roster, reroutes, follow-ups, obviation, supersede-with-compensation, re-plan after a premise break. No approval, no modal, no stall.
+>
+> **Gated:** a mutation that creates a *new irreversible effect targeting a recipient not already evidenced in the graph.* That is the whole gate.
+
+**Why the amendment.** The original decision was "no approval gates on topology, ever." The v3 probe (n=60, `probes/q4-mutator-v3.md`) falsified it: **0 of 60 accepted commits were clean**, and the specific failure was that the mutator, unable to satisfy a quorum, **invented counterparties and queued irreversible email to them** — passing every invariant, because the cheapest way to make a quorum satisfiable was to add candidates and nothing required them to be real. Five harness security warnings fired on that run for exactly this.
+
+The gate is narrow on purpose. It does not reintroduce the adaptive-BPM failure mode (change being expensive and blameful), because **changing the plan stays free** — 78% of proposals converge to structurally valid within three attempts. What now costs a human decision is *inventing a person to email*, which is the one thing the data says a model should not do unattended. Invariant 8 makes the same rule enforceable at commit time; the gate is what happens when the agent legitimately needs a new counterparty and can cite one.
+
+**The sentence to keep:** the plan changes freely; the world does not; and nobody new enters the world without a human. Gate on irreversible *effects*, not on *mutations*: a mutation is versioned, rationale-carrying data in a file that the viewer shows the instant it lands, and it is never itself dangerous. Sending an email is. Those are already separate events (§6.6), so the gate belongs on the effect | Adaptive BPM died because change was **expensive and blameful**; putting a human back in the mutation path re-creates the exact failure Kona claims to have removed (04 — Reijers). It also breaks the demo's own claim: a pursuit cannot survive an overnight crash if a modal is waiting for a human at 2am. Terraform is the precedent — it does not ask you to approve plan *revisions*, only `apply` (06) |
 | **Approval is scoped to the plan, not to the action.** The single pre-execution approval (property a) authorises the *class* of effects the plan declares — "will email up to 30 players from this roster" — exactly as `terraform plan` shows "will create 30 resources" and you approve once, not thirty times | 06 — Terraform |
 | **A declared effect budget is the circuit breaker, and it replaces every gate we removed.** **Invariant 7** caps `max_fanout` and total irreversible sends against the budget declared in the approved plan. Exceeding it pauses the pursuit and asks. It fires approximately never — and it is the honest answer to "so it can just email anyone?" | 03 — Airflow's `max_map_length` |
 | **`gate` nodes survive, but only when the *plan* declares a human decision** ("Ilya picks the final date"). Authored into the graph by the model at planning time, never injected by the system at mutation time | 01 — Linear's `elicitation` activity |
 
-> **⚠ Read §6.6 and §6.9 together or you will get this wrong.** §6.9 removes gates on *mutations* — changing the plan. §6.6 keeps them on *effects* — acting on the world: a `pivot` node still requires an upstream gate, and the effect budget bounds everything else. An authoring trial reasoned through exactly this ambiguity, chose the §6.9 reading, and **shipped a graph with 12 irreversible sends and no upstream gate**; another dodged the rule by classifying an email send as `compensatable`. The sentence to hold on to: **the plan changes freely; the world does not.**
+> **⚠ Read §6.6 and §6.9 together.** §6.9 leaves *mutations* — changing the plan — ungated. §6.6 governs *effects*: a `pivot` node requires an upstream gate, the effect budget bounds the rest, and since the v3 probe, invariant 8 refuses any effect aimed at an unevidenced recipient. An authoring trial reasoned through exactly this ambiguity, chose the §6.9 reading, and **shipped a graph with 12 irreversible sends and no upstream gate**; another dodged the rule by classifying an email send as `compensatable`. The sentence to hold on to: **the plan changes freely; the world does not.**
 
 **What actually carries the safety, stated precisely** (§6.7.1) — because the honest version is narrower than "an invariant handles it":
 
@@ -810,7 +833,7 @@ The persona replies to that; it lands in the one inbox; the plus-tag names the e
 **Cons**
 - No semantic merge. Conflicting proposals get a `409` and one agent re-decides — correct, but it burns a model call.
 - Fold cost is O(history). Irrelevant at demo scale; compaction is future work and must compact *state* while keeping *rationale*, never the reverse.
-- The invariant set is a floor, not soundness. Seven cheap linear-time checks; everything else is a logged judgment call. Say this proactively — it is the honest "hard problem for the product, not the prototype" line (PRD R4).
+- The invariant set is a floor, not soundness. Nine cheap linear-time checks; everything else is a logged judgment call. Say this proactively — it is the honest "hard problem for the product, not the prototype" line (PRD R4).
 - The `sending`-crash window requires a human. Honest rather than convenient.
 
 **Consequences — three corrections the research forces on the pitch**
@@ -839,7 +862,7 @@ Only two gates actually block: **lint clean** and **typecheck clean**. Both are 
 
 | Module | `break` | Why |
 |---|---:|---|
-| `validate()` — the 7 enforced invariants (§6.7.1) | **100** | Pure, branch-heavy, and a surviving mutant is **a bad graph that commits**. Highest-value target in the codebase |
+| `validate()` — the 9 enforced invariants (§6.7.1) | **100** | Pure, branch-heavy, and a surviving mutant is **a bad graph that commits**. Highest-value target in the codebase |
 | `fold()` — mutations → graph (§6.1) | **100** | Pure function, and it *is* the file's correctness |
 | `effect_key` lifecycle + outbox (§6.6) | **100** | Guards duplicate irreversible sends — precisely what mutation testing is for |
 | CAS / `flock` / lease (§6.7.3) | **95** | Some timing paths cannot be mutated meaningfully |
@@ -869,7 +892,7 @@ Flagged here rather than silently absorbed. **Ilya's call — see §11 Q6.**
 | Unit | Critical behaviours |
 |---|---|
 | `fold(mutations) → graph` | determinism; full fold ≡ snapshot+tail; tolerates a truncated final line (torn write); partial-tolerant on an unknown node type |
-| `validate(graph, ops)` | one test per invariant #1–#7, each asserting **rejection with the right reason** |
+| `validate(graph, ops)` | one test per invariant #1–#9, each asserting **rejection with the right reason** |
 | Suppression rule | a semantically-equal re-plan writes **no** version |
 | `effect_key` lifecycle | minted at creation, payload-independent; **same key + different `payload_hash` ⇒ loud error, not a second send**; the three crash windows (§6.6) resolve to retry / retry / **ask-human**; key match + payload mismatch ⇒ loud error; `done` never re-fires |
 | CAS + lock | stale `--base-version` ⇒ 409 + head; concurrent writers serialise; lock released on crash; **never held across a wait** |
@@ -914,7 +937,7 @@ Viewer rendering, readability at 30+ nodes, and the demo rig go through the **tw
 ### Feature-specific
 
 - [ ] **`--why` is a required argument on every mutating verb.** A commit without a rationale is impossible, not discouraged *(D4)*
-- [ ] All 7 enforced invariants checked pre-commit, each with a distinct human-readable rejection naming the node
+- [ ] All 9 enforced invariants checked pre-commit, each with a distinct human-readable rejection naming the node
 - [ ] **Rejected mutations are logged**, not silently dropped — a refused mutation is procedural memory too *(§6.7.2)*
 - [ ] No `delete_node` verb and no `rollback` opcode anywhere in code or schema
 - [ ] `deadline` and `on_timeout` schema-required on every `wait`; a wait without them fails validation
@@ -991,14 +1014,9 @@ Viewer rendering, readability at 30+ nodes, and the demo rig go through the **tw
 
 | # | Question | Status |
 |---|---|---|
-| **Q4** | **Is the mutator premise validated?** | **NO — and this is the headline risk.** v1 55%, v2 50% (n=20, difference −5pp ± 31pp: *unchanged*, not regressed). All six schema fixes worked on exactly what they targeted — inv 1: 7→1, inv 3: 5→1, symbolic refs 0→20/20, `record_outcome` 20/20 — but **accept was never bounded by schema legality.** The residual is branch semantics and liveness. **All 10 accepted commits ship at least one substantive silent defect**, and 2–4 of them are permanently stuck graphs |
+| **Q4** | ~~Is the mutator premise validated?~~ — **CLOSED 2026-08-21, answer: NO as originally specified; YES with one narrow gate** | v3 at n=60: raw accept 47%, converging to **78%** over three attempts — so the retry loop works — but **silent defects on 47 of 47 accepted commits, 0/60 accepted-and-clean**, and 36% of accepted commits permanently stuck. The decisive failure: the mutator **invented counterparties and queued irreversible email to them**, passing every invariant, because the suite rewarded it. Resolution: **invariant 8** (recipients must be evidenced) + **invariant 9** (rationale fidelity, restored — 37 firings, 28% of all) + **one gate** in §6.9 on new irreversible effects to unevidenced recipients + **three vocabulary rules** (§6.5) for the states retry never converged on. Full data in `probes/q4-mutator-v3.md` |
 
-**Two things close it, and the second matters more:**
-
-1. **Does the retry loop converge?** *(Probe 5, designed, not yet run.)* Every number so far is **first-attempt, zero-feedback** — the hardest version of the question. In the real loop the CLI rejects with a named invariant and the agent re-decides. If attempt 2 fixes a deterministic invariant error, **50% raw is survivable and the premise holds.** If it thrashes, no schema change rescues it. Nobody has tested this; it is the single most decision-relevant unknown left.
-2. **Do the five v2 contract bugs move raw accept?** *(v3, n≥60.)* See Q9.
-
-**A correction I owe on the threshold.** I set "raw accept must clear ~0.90" without checking the instrument could measure it. **n=20 cannot certify 0.90 even at a perfect score** — 20/20 has a Wilson lower bound of 0.839. Certifying ≥0.90 needs n≥60. The per-fix metrics (0/20→20/20) are readable at n=20; the accept rate is not. Any v3 must run at n≥60 or it answers nothing.
+**What the retry loop is actually worth.** Read carefully, because the headline number misleads: retry only ever addresses *loud* failures, and a silent defect never triggers one. Across 60 events, no-retry produced 30 defective commits; three attempts produced **47** — 53 extra attempts converted 19 loud rejections into 19 silent commits, ~7 of them permanently stuck graphs the store would otherwise have rejected out loud. **Under the pre-v3 invariant suite the retry loop had negative expected value.** Invariants 8 and 9 are what make it positive; re-measure before trusting it.
 
 ### Open — need a decision
 

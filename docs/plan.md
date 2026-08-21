@@ -28,7 +28,7 @@
 | # | Epic | Human | AI | Depends on | Friday |
 |---|---|---:|---:|---|---|
 | **E1** | Graph store core — types, on-disk, fold | 10.5 h | 2.75 h | — | **full** |
-| **E2** | Mutation engine — 11 ops, 7 invariants, CAS | 19.5 h | 4.95 h | E1 | **partial** |
+| **E2** | Mutation engine — 11 ops, 9 invariants, CAS | 20 h | 5.05 h | E1 | **partial** |
 | **E3** | Wait & effect engine — waits, outbox, resume | 17 h | 4.3 h | E1, E2 | **full** |
 | **E4** | CLI surface — 17 verbs, brief, lint | 13 h | 3.25 h | E1–E3 | **partial** |
 | **E5** | Claude Code plugin — orchestrator + executor | 12.5 h | 3.2 h | E4 | **partial** |
@@ -65,7 +65,7 @@
 | T2.1 | The 11 ops — apply functions, fixed internal order (additions/rewires → cancellations) | 4 h | 1 h | T1.4 |
 | T2.2 | Symbolic ref resolution — `$0`, `$2.children.dana`; reject forward/unresolved refs | 2 h | 30 m | T2.1 |
 | T2.3 | Auto-wiring per op (the §6.4 table) — the fix that eliminated every orphan in v2 | 2 h | 30 m | T2.1 |
-| T2.4 | **The 7 enforced invariants** (§6.7.1) + CAS check | 3 h | 45 m | T2.1 |
+| T2.4 | **The 9 enforced invariants** (§6.7.1) + CAS check. **#8 recipient-evidence is the highest-value one in the codebase** — it is what stops the mutator inventing people to email | 3.5 h | 50 m | T2.1 |
 | ~~T2.5~~ | ~~Invariants 9–16~~ — **cut**; five moved to `kona lint` (T4.3), two dropped | — | — | — |
 | T2.6 | **Branch resolution** — store drops untaken branches; dropped edges excluded from merge; zero-live-in-edge → `on_unsatisfied` | 3 h | 45 m | T2.1 |
 | T2.7 | `flock` + compare-and-swap on `parent_v` + exit 409 | 2 h | 30 m | T1.5 |
@@ -111,7 +111,7 @@
 |---|---|---:|---:|---|
 | T5.1 | Plugin skeleton — `.claude-plugin/plugin.json`, `bin/` (ships the binary), `hooks/` | 1.5 h | 25 m | T4.1 |
 | T5.2 | `/kona:plan` authoring skill — §6.2 catalogue **verbatim**, edge-direction convention, premise check | 3 h | 45 m | T4.4 |
-| T5.3 | `/kona:run` orchestrator loop — read → dispatch → merge, one macro-step per event | 4 h | 1 h | T4.2, T3.5 |
+| T5.3 | `/kona:run` orchestrator loop — read → dispatch → merge, one macro-step per event, **+ the §6.9 new-counterparty gate** | 4 h | 1 h | T4.2, T3.5 |
 | T5.4 | Executor subagent skill — consumes `brief`, returns `EXECUTED`/`COMPOSED`/`REFUSED` | 3 h | 45 m | T4.2 |
 | T5.5 | `SessionStart` hook → `kona resume` (makes kill-and-resume automatic) | 1 h | 15 m | T3.6 |
 
@@ -175,7 +175,7 @@ T1.1 → T1.2 → T1.4 → T2.1 → T2.4 → T4.2 → T5.3 → T8.1
 
 **Ship (≈ 6 h critical path, ~12 h wall clock):**
 
-E1 whole · E2 minus T2.9 · **all 7 enforced invariants** (the set is now small enough to ship whole) · T2.6 branch resolution · E3 whole · T4.1, T4.2, T4.5 · T5.1, T5.3, T5.4, T5.5 · T6.1, T6.6, T6.2, T6.3, T6.4 · T7.1, T7.3, T7.4, T7.5 · E8 whole.
+E1 whole · E2 minus T2.9 · **all 9 enforced invariants** — #8 recipient-evidence is never-cut · T2.6 branch resolution · E3 whole · T4.1, T4.2, T4.5 · T5.1, T5.3, T5.4, T5.5 · T6.1, T6.6, T6.2, T6.3, T6.4 · T7.1, T7.3, T7.4, T7.5 · E8 whole.
 
 **Cut, in this order:**
 
@@ -214,3 +214,5 @@ A multi-lens review with adversarial verification (`probes/spec-review.md`, 62 r
 
 - **T7.1 now depends on `T1.1`, not `T3.2`.** §6.11 defines `MailboxProvider` as `provision / send / poll-thread` — no correlation logic — so a Mailpit port needs the toolchain, not correlation derivation. As written, E7's chain ran to 360 min and **the demo rig, not the CLI spine, gated T8.1**: the real endpoint was 405 min to T8.1 and 435 min to E8, and *every one of the §8 cuts was off the longest path*, so the Friday cut freed zero critical-path minutes. With this one-cell change, W4 starts at ~20 min instead of idling ~4 hours, and the stated 6.1 h spine becomes literally true.
 - **T8.1's dependencies are now task-level, not epic-level.** Epic-granularity deps in a task-granularity table silently pulled in cut-listed T7.2.
+
+- **Invariants went 7 → 9 after the v3 probe.** #8 (recipients must be evidenced) and #9 (rationale fidelity, restored) are both non-negotiable: the first is the only thing standing between the mutator and email to people it invented; the second fired on 28% of all v3 firings. T2.4 grows by 30 min.
