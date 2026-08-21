@@ -45,8 +45,8 @@
 
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
-| T1.1 | Repo + toolchain: `bun init`, `tsconfig` strict, lint, test runner, dir layout | 1 h | 20 m | — |
-| T1.2 | Type definitions — 6 node types, 4+4 edge kinds, `status`/`outcome`/`output`, typed deadlines (3 shapes) | 2 h | 30 m | T1.1 |
+| T1.1 | **Monorepo scaffold** — Bun workspace, 7 packages per §6.12, `tsconfig` strict + project refs, lint, test runner, cycle check in `build` | 1.5 h | 30 m | — |
+| T1.2 | **`packages/schema`** — 6 node types, 4+4 edge kinds, the edge record, `status`/`outcome`/`output`, typed deadlines (3 shapes). **Zero deps; unblocks W3 and W4** | 2 h | 30 m | T1.1 |
 | T1.3 | `.kona/` init: `schema_version`, dir creation, **network-filesystem refusal** | 1.5 h | 25 m | T1.2 |
 | T1.4 | **`fold(mutations) → graph`** — pure, deterministic, tolerant of a torn final line | 3 h | 45 m | T1.2 |
 | T1.5 | `graph.json` materialization — write-temp + atomic rename, head check, rebuild-on-mismatch | 2 h | 30 m | T1.4 |
@@ -164,10 +164,10 @@ T1.1 → T1.2 → T1.4 → T2.1 → T2.4 → T4.2 → T5.3 → T8.1
 
 | Window | Owns | Runs until |
 |---|---|---|
-| **W1** | E1 → E2 (ops, invariants, branch resolution) | the spine is done |
-| **W2** | E3 (waits, outbox, resume) + T2.7 | resume passes `kill -9` |
-| **W3** | E6 viewer — starts at T6.1 the moment `graph --json` exists | scrubber or cut-line |
-| **W4** | E7 demo rig — **independent of everything but the toolchain** | divergence script runs |
+| **W1** | `schema` → `engine` (ops, invariants, branch resolution — pure, no I/O) | the spine is done |
+| **W2** | `store` → `effects` (fold, materialize, flock+CAS, waits, outbox, resume) | resume passes `kill -9` |
+| **W3** | E6 viewer — starts the moment **`packages/schema` compiles** (T1.2, ~50 min), not when `graph --json` works | timeline panel; scrubber if time |
+| **W4** | E7 demo rig — needs **`packages/schema` + the port interface** only | divergence script runs |
 | **Operator** | E4 CLI glue, E5 plugin skills, review, integration | — |
 
 ---
@@ -217,3 +217,5 @@ A multi-lens review with adversarial verification (`probes/spec-review.md`, 62 r
 - **T8.1's dependencies are now task-level, not epic-level.** Epic-granularity deps in a task-granularity table silently pulled in cut-listed T7.2.
 
 - **Invariants went 7 → 9 after the v3 probe.** #8 (recipients must be evidenced) and #9 (rationale fidelity, restored) are both non-negotiable: the first is the only thing standing between the mutator and email to people it invented; the second fired on 28% of all v3 firings. T2.4 grows by 30 min.
+
+- **Monorepo (§6.12).** Seven Bun workspace packages plus `plugin/`. The dependency graph enforces two rules the spec previously only asserted: `viewer` cannot import `store` (it depends on `schema` alone), and exactly one package writes bytes. `engine` is pure — no `fs`, no clock — which is what makes the 100% mutation-score target on `validate()` affordable. Costs ~30 min on T1.1 and moves W3/W4's unblock from "a working CLI" to "`schema` compiles".

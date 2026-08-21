@@ -824,7 +824,54 @@ The persona replies to that; it lands in the one inbox; the plus-tag names the e
 
 *Out of scope: prompt injection via inbound mail.* The demo's counterparties are personas we author, so there is no adversary; and in the general case this is the ordinary "an agent reads untrusted content" exposure that every tool reading a webpage or a file already has — Kona does not introduce it. If asked: the closed op vocabulary (§6.4) and the human gate on destructive ops (§6.9) already bound what any injected instruction could express, because both exist for correctness reasons anyway. No build item.
 
-### 6.12. Pros, Cons, Consequences
+### 6.12. Repository layout — a Bun workspace, one package per boundary
+
+```
+kona/
+  package.json            # workspaces: ["packages/*"], bun
+  packages/
+    schema/     ← types, the closed vocabularies, JSON-schema validators. ZERO deps.
+    engine/     ← the 11 ops · 9 invariants · branch resolution.   PURE: no fs, no clock.
+    store/      ← fold, .kona/ layout, blobs, atomic materialize, flock + CAS.
+    effects/    ← waits, correlation, outbox, effect_key, ledger, resume.
+    cli/        ← the 17 verbs, brief, lint.  The only thing that writes.
+    viewer/     ← React + xyflow + dagre.  Depends on `schema` ONLY.
+    demo/       ← MailboxProvider impls, personas, divergence script.
+  plugin/                 # .claude-plugin/plugin.json · skills/ · hooks/ · bin/
+```
+
+**The dependency graph is the architecture, enforced rather than documented:**
+
+```
+schema ──┬── engine ──┐
+         ├── store  ──┼── effects ── cli ──> plugin/bin/kona
+         ├── viewer   ┘                        (bun build --compile)
+         └── demo
+```
+
+| Boundary | Why it is a package and not a folder |
+|---|---|
+| **`schema` is a leaf with zero dependencies** | §6.10 requires the viewer hold *zero* authoritative state and read only through `kona graph --json`. As a package boundary that is **structural**: `viewer` cannot import `store`, because it does not depend on it. Today that rule is a sentence someone can violate in one import |
+| **`engine` is pure — no `fs`, no `Date.now()`** | It takes `(graph, batch)` and returns a new graph or a rejection. That is what makes the 100% mutation-score target on `validate()` cheap rather than heroic (§7), and it is why the per-module Stryker floors map onto packages one-for-one |
+| **`store` owns every byte written** | The single-writer rule (§6.7.3) is enforceable by inspection: exactly one package calls `writeFile`, and `cli` is the only caller of `store` |
+| **`demo` depends on `schema` + the port, never on internals** | §6.11's whole claim is that the mailbox layer is commoditised and swappable. If `demo` can reach into `store`, that stops being true within a day |
+| **`plugin/` is not a package** | It is a Claude Code plugin directory with its own manifest shape. The build drops the compiled binary into `plugin/bin/`, which Claude Code adds to PATH automatically (§6.9, verified) |
+
+**It also maps onto the four windows exactly**, which is the practical payoff during the build:
+
+| Window | Owns |
+|---|---|
+| W1 | `schema` → `engine` |
+| W2 | `store` → `effects` |
+| W3 | `viewer` (starts the moment `schema` compiles — it needs types, not a working store) |
+| W4 | `demo` (needs `schema` and the port interface only) |
+| Operator | `cli`, `plugin/`, integration |
+
+W3 and W4 previously had to wait for a working `kona graph --json`. Against a package boundary they only need `schema` to compile — which is T1.2, at ~50 minutes.
+
+**Cost: about 30 minutes on T1.1**, and one rule to hold: no cyclic dependencies, checked by `bun run build` failing rather than by discipline.
+
+### 6.13. Pros, Cons, Consequences
 
 **Pros**
 - D1–D5 are enforced by schema and CLI, not by prompts — the only durable way to constrain an LLM mutator.
