@@ -165,7 +165,7 @@ T1.1 → T1.2 → T1.4 → T2.1 → T2.4 → T4.2 → T5.3 → T8.1
 | Window | Owns | Runs until |
 |---|---|---|
 | **W1** | `core` (types, ops, invariants, branch resolution — pure, no I/O, no model) | the spine is done |
-| **W2** | `kona` (fold, flock+CAS, waits, outbox, resume, the 9 verbs — store+effects+cli merged in §0.6/§0.7) | resume passes `kill -9` |
+| **W2** | `kona` (fold, lock+CAS, waits, outbox, resume, the 9 verbs — store+effects+cli merged in §0.6/§0.7) | resume passes `kill -9` |
 | **W3** | E6 viewer — starts the moment **`packages/schema` compiles** (T1.2, ~50 min), not when `graph --json` works | timeline panel; scrubber if time |
 | **W4** | E7 demo rig — needs **`packages/schema` + the port interface** only | divergence script runs |
 | **Operator** | E4 CLI glue, E5 plugin skills, review, integration | — |

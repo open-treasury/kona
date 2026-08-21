@@ -319,7 +319,7 @@ Four things follow, which is why it is a law: §7's 100% mutation-score target i
 | Verb | Contract |
 |---|---|
 | `kona init` | create `.kona/`, write `schema_version`, refuse on a network filesystem |
-| `kona mutate --ops <f> --base-version N --why "…"` | **the only write path.** validate → flock → CAS → append → fsync |
+| `kona mutate --ops <f> --base-version N --why "…"` | **the only write path.** validate → lock → CAS → append → fsync |
 | `kona graph --json [--version N]` | **the only read contract.** Status, history and the rationale chain are projections |
 | `kona next` | the ready frontier. Computed, never stored |
 | `kona brief <node>` | §6.9 |
@@ -403,7 +403,7 @@ Send-as *aliases* are capped (~30/user); **plus-addressing is uncapped**. Gmail�
 ```
 core/     types, vocabularies, validators, the 6 ops, 3 invariants, branch resolution.
           ZERO deps. PURE: no fs, no clock, NO MODEL.
-kona/     fold, .kona/ layout, flock + CAS, waits, outbox, resume, the 9 verbs.
+kona/     fold, .kona/ layout, lock + CAS, waits, outbox, resume, the 9 verbs.
           The only thing that writes.
 viewer/   React + xyflow + dagre. Depends on core ONLY.
 demo/     throwaway scripts — a directory, not a package
