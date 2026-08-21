@@ -22,7 +22,7 @@
 - **Mid-run mutation is fully automatic — no approval gates on topology, ever.** One pre-execution approval scopes the whole pursuit; a declared effect budget is the circuit breaker. Gate on irreversible *effects*, never on *mutations* (§6.9).
 - **Stack:** TypeScript on Bun (CLI + viewer, one toolchain) · React + Vite + `@xyflow/react` + dagre, fully controlled, read-only · JSONL + JSON on disk. No database, no daemon, no CRDT, no server.
 - **Mailboxes: DECIDED — one plus-addressed Gmail, $0** (§6.11). The correlation token lives in Kona's own `Reply-To` (`ilya+kona-<node_id>@…`), so the fan-out needs 30 *tags on one inbox*, not 30 inboxes. Mailpit is the offline fallback behind the same port.
-- **⚠ One thing still needs Ilya before Block 4 (§11 Q2): the demo needs a beat where two fan-out arms end up structurally different**, or a knowledgeable reviewer correctly calls the whole thing `withParam` with extra steps.
+- **The `withParam` objection is answered** (§7.2's four-assertion *divergent arms* test + PRD §9's script): thirty identical arms would read as parameterised fan-out, so the run must end with structure no template described. **Resolved — see §11.**
 
 ---
 
@@ -186,7 +186,7 @@ The most-repeated structural lesson in the survey: **every mature system separat
 
 ```jsonc
 {
-  "id": "goalie/dana",              // stable, human-meaningful, minted at creation.
+  "id": "goalie-dana",              // stable, human-meaningful, minted at creation.
                                     // NEVER derived from position or content (see 14 — Adapton, Nix)
   "type": "task",                   // task | wait | gate | join | quorum | group
   "label": "Ask Dana to play Thursday",   // REQUIRED on every node type
@@ -368,6 +368,8 @@ resolve_gate(node, decision, text)                                 (human)
 
 **Fix 5 — `record_outcome` is the tenth op, and it closes the deepest hole the probe found.** All ten scenarios independently hit it: `roster_quorum` reads `count(confirmed)` and `count(role=goalie, confirmed)`, and **nothing in the 9-op vocabulary could write either field.** `set_status` moves a lifecycle enum; `evidence_ref` is free text. So an ACCEPT and a DECLINE emitted *identical ops* and the quorum predicate — the thing the whole pursuit turns on — was unevaluable. A 10-op closed schema is still closed. `verdict` is typed and closed; `attrs` carries predicate-visible facts (`{role: "goalie"}`) and nothing else.
 
+**Node id minting, and one character that would have aliased two nodes into one mailbox.** Ids are stable and human-meaningful, and callers may not supply them (Fix 3) — so the store mints them: `fan_out` produces `<group_slug>-<key>`; `add_node` produces `<scope_slug>-<label_slug>`, suffixed `-2`, `-3` on collision. **The separator is `-`, never `/`.** §6.2's original example was `goalie/dana`, and `correlation` derives from the node id — so `goalie/dana` and `goalie-dana` would both normalise into `kona+goalie-dana@…` and two nodes would share one reply address, silently satisfying the wrong wait. Ids match `[a-z0-9][a-z0-9-]*` and nothing else.
+
 **The edge record, and why `add_edge` needs a `condition`.** The edge was the least-specified object here: no record shape existed anywhere, so `fold()` — the second-priority test suite — had no target to build. Worse, **Fix 8 makes `condition` mandatory on every out-edge of a `gate`/`wait` and `add_edge` had no parameter for it — so the closed op set literally could not author a legal gate out-edge**, which is the mechanism that stops an irreversible send firing with no approval.
 
 ```jsonc
@@ -524,7 +526,7 @@ You cannot make a local state change and an external side effect atomic. 2PC is 
 | The **`effect_log` `outcome` field** — *not* `status.state` — distinguishes `queued → sent → delivered → bounced` | `sent` is not `delivered` and the graph must say which. These are effect outcomes; the node's own `status.state` stays inside the closed enum, or invariant 1 would reject the CLI's own effect path. (13) |
 | **Restart budget:** `max_reattempts` within `window`; on exhaustion escalate to a gate, never loop | Without a budget an LLM mutator retries forever and burns a mailbox. (12 — Erlang/OTP) |
 
-Every action node is typed by reversibility — `pure | reversible | compensatable | pivot` — and the invariant follows: **pivot nodes require an upstream gate; compensatable nodes require a declared compensation.** That turns "Kona has no rollback" from an apology into an enforced schema invariant. (see 11 — Revisable by Design; 09 — Sagas)
+Every action node is typed by reversibility — `pure | reversible | compensatable | pivot` — and the invariant follows: **compensatable nodes require a declared compensation** (invariant 5, enforced). **Pivot nodes require an upstream gate — and "upstream" is satisfied by the root plan approval**, which is what §6.9 means by "approve once, not thirty times". So this is a *property of the approved plan*, checked by `kona lint` at author time, **not** a per-commit invariant; the per-commit guard on pivots is invariant 7 (budget) plus invariant 8 (evidenced recipient). Stated plainly because asserting it as enforced when nothing enforces it is worse than not claiming it. That turns "Kona has no rollback" from an apology into an enforced schema invariant. (see 11 — Revisable by Design; 09 — Sagas)
 
 ### 6.7. Invariants and concurrency
 
@@ -543,7 +545,7 @@ Real verification is off the table: soundness of workflow nets is **EXPSPACE-com
 | 3 | **Reachability both ways** — every node reachable from root and able to reach a terminal | Fired 6× across runs; every firing was a real orphan |
 | 4 | **Every wait/gate has a `deadline` and an `on_timeout`**, the target non-terminal *while the wait is non-terminal* | **The single check that prevents a silent multi-day hang.** A message in spam is *sent*: no bounce, no reply, no error |
 | 5 | **Terminal & effect protection — an OP-DELTA predicate, evaluated per-op against PRE-COMMIT head state, not a post-state graph scan.** For a node terminal at commit time, no op in this batch may (a) add or reroute a *blocking* edge whose `to` is that node, or (b) target it at all, except `supersede_node` / `insert_compensation` / `record_outcome` / `record_output`. And no `supersede_node`/`reroute_edge` on a node with a non-empty `effect_log` unless the same batch carries an `insert_compensation` for it. **Blocking edges that already exist into a terminal node are untouched — they are the record of how it became reachable.** | This **is** the no-rollback guarantee. ⚠ It was written as a post-state predicate until 2026-08-21 and was **fatal**: a blocking edge `{from:A,to:B}` means "B requires A", so B's own dependency edges point *into* B and do not vanish when B finishes. Post-commit, the graph permanently contains blocking edges into terminal nodes — so the first completed node made every later commit 422 forever, and branch resolution invalidated the graph it had just written. Evaluating terminality pre-commit also stops `set_status(n,"done")` from self-rejecting |
-| 6 | **Quorum stays satisfiable** — population is the set of `waits-for` edges into it | The only invariant that ever caught a genuine *reasoning* error rather than a schema slip — twice |
+| 6 | **Quorum stays satisfiable** — population is the set of `waits-for` edges into it | The only invariant that ever caught a genuine *reasoning* error rather than a schema slip. Three firings across the probes, of which one (v1 S08, a premature quorum close) was genuinely reasoning |
 | 7 | **Effect budget + `max_fanout`** — cumulative irreversible sends ≤ the budget declared in the approved plan | **§6.9 removed every human gate on topology and named this as the replacement.** Drop it and "fully automatic mutation" has no backstop at all |
 
 | 8 | **Recipients must be evidenced.** No op may create or retarget an irreversible (`pivot`/`compensatable`) effect whose `recipient_ref` does not resolve to an entity already present in the graph and carrying an `evidence_ref` to a real inbound event or a declared `record_output`. **A recipient that exists only in the proposing batch is rejected.** | ⚠ **The v3 probe's headline failure.** Faced with a quorum it could not satisfy, the mutator *invented people* — `jordan, riley, casey, morgan, alex, taylor, jamie` — and queued irreversible email to them, in multiple scenarios, while every other invariant passed. It passed because **the old set rewarded it**: the cheapest way to make invariant 6 satisfiable is to add candidates, and nothing required them to be real. This invariant closes the loop that the rest of the suite opens |
@@ -619,7 +621,7 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 | `kona graph --json [--version N]` | read | **the one supported read contract.** Powers the viewer and the scrubber |
 | `kona status [--json]` | read | head version, counts by state, ready nodes, armed waits + time remaining, open gates, `sending` unknowns |
 | `kona next --agent <id> --lease 30m` | claim | return eligible unleased nodes **and take a lease**. The only way a subagent gets work. **Never returns an uninstantiated branch template inside an unexpanded `group`** — the probe walked a fresh agent straight into `send_scope_package` with `<bidder_id>` unbound |
-| `kona brief <node>` | read | **the fresh subagent's entire world. Eight required blocks — see §6.8.1.** Refuses rather than returning a partial brief |
+| `kona brief <node>` | read | **the fresh subagent's entire world. Nine required blocks — see §6.8.1.** Refuses rather than returning a partial brief |
 | `kona why <node>` | read | the rationale chain for one node |
 | `kona set-status <node> --state … --why "…"` | mutate | executor status transition + conditions |
 | `kona effect reserve\|record` | effect | the §6.6 outbox sequence |
@@ -628,9 +630,9 @@ One binary owns every mutation. Every read supports `--json`; every mutating ver
 | `kona history [--node <id>]` | read | the rationale timeline — feeds the viewer's second panel and the agent's self-query |
 | `kona view [--port]` | viewer | start the localhost viewer. **User-run, never plugin-spawned** (§6.10) |
 
-#### 6.8.1. `kona brief` — eight required blocks · `kona lint` — eleven rules
+#### 6.8.1. `kona brief` — nine required blocks · `kona lint` — eleven rules
 
-**`kona brief <node>` returns all eight blocks or refuses.** Each was named independently by fresh subagents on three or four different briefs; together they are the difference between 0/8 executable and a working substrate.
+**`kona brief <node>` returns all nine blocks or refuses.** Each was named independently by fresh subagents on three or four different briefs; together they are the difference between 0/8 executable and a working substrate.
 
 | Block | Contents | Why |
 |---|---|---|

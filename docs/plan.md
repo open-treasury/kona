@@ -96,7 +96,7 @@
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
 | T4.1 | Verb scaffolding, `--json` on every read, exit codes 0/409/422/423 | 2 h | 30 m | T1.3 |
-| T4.2 | **`kona brief`** — the 8 required blocks; refuses rather than returning a partial | 4 h | 1 h | T3.1, T2.4 |
+| T4.2 | **`kona brief`** — the 9 required blocks; refuses rather than returning a partial | 4 h | 1 h | T3.1, T2.4 |
 | T4.3 | `kona lint` — 11 author-time rules **+ L1–L5 moved down from the invariant set** | 3.5 h | 50 m | T2.4 |
 | T4.4 | `kona plan` / `apply` — frozen content-hashed artifact | 2 h | 30 m | T2.4 |
 | T4.5 | `kona status` / `history` / `why` | 2 h | 30 m | T4.1 |
@@ -124,7 +124,8 @@
 | T6.2 | Node types + inline state (status chip, deadline countdown, quorum counter, blocked-reason text) | 3 h | 45 m | T6.1 |
 | T6.3 | dagre layout **memoized on `graph_version`** (Burr #834) | 2 h | 30 m | T6.1 |
 | T6.4 | Group collapse + edge redirection to container | 3 h | 45 m | T6.3 |
-| T6.5 | Rationale timeline panel + version scrubber | 3 h | 45 m | T6.2 |
+| T6.5a | **Rationale timeline panel** (never-cut) | 2 h | 30 m | T6.2 |
+| T6.5b | Version scrubber (cut-order 5) | 1 h | 15 m | T6.5a |
 
 ### E7 — Demo rig
 
@@ -175,7 +176,7 @@ T1.1 → T1.2 → T1.4 → T2.1 → T2.4 → T4.2 → T5.3 → T8.1
 
 **Ship (≈ 6 h critical path, ~12 h wall clock):**
 
-E1 whole · E2 minus T2.9 · **all 9 enforced invariants** — #8 recipient-evidence is never-cut · T2.6 branch resolution · E3 whole · T4.1, T4.2, T4.5 · T5.1, T5.3, T5.4, T5.5 · T6.1, T6.6, T6.2, T6.3, T6.4 · T7.1, T7.3, T7.4, T7.5 · E8 whole.
+E1 whole · E2 minus T2.9 · **all 9 enforced invariants** — #8 recipient-evidence is never-cut · T2.6 branch resolution · E3 whole · T4.1, T4.2, T4.5 · T5.1, T5.3, T5.4, T5.5 · T6.1, T6.6, T6.2, T6.3, T6.4, **T6.5 timeline panel (scrubber only is cut)** · T7.1, T7.3, T7.4, T7.5 · E8 whole.
 
 **Cut, in this order:**
 
@@ -185,7 +186,7 @@ E1 whole · E2 minus T2.9 · **all 9 enforced invariants** — #8 recipient-evid
 | 2 | T4.3 `kona lint` | Author-time only; §7.2's test still catches the same defects |
 | 3 | T4.4 `plan`/`apply` frozen artifact | Approve interactively instead; loses the audit answer, not the function |
 | 4 | `kona lint` rules L1–L5 | They catch *plan* defects before approval; the store still blocks every corruption path |
-| 5 | T6.5 rationale scrubber | **Keep the timeline panel, cut the scrubber** — the panel is the differentiator |
+| 5 | T6.5 **version scrubber only** | **The timeline panel ships** — it is the differentiator and `plan.md` lists rationale-on-click as never-cut. Only the scrub-to-version-N control is cut |
 | 6 | T7.2 Gmail impl | Mailpit-only demo; fully deterministic |
 | 7 | T5.2 authoring skill polish | Hand-author the initial graph for the demo |
 
