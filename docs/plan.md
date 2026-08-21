@@ -33,7 +33,7 @@
 | **E4** | CLI surface — 17 verbs, brief, lint | 13 h | 3.25 h | E1–E3 | **partial** |
 | **E5** | Claude Code plugin — orchestrator + executor | 12.5 h | 3.2 h | E4 | **partial** |
 | **E6** | Viewer — React Flow + dagre | 15.5 h | 3.9 h | E4.1 only | **partial** |
-| **E7** | Demo rig — mailbox, personas, divergence | 10.5 h | 2.7 h | E3.2 | **partial** |
+| **E7** | Demo rig — mailbox, personas, divergence | 10.5 h | 2.7 h | T1.1 only | **partial** |
 | **E8** | Integration & rehearsal | 7 h | 1.75 h | all | **full** |
 | | **Total** | **105.5 h** | **26.8 h** | | |
 
@@ -130,7 +130,7 @@
 
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
-| T7.1 | `MailboxProvider` port + Mailpit implementation | 2.5 h | 40 m | T3.2 |
+| T7.1 | `MailboxProvider` port + Mailpit implementation | 2.5 h | 40 m | **T1.1** |
 | T7.2 | Gmail plus-addressing implementation | 2 h | 30 m | T7.1 |
 | T7.3 | Persona generation + reply simulator | 3 h | 45 m | T7.1 |
 | T7.4 | **Divergence script** — Priya conditional / Pat silent / Sam→Marcus | 2 h | 30 m | T7.3 |
@@ -140,7 +140,7 @@
 
 | ID | Task | Human | AI | Deps |
 |---|---|---:|---:|---|
-| T8.1 | One full pursuit end-to-end | 3 h | 45 m | E5, E7 |
+| T8.1 | One full pursuit end-to-end | 3 h | 45 m | T5.3, T5.4, T7.1, T7.4, T7.5 |
 | T8.2 | **Divergent-arms acceptance test** (§7.2 assertions a–d) | 2 h | 30 m | T8.1 |
 | T8.3 | Kill-and-resume rehearsed ×2 | 2 h | 30 m | T8.1 |
 
@@ -166,7 +166,7 @@ T1.1 → T1.2 → T1.4 → T2.1 → T2.4 → T4.2 → T5.3 → T8.1
 | **W1** | E1 → E2 (ops, invariants, branch resolution) | the spine is done |
 | **W2** | E3 (waits, outbox, resume) + T2.7 | resume passes `kill -9` |
 | **W3** | E6 viewer — starts at T6.1 the moment `graph --json` exists | scrubber or cut-line |
-| **W4** | E7 demo rig — independent of everything but T3.2 | divergence script runs |
+| **W4** | E7 demo rig — **independent of everything but the toolchain** | divergence script runs |
 | **Operator** | E4 CLI glue, E5 plugin skills, review, integration | — |
 
 ---
@@ -204,3 +204,13 @@ E1 whole · E2 minus T2.9 · **all 7 enforced invariants** (the set is now small
 | **AgentMail `+` support** — 5 min | Nothing. Behind the `MailboxProvider` port | Ilya |
 
 **Two known unknowns that only appear during the build:** dispatch wall-clock per subagent (undocumented; sets the pace of T5.3's loop) and viewer readability at ~97 nodes (T6.4's real test). Neither is estimable in advance; both are cheap to fix once seen.
+
+
+---
+
+## 10. Review corrections (2026-08-21)
+
+A multi-lens review with adversarial verification (`probes/spec-review.md`, 62 raised / 34 survived) changed two things here:
+
+- **T7.1 now depends on `T1.1`, not `T3.2`.** §6.11 defines `MailboxProvider` as `provision / send / poll-thread` — no correlation logic — so a Mailpit port needs the toolchain, not correlation derivation. As written, E7's chain ran to 360 min and **the demo rig, not the CLI spine, gated T8.1**: the real endpoint was 405 min to T8.1 and 435 min to E8, and *every one of the §8 cuts was off the longest path*, so the Friday cut freed zero critical-path minutes. With this one-cell change, W4 starts at ~20 min instead of idling ~4 hours, and the stated 6.1 h spine becomes literally true.
+- **T8.1's dependencies are now task-level, not epic-level.** Epic-granularity deps in a task-granularity table silently pulled in cut-listed T7.2.
