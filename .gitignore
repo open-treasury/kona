@@ -1,0 +1,15 @@
+# Personal working notes — raw voice transcripts. The repo goes public before
+# the demo (PRD §16), so these stay local.
+docs/Rec.txt
+docs/Rec2.txt
+
+# Beads local state — not part of this work
+.beads/
+
+# Kona runtime state — a pursuit's .kona/ never belongs in the repo (spec §6.1)
+.kona/
+
+# Toolchain
+node_modules/
+dist/
+*.log
