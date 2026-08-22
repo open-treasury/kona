@@ -235,6 +235,16 @@ describe("the plugin is additive and trivially removable (§6.9)", () => {
     expect(script).not.toMatch(/kona.*mutate/);
   });
 
+  test("§8: nothing outside the CLI reads .kona/ — not even to check it exists", () => {
+    // A `[[ -f .kona/mutations.jsonl ]]` here would be a second thing that knows the
+    // layout. Small today, and exactly how a format ends up with two readers.
+    const code = read("scripts", "session-start.sh")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+    expect(code).not.toContain(".kona");
+  });
+
   test("the loop that sends things cannot be auto-invoked", () => {
     expect(read("skills", "run", "SKILL.md")).toContain("disable-model-invocation: true");
   });
