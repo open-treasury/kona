@@ -15,10 +15,12 @@ import {
   deriveCorrelation,
   encodeRecordEvidence,
   encodeReserveEvidence,
+  matchInbound,
   nodeIdFromCorrelation,
   pursuitConfig,
+  waitAddresses,
 } from "../src/index.ts";
-import { commit, record, rostered, seeded, task } from "./fixtures.ts";
+import { commit, record, rostered, seeded, task, wait } from "./fixtures.ts";
 
 const IDENTITY: Identity = {
   mailbox: "ilya@example.com",
@@ -101,6 +103,100 @@ describe("correlation derives from the node id (§6.5)", () => {
       const derived = deriveCorrelation("ilya@example.com", id);
       expect(derived.ok && nodeIdFromCorrelation(derived.correlation.reply_to)).toBe(id);
     }
+  });
+});
+
+describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
+  /**
+   * The bug this pins, which only an end-to-end run could show.
+   *
+   * `brief` derived the correlation from the SENDING node's id, so an executor was handed
+   * `ilya+kona-ask-dana@…`. `waitAddresses` and `matchInbound` derive it from the WAIT's id
+   * and look for `ilya+kona-wait-for-dana@…`. Both halves had passing unit tests — each was
+   * self-consistent — and every reply in a real run would have arrived correlated to nothing.
+   *
+   * §6.5 shows the token twice with the same literal, on the effect node and on the wait: one
+   * conversation, one token. The wait is the end that has to own it, because `record_outcome`
+   * targets the wait and because a send can be superseded while the wait behind it survives —
+   * and "a token that changes across executions goes stale in someone's inbox".
+   */
+  const wired = (extra: AuthoredOp[] = [], edges: AuthoredOp[] = []): Graph =>
+    commit(rostered(["dana"], [pivot("Ask Dana"), wait("Wait for Dana"), ...extra]), [
+      { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
+      ...edges,
+    ] as AuthoredOp[]);
+
+  test("the address brief hands out is the one poll will look for", () => {
+    const graph = wired();
+    const handed = briefOf(graph, "ask-dana").correlation?.reply_to ?? "";
+    const polled = waitAddresses(graph, IDENTITY.mailbox).map((a) => a.address);
+    // The whole claim, in one line: what the executor puts in `Reply-To` is what the poller
+    // will be watching for.
+    expect(polled).toContain(handed);
+  });
+
+  test("and a reply to it matches the wait, end to end", () => {
+    const graph = wired();
+    const replyTo = briefOf(graph, "ask-dana").correlation?.reply_to ?? "";
+    const matches = matchInbound(graph, IDENTITY.mailbox, [
+      { message_id: "<m-1@mail>", from: "dana@example.com", to: [replyTo] },
+    ]);
+    expect(matches.map((match) => match.node_id)).toEqual(["wait-for-dana"]);
+  });
+
+  test("nothing waiting means no reply address, and that is not a failure", () => {
+    // A fire-and-forget send — a follow-up nobody is expected to answer. An address that
+    // routes to no wait would be worse than none: a reply would arrive and match nothing.
+    const graph = rostered(["dana"], [pivot("Ask Dana")]);
+    const brief = briefOf(graph, "ask-dana");
+    expect(brief.correlation).toBeNull();
+    expect(checkNamed(graph, "ask-dana", "correlation_expanded")).toEqual({
+      name: "correlation_expanded",
+      ok: true,
+      detail: "nothing waits on this send, so a reply has nowhere to route",
+    });
+  });
+
+  test("two waits on one send FAILS CLOSED — guessing routes an answer to the wrong arm", () => {
+    const graph = wired([wait("Wait again")], [{ op: "add_edge", from: "ask-dana", to: "wait-again" }]);
+    const check = checkNamed(graph, "ask-dana", "correlation_expanded");
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain("wait-for-dana, wait-again");
+    expect(briefOf(graph, "ask-dana").correlation).toBeNull();
+    // And the brief as a whole refuses, so nothing dispatches on a guess.
+    expect(briefOf(graph, "ask-dana").preconditions_satisfied.ok).toBe(false);
+  });
+
+  test("a superseded wait does not claim the address its replacement should own", () => {
+    const graph = wired([wait("Wait again")], [
+      { op: "add_edge", from: "ask-dana", to: "wait-again" },
+      { op: "supersede_node", node: "wait-for-dana", by: "wait-again" },
+    ]);
+    expect(briefOf(graph, "ask-dana").correlation?.reply_to).toBe(
+      "ilya+kona-wait-again@example.com",
+    );
+  });
+
+  test("only an EVENT wait takes mail — a predicate wait has no inbox", () => {
+    const graph = commit(
+      rostered(["dana"], [
+        pivot("Ask Dana"),
+        wait("Quorum", {
+          match: {
+            kind: "predicate",
+            conditions: [
+              {
+                kind: "predicate",
+                on: "satisfied",
+                predicate: { count: { verdict: "confirmed" }, op: ">=", n: 1 },
+              },
+            ],
+          },
+        }),
+      ]),
+      [{ op: "add_edge", from: "ask-dana", to: "quorum" }] as AuthoredOp[],
+    );
+    expect(briefOf(graph, "ask-dana").correlation).toBeNull();
   });
 });
 
@@ -239,13 +335,17 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
 });
 
 describe("what the brief carries", () => {
-  const graph = commit(rostered(["dana"], [task("Roster"), pivot("Ask Dana")]), [
-    { op: "add_edge", from: "roster", to: "ask-dana", condition: { on: "satisfied" } },
-  ]);
+  const graph = commit(
+    rostered(["dana"], [task("Roster"), pivot("Ask Dana"), wait("Wait for Dana")]),
+    [
+      { op: "add_edge", from: "roster", to: "ask-dana", condition: { on: "satisfied" } },
+      { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
+    ],
+  );
 
   test("the correlation is FULLY EXPANDED — a template variable correlates nothing", () => {
     const brief = briefOf(graph, "ask-dana");
-    expect(brief.correlation?.reply_to).toBe("ilya+kona-ask-dana@example.com");
+    expect(brief.correlation?.reply_to).toBe("ilya+kona-wait-for-dana@example.com");
     expect(brief.correlation?.reply_to).not.toContain("{");
     expect(brief.correlation?.reply_to).not.toContain("$");
   });
@@ -356,9 +456,12 @@ describe("each check says what it looked at, not just whether it passed", () => 
     );
   });
 
-  test("an effect node names the address replies will correlate to", () => {
-    expect(checkNamed(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana", "correlation_expanded").detail).toBe(
-      "replies correlate to ilya+kona-ask-dana@example.com",
+  test("an effect node names the address replies will correlate to, and whose it is", () => {
+    const graph = commit(rostered(["dana"], [pivot("Ask Dana"), wait("Wait for Dana")]), [
+      { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
+    ]);
+    expect(checkNamed(graph, "ask-dana", "correlation_expanded").detail).toBe(
+      "replies correlate to ilya+kona-wait-for-dana@example.com — wait-for-dana",
     );
   });
 

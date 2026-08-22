@@ -49,7 +49,28 @@ const PLAN = [
       effect: { channel: "email", recipient_ref: "roster#dana" },
     },
   },
+  // The wait behind the send, and it is not decoration: §6.5's correlation token is the
+  // WAIT's, so an ask with nothing waiting on it correctly gets no reply address at all.
+  {
+    op: "add_node",
+    label: "Wait for Dana",
+    type: "wait",
+    spec: {
+      instruction: "Await Dana's reply.",
+      effect_class: "pure",
+      deadline: { after: "$1", duration: "48h" },
+      on_timeout: "$0",
+      match: {
+        kind: "event",
+        conditions: [
+          { kind: "reply", on: "satisfied" },
+          { kind: "deadline", on: "timeout" },
+        ],
+      },
+    },
+  },
   { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$1", to: "$2" },
 ];
 
 async function initWith(config: unknown): Promise<void> {
@@ -198,8 +219,9 @@ describe("kona brief", () => {
     h.reset();
     expect(await run(["brief", "ask-dana"], h.io)).toBe(1);
     const text = h.out.join("\n");
-    expect(text).toContain("ilya+kona-ask-dana@example.com");
-    expect(text).toContain("[kona-ask-dana]");
+    // The wait's tag, not the sender's — the address `kona poll` will actually watch.
+    expect(text).toContain("ilya+kona-wait-for-dana@example.com");
+    expect(text).toContain("[kona-wait-for-dana]");
     expect(text).toContain("depends on");
     expect(text).toContain("confirm-roster");
     expect(text).toContain("preconditions NOT SATISFIED");

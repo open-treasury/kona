@@ -186,6 +186,27 @@ export async function mutate(cwd: string, request: MutateRequest): Promise<numbe
   }
 }
 
+/**
+ * Commit, and hand back the refusal instead of throwing when the store says no.
+ *
+ * `mutate` throws, which is right for a script that knows what it is doing. This exists for
+ * the caller that does NOT: an orchestrator proposes, and being refused is information —
+ * `PREDICATE_UNSATISFIABLE` means "you cannot record that without also saying what you will
+ * do about it", and the right response is a better batch, not a stack trace.
+ */
+export type MutateOutcome =
+  | { ok: true; version: number }
+  | { ok: false; reason: string; code: number; stderr: string };
+
+export async function tryMutate(cwd: string, request: MutateRequest): Promise<MutateOutcome> {
+  try {
+    return { ok: true, version: await mutate(cwd, request) };
+  } catch (error) {
+    if (!(error instanceof KonaError)) throw error;
+    return { ok: false, reason: error.reason, code: error.code, stderr: error.stderr };
+  }
+}
+
 /* ── the outbox (§6.6) ───────────────────────────────────────────────────────────────── */
 
 /**
@@ -255,4 +276,103 @@ export async function graph(cwd: string, version?: number): Promise<unknown> {
 export async function next(cwd: string): Promise<string> {
   const { stdout } = await runOk(cwd, ["next"]);
   return stdout;
+}
+
+/**
+ * The frontier as data. **The plugin's only source of work** (§6.8), so a rig driving a whole
+ * pursuit has to read it the same way — anything else would be the rig deciding what to do
+ * next from its own script and calling the result an end-to-end run.
+ */
+export interface ReadyNode {
+  id: string;
+  type: "task" | "wait";
+  label: string;
+  spec: { effect_class: string; effect?: { channel: string; recipient_ref: string } };
+}
+
+export async function readyNodes(cwd: string): Promise<ReadyNode[]> {
+  const { stdout } = await runOk(cwd, ["next", "--json"]);
+  return (JSON.parse(stdout) as { nodes: ReadyNode[] }).nodes;
+}
+
+/* ── the mailbox seam (§6.5) ─────────────────────────────────────────────────────────── */
+
+/** A wait that is expecting mail, and the literal address its replies arrive at. */
+export interface WaitAddress {
+  node_id: string;
+  label: string;
+  address: string;
+  armed: boolean;
+}
+
+/** `kona poll` — what should I fetch? The fetching itself is the rig's job, never `kona`'s. */
+export async function pollTargets(cwd: string): Promise<WaitAddress[]> {
+  const { stdout } = await runOk(cwd, ["poll", "--json"]);
+  return (JSON.parse(stdout) as { poll: WaitAddress[] }).poll;
+}
+
+/**
+ * `kona poll --inbound` — here is what I fetched; which wait does each message belong to?
+ *
+ * It answers WHICH, never WHAT. Whether Dana said yes is a judgement about prose and the
+ * binary refuses to make it — which is the determinism law showing up as an API boundary.
+ */
+export interface InboundMatch {
+  node_id: string;
+  message_id: string;
+  from: string;
+  on: string;
+  /** The wait had already resolved. Recorded, never reopening it (§6.5). */
+  late: boolean;
+}
+
+export async function pollInbound(cwd: string, messages: readonly unknown[]): Promise<InboundMatch[]> {
+  const dir = await mkdtemp(join(tmpdir(), "kona-demo-inbound-"));
+  const path = join(dir, "inbound.json");
+  try {
+    await writeFile(path, JSON.stringify(messages), "utf8");
+    const { stdout } = await runOk(cwd, ["poll", "--inbound", path, "--json"]);
+    return (JSON.parse(stdout) as { matches: InboundMatch[] }).matches;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * `.kona/rejections.jsonl`, through the read contract rather than off the disk.
+ *
+ * §8: "a refused mutation is procedural memory too" — what the mutator meant to do, in its
+ * own words, beside what the store said about it. It is deliberately not a system of record:
+ * nothing folds it, and deleting it loses memory rather than state.
+ */
+export interface Refusal {
+  at: string;
+  rejection: { reason: string; message: string };
+  rationale: { why: string; reason_code: string } | null;
+}
+
+export async function rejections(cwd: string): Promise<Refusal[]> {
+  const { stdout } = await runOk(cwd, ["graph", "--json", "--rejections"]);
+  return (JSON.parse(stdout) as { rejections: Refusal[] }).rejections;
+}
+
+/**
+ * `kona resume --dry-run` — what a fresh terminal is told, with no session state anywhere.
+ *
+ * Dry run, so it reports without writing: the repairs it WOULD make are still listed, which
+ * is what makes it safe to call at the end of a run purely to assert that there is nothing
+ * left to repair.
+ */
+export interface ResumeReport {
+  version: number;
+  counts: Record<string, number>;
+  frontier: string[];
+  waits: { node_id: string; deadline: string | null; overdue: boolean }[];
+  unknown_sends: { node_id: string; effect_key: string }[];
+  repairs: unknown[];
+}
+
+export async function resume(cwd: string): Promise<ResumeReport> {
+  const { stdout } = await runOk(cwd, ["resume", "--dry-run", "--json"]);
+  return JSON.parse(stdout) as ResumeReport;
 }

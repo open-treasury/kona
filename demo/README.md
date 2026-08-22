@@ -25,15 +25,35 @@ the way a human on stage does: as a subprocess, through `demo/kona.ts`.
 mailbox/     the MailboxProvider port (provision / send / poll-thread) and its two
              implementations. Knows nothing about nodes, tags, or correlation.
 personas/    the cast and the reply simulator. Produces the world's bytes, decides nothing.
-script/      the divergence run, and the §7.2 assertions it has to pass.
+script/      two runs — see below — and the §7.2 assertions one of them has to pass.
 kona.ts      the subprocess seam.
 ```
+
+## The two runs, and why there are two
+
+| | `divergence.ts` (T7.4) | `pursuit.ts` (T8.1) |
+|---|---|---|
+| proves | the graph diverges in ways `withParam` cannot | **a pursuit finishes** |
+| shape | a scripted replay: eleven batches, hand-written `baseVersion`s | a loop: `kona next` decides what happens, head is read not predicted |
+| ends | where its author decided to stop | when the frontier is empty |
+| exercises | CAS, branch topology, the §7 assertions | readiness, `poll`, the human gate, invariant 2's refusal, `resume` |
+
+They are not redundant and neither subsumes the other. A replay can prove things about
+*structure* that a loop cannot make happen on cue; a loop can prove things about
+*termination* that a replay assumes. Between them, `--base-version` is exercised both ways:
+pinned to a literal, which catches an unexpected writer, and read from head, which is what a
+real orchestrator does.
+
+The correlation bug in §6.5 — `kona brief` handing out the sender's reply address while `kona
+poll` watched for the wait's — was invisible to both halves' unit tests and to the replay. It
+took a loop that sent mail and then went looking for the answer.
 
 ## Running it
 
 ```bash
 bun demo/script/divergence.ts            # offline, deterministic, no install step
 bun demo/script/divergence.ts --mailpit  # against a running Mailpit
+bun demo/script/pursuit.ts               # the full loop; exits non-zero if anything is left open
 ```
 
 `--mailpit` expects Mailpit on `http://localhost:8025`. It is **not** installed by this repo

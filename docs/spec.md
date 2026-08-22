@@ -252,7 +252,7 @@ Every time the contract asked the model to tidy up, it forgot, half-did it, or w
 }
 ```
 
-- **Correlation derives from the node id**, never minted per run — a token that changes across executions goes stale in someone's inbox.
+- **Correlation derives from the node id**, never minted per run — a token that changes across executions goes stale in someone's inbox. Specifically **the WAIT's id**, not the sender's: the two carry the same literal because they are one conversation, and the wait is the end that owns it. `record_outcome` targets the wait, so a reply has to route there; and a send can be superseded while the wait behind it survives, which is exactly the case where a sender-derived token would be reissued for a conversation already sitting in somebody's mail client. `kona brief` therefore looks *forward* from the sending node to the event-wait it feeds — and **fails closed on more than one**, since guessing which wait a reply belongs to would advance the wrong arm under no-rollback. A send with no wait behind it gets no reply address at all; nothing is listening.
 - **Reconciliation is truth; webhooks are a latency optimisation.** No provider offers a delivery guarantee strong enough to be state.
 - **First-match-wins**, deduped on provider message-id. Evaluate-all would let one reply advance two fanned-out waits — unrecoverable under no-rollback.
 - **Three states the contract must name**, because a retry loop never converges on them: a reply arriving after its wait resolved is `record_outcome(verdict:"late")` and **never reopens** it; a tentative reply records without resolving; a satisfied predicate-wait has the **store** drop its still-armed siblings.

@@ -16,6 +16,47 @@ import type { Identity, MutationRecord, PursuitConfig } from "./schema.ts";
 import { hasSentEffect } from "./effect.ts";
 import { type Correlation, deriveCorrelation } from "./correlation.ts";
 
+/**
+ * The event-waits hanging off a send — the nodes a reply to it could belong to.
+ *
+ * ## Why the token is the WAIT's id and not the sender's
+ *
+ * §6.5 gives the correlation token twice, and with the SAME literal both times: once on the
+ * effect node (`spec.effect.correlation`) and once on the wait (`match.correlation`). One
+ * conversation, one token. The question is only which node id it derives from, and the answer
+ * has to be the wait's, for two reasons.
+ *
+ * The routing reason: an inbound reply has to become a `record_outcome`, and `record_outcome`
+ * targets the WAIT. `waitAddresses` and `matchInbound` are built on that — they map an
+ * address to the wait it resolves. A token naming the sender would have to be translated by
+ * traversing an edge at match time, and a message that arrives after the graph moved has no
+ * guarantee that edge still reads the same.
+ *
+ * The staleness reason, which is the spec's own: "a token that changes across executions goes
+ * stale in someone's inbox". A send can be superseded and replaced — §6.7 makes that the
+ * normal way to retry — and the replacement is a NEW node with a new id. The wait behind it
+ * usually survives. Deriving from the sender would silently reissue the address for a
+ * conversation already in somebody's mail client.
+ *
+ * An earlier version of this file derived from `node.id`, which meant `kona brief` handed an
+ * executor a `Reply-To` that `kona poll` could never match: every reply in a real run would
+ * have arrived correlated to nothing. Unit tests on either half passed — each was
+ * self-consistent — and only driving a whole pursuit through both showed it.
+ */
+function awaitingWaits(graph: Graph, node: Node): Node[] {
+  return outEdges(graph, node.id).flatMap((edge) => {
+    const target = graph.nodes.get(edge.to);
+    if (target === undefined || target.type !== "wait") return [];
+    if (target.provenance.superseded_by !== null) return [];
+    // Only an EVENT wait takes mail. A predicate wait is judged from the graph and a human
+    // wait from a person; neither has an inbox, and addressing a reply to one would be a
+    // reply nothing reads.
+    const match = target.spec.match;
+    const kind = typeof match === "object" && match !== null ? (match as { kind?: unknown }).kind : null;
+    return kind === "event" ? [target] : [];
+  });
+}
+
 /** The config lives on the genesis record; this reads it back out of a folded log. */
 export function pursuitConfig(records: readonly MutationRecord[]): PursuitConfig {
   return records[0]?.config ?? {};
@@ -178,13 +219,27 @@ export function buildBrief(
   let correlationDetail = "node sends nothing, so it needs no reply address";
   let correlationOk = true;
   if (node.spec.effect !== undefined) {
-    const derived = deriveCorrelation(identity.mailbox, node.id);
-    if (derived.ok) {
-      correlation = derived.correlation;
-      correlationDetail = `replies correlate to ${derived.correlation.reply_to}`;
-    } else {
+    const awaiting = awaitingWaits(graph, node);
+    if (awaiting.length === 0) {
+      correlationDetail = "nothing waits on this send, so a reply has nowhere to route";
+    } else if (awaiting.length > 1) {
+      // Fail closed. An executor picking one would be guessing which wait a reply belongs
+      // to, and §6.5's first-match-wins means the wrong guess advances the wrong arm — under
+      // no-rollback, unrecoverably.
       correlationOk = false;
-      correlationDetail = derived.reason;
+      correlationDetail =
+        `${String(awaiting.length)} waits hang off this send (${awaiting.map((wait) => wait.id).join(", ")}); ` +
+        "a reply address can name only one, and guessing which would route an answer to the wrong arm";
+    } else {
+      const target = awaiting[0] as Node;
+      const derived = deriveCorrelation(identity.mailbox, target.id);
+      if (derived.ok) {
+        correlation = derived.correlation;
+        correlationDetail = `replies correlate to ${derived.correlation.reply_to} — ${target.id}`;
+      } else {
+        correlationOk = false;
+        correlationDetail = derived.reason;
+      }
     }
   }
 

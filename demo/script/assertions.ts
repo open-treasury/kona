@@ -52,6 +52,17 @@ export interface GraphNode {
   status: {
     state: string;
     output?: Record<string, unknown> | null;
+    /** The last version whose ops touched this node — NOT when it finished (§6.4). */
+    observed_at_version?: number;
+    /**
+     * Append-only (§6.7). `outcome` on the node is a PROJECTION of this — the first resolving
+     * verdict — so a `late` reply lands here and changes nothing the graph already acted on.
+     */
+    outcomes?: {
+      verdict: string;
+      evidence_ref: string;
+      attrs?: Record<string, unknown>;
+    }[];
     /**
      * §6.6's record of what left. Present on every node, empty on most; a node that declares
      * an `effect` and has moved bytes carries exactly one entry per slot it has spent.
