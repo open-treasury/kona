@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useLogFeed } from "./feed/useLog.ts";
 import { useNow } from "./feed/useNow.ts";
-import { buildPursuit } from "./model/pursuit.ts";
+import { buildPursuit, pursuitAt } from "./model/pursuit.ts";
 import { buildGraphView } from "./model/view.ts";
 import { createLayoutCache } from "./layout/dagre.ts";
 import { Canvas } from "./graph/Canvas.tsx";
@@ -49,16 +49,10 @@ export function App(): React.ReactElement {
   // #834: the right answer at the wrong cost, and it would first be felt at the fan-out.
   const head = useMemo(() => buildPursuit(feed.text), [feed.text]);
 
-  // Time travel folds a whole `PursuitView`, not just a graph. Pairing a truncated graph with
-  // HEAD's completion index is the subtle version of the bug rule 6 exists to avoid: scrubbing
-  // to v2 would render `wait-for-dana` counting down from a clock that `ask-dana` does not
-  // start until v3 — a deadline borrowed from the reader's future. `buildPursuit` builds the
-  // index from the records it actually folded, so the two can never come apart.
-  const shown = useMemo(
-    () =>
-      viewing === null || viewing >= head.graph.version ? head : buildPursuit(feed.text, viewing),
-    [feed.text, head, viewing],
-  );
+  // `pursuitAt` rather than the two-line conditional it replaces, because nothing in this
+  // package tests a `.tsx` file — judgment left in a component is judgment no mutant can
+  // reach, and the first version of exactly this line shipped a bug that 589 tests missed.
+  const shown = useMemo(() => pursuitAt(head, feed.text, viewing), [head, feed.text, viewing]);
 
   const view = useMemo(
     () => buildGraphView(shown.graph, shown.completionTime, now),
