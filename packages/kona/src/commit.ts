@@ -65,7 +65,7 @@ export type CommitOutcome = { ok: true; value: Committed } | { ok: false; code: 
 
 export async function commitBatch(
   io: Io,
-  build: (graph: Graph) => BuildResult,
+  build: (graph: Graph, records: readonly MutationRecord[]) => BuildResult,
 ): Promise<CommitOutcome> {
   const root = findPursuitRoot(io.cwd);
   if (root === null) {
@@ -84,7 +84,7 @@ export async function commitBatch(
       return { ok: false as const, code: EXIT_REFUSED };
     }
 
-    const decision = build(folded.graph);
+    const decision = build(folded.graph, folded.records);
     if ("refused" in decision) return { ok: false as const, code: decision.refused };
 
     const version = folded.graph.version + 1;

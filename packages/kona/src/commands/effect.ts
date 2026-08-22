@@ -20,6 +20,8 @@ import {
   type Graph,
   type Node,
   effectByKey,
+  effectsCommitted,
+  pursuitConfig,
   encodeRecordEvidence,
   encodeReserveEvidence,
   hasSentEffect,
@@ -63,7 +65,7 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
   let reservedKey = "";
   let idempotent = false;
 
-  const outcome = await commitBatch(io, (graph): BuildResult => {
+  const outcome = await commitBatch(io, (graph, records): BuildResult => {
     const node = lookup(graph, options.node, io);
     if (node === null) return { refused: EXIT_REFUSED };
 
@@ -104,11 +106,32 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
       return { refused: EXIT_OK };
     }
 
+    // INVARIANT 3(a), enforced at the moment of spending (§6.7).
+    //
     // There is no per-node retry budget, and deliberately so: one node has exactly one
     // slot, because the key is a function of (node, created_by_version). Retrying means
     // superseding and replacing — a NEW node with a NEW key — which is a graph mutation
-    // the model has to justify. What bounds a runaway loop is therefore invariant 3(a),
-    // the pursuit-wide send budget, not anything here.
+    // the model has to justify. So this pursuit-wide cap is the ONLY thing bounding a
+    // runaway loop, and `brief` merely advising on it was not enough: advice that the
+    // enforcement point ignores is not a circuit breaker.
+    const { effect_budget: budget } = pursuitConfig(records);
+    const committed = effectsCommitted(graph);
+    if (budget === undefined) {
+      // FAIL CLOSED, exactly as `brief` does. An unconfigured cap is an UNKNOWN cap, and
+      // the whole point is that a mutator cannot spend what nobody approved.
+      io.err(
+        `REFUSED NO_EFFECT_BUDGET this pursuit has no effect budget, so there is nothing to ` +
+          `spend against. Set one with 'kona init --config'; an unknown cap is not an unlimited one.`,
+      );
+      return { refused: EXIT_REFUSED };
+    }
+    if (committed >= budget) {
+      io.err(
+        `REFUSED EFFECT_BUDGET_EXHAUSTED this pursuit has committed ${committed} of ${budget} ` +
+          `irreversible effects. Escalate to a human — do not raise the budget to get past this.`,
+      );
+      return { refused: EXIT_REFUSED };
+    }
 
     if (node.status.state !== "active") {
       io.err(`REFUSED NOT_DISPATCHABLE '${node.id}' is '${node.status.state}', not active`);

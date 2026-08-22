@@ -290,7 +290,7 @@ You cannot make a local write and an external effect atomic. The outbox is the a
 |---|---|
 | **1** | **Terminal & effect protection** — an **op-delta** predicate, per-op against **pre-commit head**. For a node terminal at commit time: no new blocking edge into it, and no op targets it except `supersede_node` / `record_outcome` / `record_output`. No supersede of a node with a non-empty `effect_log` unless the same batch carries its compensation. **Existing** blocking edges into terminal nodes are untouched — they record how it became reachable. |
 | **2** | **Predicate-waits stay satisfiable** — population is the wait's blocking in-edges. `satisfiable iff matching_confirmed + still_live >= n` |
-| **3** | **Effects are bounded and addressed** — (a) cumulative irreversible sends ≤ the approved budget; (b) `recipient_ref` resolves to an entity already in the graph carrying an `evidence_ref`. **A recipient existing only in the proposing batch is rejected.** |
+| **3** | **Effects are bounded and addressed** — (a) cumulative irreversible ATTEMPTS ≤ the approved budget, enforced at `effect reserve` and failing closed when no budget is configured. *Attempts, not confirmed sends: the two crash windows leave a reservation whose outcome is genuinely unknown, so a cap that only counted confirmed sends would be spendable without limit by crashing;* (b) `recipient_ref` resolves to an entity already in the graph carrying an `evidence_ref`. **A recipient existing only in the proposing batch is rejected.** |
 
 3(b) is not theoretical: at n=60 the mutator met an unsatisfiable predicate by **inventing counterparties and queueing email to them**, passing every other check — because the suite rewarded it.
 

@@ -9,7 +9,7 @@
  * re-made at read time.
  */
 
-import type { EffectRecord, Node } from "./graph.ts";
+import type { EffectRecord, Graph, Node } from "./graph.ts";
 
 /**
  * §6.6 — **payload-independent by design.** The key names the SLOT; `payload_hash` proves
@@ -115,4 +115,20 @@ export function effectByKey(node: Node, effectKey: string): EffectRecord | null 
 /** §6.6 restart budget: attempts in a window, then escalate — never loop. */
 export function attemptCount(node: Node): number {
   return node.status.effect_log.length;
+}
+
+/**
+ * How much of the pursuit's send budget has been committed — invariant 3(a) (§6.7).
+ *
+ * Counts every reservation, not only the ones known to have landed. §6.7 says "cumulative
+ * irreversible sends", and an attempt is the closest thing the log can honestly count: the
+ * two crash windows leave a reservation whose outcome is genuinely unknown, so a budget
+ * that only counted confirmed sends would be spendable without limit by crashing. A bounce
+ * costs one too — it put bytes on the wire, and a loop of them is exactly what a budget is
+ * for now that the per-node retry cap is gone.
+ */
+export function effectsCommitted(graph: Graph): number {
+  let total = 0;
+  for (const node of graph.nodes.values()) total += node.status.effect_log.length;
+  return total;
 }

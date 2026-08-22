@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GraphProjection, Node } from "@kona/core";
 import { run } from "../src/cli.ts";
@@ -42,9 +42,22 @@ const PIVOT = [
 /** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
 const KEY = effectKey("ask-dana", 3);
 
+/** Invariant 3(a) fails closed on an unconfigured cap, so a pursuit that sends needs one. */
+const CONFIG = {
+  identity: {
+    mailbox: "ilya@example.com",
+    display_name: "Ilya Vorobiev",
+    signature: "— Ilya",
+    authority: "You may not commit funds.",
+  },
+  effect_budget: 5,
+};
+
 beforeEach(async () => {
   h = harness();
-  expect(await run(["init"], h.io)).toBe(0);
+  const config = join(h.dir, "config.json");
+  writeFileSync(config, JSON.stringify(CONFIG));
+  expect(await run(["init", "--config", config], h.io)).toBe(0);
   await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PIVOT);
   expect(
@@ -391,5 +404,78 @@ describe("dispatch", () => {
     h.reset();
     expect(await run(["effect", "reserve", "--why", "x", "--payload-hash", "h"], h.io)).toBe(1);
     expect(h.err[0]).toContain("MISSING_NODE");
+  });
+});
+
+describe("invariant 3(a): the budget is spent at reserve, not merely advised in brief", () => {
+  test("an unconfigured budget refuses the send — an unknown cap is not an unlimited one", async () => {
+    const bare = harness();
+    try {
+      expect(await run(["init"], bare.io)).toBe(0);
+      await seedRoster(bare, ["dana"]);
+      const ops = bare.writeOps("ops.json", PIVOT);
+      expect(
+        await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "ask", "--reason-code", "MISSING_STEP"], bare.io),
+      ).toBe(0);
+      bare.reset();
+      expect(
+        await run(["effect", "reserve", "ask-dana", "--payload-hash", "h", "--why", "send"], bare.io),
+      ).toBe(1);
+      expect(bare.err[0]).toContain("NO_EFFECT_BUDGET");
+    } finally {
+      bare.cleanup();
+    }
+  });
+
+  test("a spent budget refuses, and says not to raise it", async () => {
+    // With max_reattempts deleted, this cap is the ONLY thing bounding a runaway loop.
+    const spent = harness();
+    try {
+      const config = join(spent.dir, "config.json");
+      writeFileSync(config, JSON.stringify({ ...CONFIG, effect_budget: 1 }));
+      expect(await run(["init", "--config", config], spent.io)).toBe(0);
+      await seedRoster(spent, ["dana", "sam"]);
+      const ops = spent.writeOps("ops.json", [
+        ...PIVOT,
+        {
+          op: "add_node",
+          label: "Ask Sam",
+          type: "task",
+          spec: {
+            instruction: "Email Sam.",
+            outputs: [{ name: "sent", type: "string" }],
+            effect_class: "pivot",
+            effect: { channel: "email", recipient_ref: "roster#sam" },
+          },
+        },
+      ]);
+      expect(
+        await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "ask", "--reason-code", "MISSING_STEP"], spent.io),
+      ).toBe(0);
+
+      spent.reset();
+      expect(
+        await run(["effect", "reserve", "ask-dana", "--payload-hash", "h", "--why", "send"], spent.io),
+      ).toBe(0);
+
+      spent.reset();
+      expect(
+        await run(["effect", "reserve", "ask-sam", "--payload-hash", "h", "--why", "send"], spent.io),
+      ).toBe(1);
+      expect(spent.err[0]).toContain("EFFECT_BUDGET_EXHAUSTED");
+      expect(spent.err[0]).toContain("1 of 1");
+      expect(spent.err[0]).toContain("do not raise the budget");
+    } finally {
+      spent.cleanup();
+    }
+  });
+
+  test("an open reservation counts — crashing must not buy a free send", async () => {
+    // The two crash windows leave a reservation whose outcome is genuinely unknown, so a
+    // budget that only counted CONFIRMED sends would be spendable without limit by crashing.
+    expect(await reserve("sha256:aaa")).toBe(0);
+    const node = await nodeOf("ask-dana");
+    expect(node.status.effect_log).toHaveLength(1);
+    expect(node.status.effect_log[0]?.outcome).toBeNull();
   });
 });
