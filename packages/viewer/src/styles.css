@@ -909,6 +909,9 @@
   .animate-flash {
     animation: var(--animate-flash);
   }
+  .cursor-default {
+    cursor: default;
+  }
   .cursor-help {
     cursor: help;
   }

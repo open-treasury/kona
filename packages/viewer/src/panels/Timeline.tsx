@@ -52,11 +52,14 @@ function Entry({
   entry,
   isHead,
   isViewing,
+  travelling,
   onView,
 }: {
   entry: TimelineEntry;
   isHead: boolean;
   isViewing: boolean;
+  /** True while the canvas is showing some version other than head. */
+  travelling: boolean;
   onView: () => void;
 }): React.ReactElement {
   const shape = shapeOf(entry);
@@ -65,6 +68,17 @@ function Entry({
     entry.expectedEffect !== null ||
     entry.alternativesRejected.length > 0 ||
     entry.trigger !== null;
+
+  /*
+   * The row you are already looking at is not a link.
+   *
+   * Every row used to be a button, including the one whose version is on the canvas — so the
+   * head row invited a click that could not do anything, and the affordance lied for exactly
+   * one row out of thirteen. `aria-current` says which one it is, and the cursor and the dead
+   * hover say it again to a reader who is not using a screen reader. Every row that still
+   * looks clickable now takes you somewhere.
+   */
+  const isShowing = isViewing || (isHead && !travelling);
 
   return (
     <div
@@ -76,9 +90,18 @@ function Entry({
     >
       <button
         type="button"
+        aria-current={isShowing ? "true" : undefined}
+        disabled={isShowing}
         onClick={onView}
-        title={`view the graph as it stood at v${String(entry.version)} — read-only`}
-        className="w-full cursor-pointer px-3 py-2.5 text-left hover:bg-carbon-4"
+        title={
+          isShowing
+            ? `v${String(entry.version)} is what the canvas is showing`
+            : `view the graph as it stood at v${String(entry.version)} — read-only`
+        }
+        className={cn(
+          "w-full px-3 py-2.5 text-left",
+          isShowing ? "cursor-default" : "cursor-pointer hover:bg-carbon-4",
+        )}
       >
         <div className="flex items-baseline gap-2 font-mono text-[10px] text-carbon-40">
           <span className="font-semibold text-foreground">v{entry.version}</span>
@@ -196,6 +219,7 @@ export function Timeline({
               entry={entry}
               isHead={entry.version === headVersion}
               isViewing={entry.version === viewing && viewing !== headVersion}
+              travelling={viewing !== headVersion}
               onView={() => {
                 onView(entry.version);
               }}
