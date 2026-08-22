@@ -11,14 +11,15 @@
  * would fold to a graph the human never approved — with the log unchanged, so nothing looks
  * wrong. The store decides once and the log records the decision, exactly as for id minting.
  *
- * The read side is `isEdgeSatisfied` / `isReady` in `graph.ts`. This module is the write
- * side, and it deliberately does not import back into readiness: an edge whose source is
- * still open is neither satisfied nor dead, so the two predicates are not complements.
+ * `isEdgeDead` and `isArmDead` live in `graph.ts`, not here: readiness needs them too, and
+ * `graph.ts` cannot import this module without a cycle (`import/no-cycle` is an error). An
+ * edge whose source is still open is neither satisfied nor dead — the two predicates are not
+ * complements, which is the single easiest thing to get wrong in this file.
  */
 
 import type { CommittedOp } from "./schema.ts";
 import type { Edge, Graph, Node } from "./graph.ts";
-import { inEdges, isNodeTerminal, outEdges, resolutionOf } from "./graph.ts";
+import { inEdges, isEdgeDead, isNodeTerminal, outEdges } from "./graph.ts";
 
 /**
  * The `evidence_ref` a derived drop carries. It names the store, not a message, because no
@@ -26,36 +27,6 @@ import { inEdges, isNodeTerminal, outEdges, resolutionOf } from "./graph.ts";
  * store's housekeeping from what a human or a model authored.
  */
 export const DERIVED_EVIDENCE_PREFIX = "derived:branch-resolution";
-
-/**
- * Can this edge NEVER fire? The complement of *pending*, not of `isEdgeSatisfied`: an edge
- * whose source is still open is neither satisfied nor dead, and treating the two as
- * complements is how a live branch gets dropped.
- *
- * Deadness is monotone, which is what makes the op-delta trigger in `resolveBranches` exact.
- * Terminality is permanent (invariant 1 refuses `set_status` on a head-terminal node) and a
- * resolution is frozen once non-null (`status.outcome` is the FIRST resolving entry, so a
- * later reply cannot change it).
- */
-export function isEdgeDead(graph: Graph, edge: Edge): boolean {
-  const source = graph.nodes.get(edge.from);
-  if (source === undefined) return false;
-  // Still open: it may yet resolve either way.
-  if (!isNodeTerminal(source)) return false;
-  // §6.4 — "an in-edge whose SOURCE is dropped". The only status the spec names.
-  if (source.status.state === "dropped") return true;
-  // §6.2 keeps `failed` distinct from `dropped`: "tried, didn't work" is a human's to look
-  // at. It can never satisfy, so the subtree stalls — loudly, under a visibly failed node,
-  // which is better than the store silently deleting work someone is about to repair.
-  if (source.status.state === "failed") return false;
-  // A plain edge is cleared by any `done` source (§6.4 readiness), so it is never dead.
-  if (edge.condition === undefined) return false;
-  const resolution = resolutionOf(source);
-  // `done` with no resolving outcome yet: `set_status` at v10 and `record_outcome` at v11 is
-  // a legal two-commit sequence, and the window between them must not kill the branch.
-  if (resolution === null) return false;
-  return resolution !== edge.condition.on;
-}
 
 /**
  * May the store rewrite this node's status? Distinct from "is this arm dead" on purpose —

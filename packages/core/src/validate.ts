@@ -29,10 +29,17 @@
 
 import type { Actor, AuthoredOp, CommittedOp } from "./schema.ts";
 import { AuthoredBatchSchema } from "./schema.ts";
-import { type Edge, type Graph, type Node, inEdges, isNodeTerminal } from "./graph.ts";
+import {
+  type Edge,
+  type Graph,
+  type Node,
+  inEdges,
+  isEdgeDead,
+  isNodeTerminal,
+} from "./graph.ts";
 import { applyOps } from "./apply.ts";
 import { normalizeBatch } from "./normalize.ts";
-import { isEdgeDead, resolveBranches } from "./branch.ts";
+import { resolveBranches } from "./branch.ts";
 import { MAX_NODE_ID_LENGTH, NODE_ID_PATTERN } from "./ids.ts";
 import { type Verdict, VERDICTS, isResolvingVerdict } from "./vocab.ts";
 import { type Result, ok, refuse, violate } from "./result.ts";

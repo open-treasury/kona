@@ -13,6 +13,7 @@ import type { AuthoredOp, CommittedOp, Graph, Node, Verdict } from "../src/index
 import {
   DERIVED_EVIDENCE_PREFIX,
   applyOps,
+  isArmDead,
   emptyGraph,
   isDroppable,
   isEdgeDead,
@@ -53,6 +54,22 @@ function gated(): Graph {
   return commit(seeded([task("Accepted"), task("Ignored"), wait("Gate", { on_timeout: "$0" })]), [
     { op: "add_edge", from: "gate", to: "accepted", condition: { on: "accept" } },
     { op: "add_edge", from: "gate", to: "ignored", condition: { on: "ignore" } },
+  ]);
+}
+
+/** gate --accept--> a1 --> pivot, gate --ignore--> b1 --> pivot, with a shared descendant. */
+function shared(merge: "any" | "all"): Graph {
+  const seed = seeded([
+    task("A1"),
+    task("B1"),
+    task("Pivot", { merge }),
+    wait("Gate", { on_timeout: "$0" }),
+  ]);
+  return commit(seed, [
+    { op: "add_edge", from: "gate", to: "a1", condition: { on: "accept" } },
+    { op: "add_edge", from: "gate", to: "b1", condition: { on: "ignore" } },
+    { op: "add_edge", from: "a1", to: "pivot" },
+    { op: "add_edge", from: "b1", to: "pivot" },
   ]);
 }
 
@@ -531,5 +548,95 @@ describe("hardening — edge identity and the evidence stamp", () => {
       "b1=derived:branch-resolution:gate",
       "b2=derived:branch-resolution:b1",
     ]);
+  });
+});
+
+/**
+ * Arm-death — the readiness half of branch resolution.
+ *
+ * The cascade deliberately does not rewrite a node that is already terminal, or one that is
+ * `sending`. Those nodes then sit on a dead arm wearing a live-looking status, their plain
+ * out-edges read as SATISFIED, and under `merge: "any"` one of them alone puts a shared
+ * descendant on the frontier — which §6.8 says is what gets it dispatched, pivot send
+ * included. Dropping cannot answer this: a `sending` node completing later makes no edge
+ * newly dead, so no commit-time derivation ever sees it.
+ */
+describe("arm-death (§6.4, read side)", () => {
+  test("a root blocking on nothing is never arm-dead", () => {
+    expect(isArmDead(gated(), "gate")).toBe(false);
+  });
+
+  test("nothing is arm-dead while the gate is still open", () => {
+    const graph = shared("any");
+    expect(isArmDead(graph, "b1")).toBe(false);
+    expect(isArmDead(graph, "a1")).toBe(false);
+  });
+
+  test("the untaken arm becomes arm-dead once the gate resolves", () => {
+    const graph = run(shared("any"), [outcome("gate", "accept"), close("gate")]).graph;
+    expect(isArmDead(graph, "b1")).toBe(true);
+    expect(isArmDead(graph, "a1")).toBe(false);
+  });
+
+  /**
+   * The reproduction. `b1` is marked `done` out of band on the arm that will NOT be taken,
+   * so the cascade cannot rewrite it — and its plain edge into the pivot is satisfied.
+   */
+  test("a DONE node on an untaken arm does not satisfy a merge:'any' descendant", () => {
+    const withDone = commit(shared("any"), [close("b1")]);
+    // Before the gate resolves, b1's arm is not yet dead and `any` is legitimately satisfied.
+    expect(isReady(withDone, nodeOf(withDone, "pivot"))).toBe(true);
+
+    const graph = run(withDone, [outcome("gate", "accept"), close("gate")]).graph;
+    expect(nodeOf(graph, "b1").status.state).toBe("done");
+    expect(nodeOf(graph, "a1").status.state).toBe("active");
+    expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(false);
+    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["a1"]);
+  });
+
+  /**
+   * The outbox path, which commit-time derivation provably cannot catch: `b1` is `sending`
+   * when the gate resolves, so it is withheld; the send then completes normally, and that
+   * batch makes no edge newly dead, so nothing re-seeds.
+   */
+  test("nor does a SENDING node that later completes", () => {
+    const sending = commit(shared("any"), [close("b1", "sending")]);
+    const resolved = run(sending, [outcome("gate", "accept"), close("gate")]);
+    expect(resolved.withheld).toEqual(["b1"]);
+
+    const completed = commit(resolved.graph, [close("b1")]);
+    expect(isReady(completed, nodeOf(completed, "pivot"))).toBe(false);
+    expect(readyFrontier(completed).map((n) => n.id)).toEqual(["a1"]);
+  });
+
+  test("the taken arm still opens the descendant normally", () => {
+    let graph = run(shared("any"), [outcome("gate", "accept"), close("gate")]).graph;
+    graph = commit(graph, [close("a1")]);
+    expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(true);
+  });
+
+  test("merge:'all' was never exposed to this, and still is not", () => {
+    const withDone = commit(shared("all"), [close("b1")]);
+    const graph = run(withDone, [outcome("gate", "accept"), close("gate")]).graph;
+    expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(false);
+  });
+
+  test("a cycle is mutual dependency, not death — the predicate stays total", () => {
+    const seed = seeded([task("Accepted"), task("X"), task("Y"), wait("Gate", { on_timeout: "$0" })]);
+    const wired = commit(seed, [
+      { op: "add_edge", from: "gate", to: "accepted", condition: { on: "accept" } },
+      { op: "add_edge", from: "gate", to: "x", condition: { on: "ignore" } },
+      { op: "add_edge", from: "x", to: "y" },
+      { op: "add_edge", from: "y", to: "x" },
+    ]);
+    const graph = run(wired, [outcome("gate", "accept"), close("gate")]).graph;
+    expect(isArmDead(graph, "x")).toBe(false);
+    expect(isArmDead(graph, "y")).toBe(false);
+  });
+
+  test("a node whose every in-edge is dropped is arm-dead, and not ready", () => {
+    const graph = run(twoDeep(), [outcome("gate", "accept"), close("gate")]).graph;
+    expect(isArmDead(graph, "b2")).toBe(true);
+    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["a1"]);
   });
 });
