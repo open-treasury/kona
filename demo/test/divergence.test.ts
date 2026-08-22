@@ -51,6 +51,21 @@ function run(): Promise<RunResult> {
   });
 }
 
+/**
+ * ONE run, shared by everything that only reads it.
+ *
+ * Each `run()` spawns the binary about thirty times, so twelve of them was thirty-odd seconds
+ * of identical work — and, under a loaded machine, twelve chances to exceed bun's 5s default
+ * and be killed. That is the whole of `kona-atq`: a timed-out test makes the runner SIGTERM
+ * the `kona` subprocesses still in flight, and the NEXT test sees `exited 143` with an empty
+ * stderr, because a process killed by a signal never got to say anything. The rare, spooky
+ * empty-stderr failure was a timeout cascade wearing a mystery's clothes.
+ *
+ * The two tests that genuinely need an independent run — reproducibility, and the stub
+ * provider — still make their own, and say so.
+ */
+const RESULT = await run();
+
 /** Every node id the committed fixture carries at head. The demo and it are one story. */
 const FIXTURE_NODE_IDS = [
   "confirm-roster-availability",
@@ -71,7 +86,7 @@ const FIXTURE_NODE_IDS = [
 
 describe("the divergence run", () => {
   test("satisfies all four §7 divergent-arms assertions", async () => {
-    const result = await run();
+    const result = RESULT;
     const failed = result.assertions.filter((assertion) => !assertion.passed);
     // Print the witness on failure — an assertion that fails without saying which node it
     // looked at costs an hour.
@@ -80,7 +95,7 @@ describe("the divergence run", () => {
   });
 
   test("keeps every fixture node id, so the demo and the fixture stay one story", async () => {
-    const result = await run();
+    const result = RESULT;
     const live = new Set(result.head.nodes.map((node) => node.id));
     const missing = FIXTURE_NODE_IDS.filter((id) => !live.has(id));
     expect(missing).toEqual([]);
@@ -94,7 +109,7 @@ describe("the divergence run", () => {
     //
     // A rig that regressed to a bare send cannot fill `effect_key` — there would be no key to
     // fill it with — so this fails on the shape rather than on a convention.
-    const result = await run();
+    const result = RESULT;
     const byId = new Map(result.head.nodes.map((node) => [node.id, node]));
 
     expect(result.sends.length).toBeGreaterThan(0);
@@ -127,7 +142,7 @@ describe("the divergence run", () => {
     // The window §6.6 says nothing on disk can distinguish from window 3: a `sending` node
     // with an open reservation, no message id, and no way to know whether the bytes moved.
     // The run holds it open from v7 to v11 so the state is real rather than described.
-    const result = await run();
+    const result = RESULT;
     for (const version of [7, 8, 9, 10]) {
       const graph = asGraph(await kona.graph(result.cwd, version));
       const priya = graph.nodes.find((node) => node.id === "ask-priya-to-play-in-goal");
@@ -157,7 +172,7 @@ describe("the divergence run", () => {
   });
 
   test("the arms start diverging at v9, and reach three distinct sizes only by v16", async () => {
-    const result = await run();
+    const result = RESULT;
     const sizesAt = async (version: number): Promise<Set<number>> =>
       new Set(
         [...arms(asGraph(await kona.graph(result.cwd, version))).values()].map((n) => n.length),
@@ -180,7 +195,7 @@ describe("the divergence run", () => {
     // The trap: "collect every recipient_ref at head, subtract v1's, assert non-empty" returns
     // sam, priya and pat — exactly what a parameterised fan-out over the recorded roster would
     // produce. So the roster the graph itself recorded must contain them, and not Marcus.
-    const result = await run();
+    const result = RESULT;
     const roster = recordedRoster(result.head);
     expect(roster).toEqual(["dana", "sam", "priya", "pat"]);
     expect(roster).not.toContain("marcus");
@@ -197,7 +212,7 @@ describe("the divergence run", () => {
     // What IS checkable from the graph alone: at v9, the version where Sam names Marcus,
     // NOTHING is addressed to him; and the node that eventually is names an `evidence_ref`
     // the graph already carried.
-    const result = await run();
+    const result = RESULT;
 
     const atReferral = asGraph(await kona.graph(result.cwd, 9));
     const addressedAtReferral = atReferral.nodes
@@ -256,7 +271,7 @@ describe("the divergence run", () => {
   });
 
   test("no mail is sent to Priya — a refused send did not happen", async () => {
-    const result = await run();
+    const result = RESULT;
     const priya = persona("priya").address;
     expect(result.sends.map((send) => send.to)).not.toContain(priya);
 
@@ -266,7 +281,7 @@ describe("the divergence run", () => {
   });
 
   test("every send records its provider and realm (§6.11)", async () => {
-    const result = await run();
+    const result = RESULT;
     expect(result.sends.length).toBeGreaterThan(0);
     for (const send of result.sends) {
       expect(send.provider).toBe("memory");
@@ -275,7 +290,7 @@ describe("the divergence run", () => {
   });
 
   test("Pat's silence is recorded as an act, not as an absence", async () => {
-    const result = await run();
+    const result = RESULT;
     const silent = result.events.filter((event) => event.kind === "silent");
     expect(silent.map((event) => event.persona)).toEqual(["pat"]);
 
@@ -287,15 +302,17 @@ describe("the divergence run", () => {
   });
 
   test("the run reproduces — twice over, the same topology and the same message ids", async () => {
+    // Two FRESH runs, necessarily: comparing the shared one to itself would prove nothing.
+    // Sixty seconds because this is the one test in the file that pays the cost twice.
     const [first, second] = await Promise.all([run(), run()]);
     expect(shapeOfRun(second)).toEqual(shapeOfRun(first));
-  });
+  }, 60_000);
 
   test("(b) fails closed when no roster was recorded", async () => {
     // The hazard is an absent fact read as a permissive one: with an empty roster, every
     // addressed counterparty is trivially "absent" from it, so the assertion would pass at its
     // loudest exactly when it knows least — and would name Dana as the off-roster witness.
-    const result = await run();
+    const result = RESULT;
     const rosterless: GraphJson = {
       ...result.head,
       nodes: result.head.nodes.map(stripOutput),
@@ -358,7 +375,7 @@ describe("the divergence run", () => {
   });
 
   test("folding the log twice yields the same graph (§8)", async () => {
-    const result = await run();
+    const result = RESULT;
     const again = asGraph(await kona.graph(result.cwd));
     expect(JSON.stringify(again)).toBe(JSON.stringify(result.head));
   });

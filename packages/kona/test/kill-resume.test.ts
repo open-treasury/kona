@@ -170,8 +170,19 @@ describe("crash while holding the write lock", () => {
     const term = freshTerminal(AFTER_DEADLINE);
     await tryWrite(term);
     expect(term.err[0]).toContain("no longer running");
-    expect(term.err[0]).toContain("delete the file");
+    expect(term.err[0]?.toLowerCase()).toContain("delete the file");
     expect(term.err[0]).toContain("999");
+  });
+
+  test("a holder that is gone is STALE at once, without waiting out the timer", async () => {
+    // The kill rehearsal's finding. Pid 999 is not a running process, and until the liveness
+    // probe existed the answer for the first thirty seconds was "another writer holds it" —
+    // naming a corpse in exactly the window a crash gets discovered in.
+    leaveStaleLock();
+    const term = freshTerminal(T0); // the same instant the lock was taken: age says fresh
+    expect(await tryWrite(term)).toBe(1);
+    expect(term.err[0]).toContain("STALE_LOCK");
+    expect(term.err[0]).toContain("that process is gone");
   });
 
   test("and once it is cleared, the pursuit continues exactly where it was", async () => {
@@ -185,11 +196,14 @@ describe("crash while holding the write lock", () => {
   });
 
   test("a lock held right now is a different message — a slow peer is not a dead one", async () => {
-    writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: 999, started_at: T0 }));
+    // A lock claiming THIS process, which is unarguably running. That is what separates the
+    // two messages now: not the clock, but whether anybody is there.
+    writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: process.pid, started_at: T0 }));
     const term = freshTerminal(T0);
     expect(await tryWrite(term)).toBe(1);
     expect(term.err[0]).toContain("LOCK_HELD");
-    expect(term.err[0]).not.toContain("delete the file");
+    expect(term.err[0]).toContain("still running");
+    expect(term.err[0]?.toLowerCase()).not.toContain("delete the file");
   });
 });
 

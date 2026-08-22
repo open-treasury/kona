@@ -247,6 +247,28 @@ export interface PursuitOptions {
   provider: MailboxProvider;
   cwd?: string;
   narrate?: boolean;
+  /**
+   * Pick up a pursuit that already exists rather than starting one.
+   *
+   * This is what §6.7's D1 means operationally: "a fresh terminal with no session state
+   * reads `.kona/mutations.jsonl` and knows exactly where the pursuit stands". A loop that
+   * could only run from `init` would be carrying its place in the story in memory, and a
+   * `kill -9` would take that with it.
+   *
+   * Nothing below is guarded by a flag for this. Every decision the loop makes is already a
+   * function of the graph — see `REACTIONS`, whose `when` asks whether the node it would
+   * create is there rather than whether this process authored it.
+   */
+  resume?: boolean;
+  /**
+   * Called between `effect reserve` and the bytes leaving.
+   *
+   * §6.6's step 2 is "the executor sends", and this is that seam. It exists for one caller:
+   * the kill rehearsal hangs here and gets `SIGKILL`ed, which is the only way to produce a
+   * real crash window 2 — a slot fsynced, and nothing gone out — rather than a simulation
+   * of one.
+   */
+  beforeSend?: (nodeId: string, effectKey: string) => Promise<void>;
 }
 
 export interface Iteration {
@@ -284,8 +306,6 @@ export async function runPursuit(options: PursuitOptions): Promise<PursuitResult
   const outbound = new Map<string, Outbound>();
   /** Messages already handed to `kona poll`, so the world is not re-delivered every pass. */
   const delivered = new Set<string>();
-  /** Reactions that have already fired. A re-plan is authored once or it is a loop. */
-  const authored = new Set<string>();
 
   const konaBox = await provider.provision({
     address: `${KONA_MAILBOX.local}@${KONA_MAILBOX.domain}`,
@@ -336,36 +356,40 @@ export async function runPursuit(options: PursuitOptions): Promise<PursuitResult
     return "recovered";
   };
 
-  await kona.init(cwd, "ilya", {
-    identity: {
-      mailbox: `${KONA_MAILBOX.local}@${KONA_MAILBOX.domain}`,
-      display_name: KONA_MAILBOX.display_name,
-      signature: "— Ilya",
-      authority:
-        "You may ask whether someone can play on Thursday and record their answer. " +
-        "You may NOT commit funds, move the date or the venue, or contact anyone this brief does not name.",
-    },
-    effect_budget: 8,
-  });
-  say(`kona init ${cwd}`);
+  if (options.resume === true) {
+    say(`resuming ${cwd} — nothing carried over but the log`);
+  } else {
+    await kona.init(cwd, "ilya", {
+      identity: {
+        mailbox: `${KONA_MAILBOX.local}@${KONA_MAILBOX.domain}`,
+        display_name: KONA_MAILBOX.display_name,
+        signature: "— Ilya",
+        authority:
+          "You may ask whether someone can play on Thursday and record their answer. " +
+          "You may NOT commit funds, move the date or the venue, or contact anyone this brief does not name.",
+      },
+      effect_budget: 8,
+    });
+    say(`kona init ${cwd}`);
 
-  // ── the authored graph ────────────────────────────────────────────────────────────────
-  // ONE node, and no plan at all. The fan-out cannot be authored yet, and that is invariant
-  // 3(b) deciding the shape rather than merely policing it: a recipient must resolve to
-  // something ALREADY in the graph, and right now the graph has never heard of Dana.
-  //
-  // The escalation is not here either, and that is the frontier deciding the shape. A node
-  // with no in-edges is READY — so an escape hatch authored before the thing it escapes from
-  // is a node the loop would dispatch immediately, telling Ilya no goalie was found before
-  // anyone had been asked. It arrives with the quorum it is the timeout arm of.
-  await commit("Find out who is available before contacting anyone.", "MISSING_STEP", [
-    node("Confirm roster availability", "task", "setup", {
-      instruction: "Read the roster and list who has not yet answered.",
-      outputs: [{ name: "availability", type: "string[]" }],
-      effect_class: "pure",
-    }),
-  ]);
-  say("authored: read the roster");
+    // ── the authored graph ────────────────────────────────────────────────────────────────
+    // ONE node, and no plan at all. The fan-out cannot be authored yet, and that is invariant
+    // 3(b) deciding the shape rather than merely policing it: a recipient must resolve to
+    // something ALREADY in the graph, and right now the graph has never heard of Dana.
+    //
+    // The escalation is not here either, and that is the frontier deciding the shape. A node
+    // with no in-edges is READY — so an escape hatch authored before the thing it escapes from
+    // is a node the loop would dispatch immediately, telling Ilya no goalie was found before
+    // anyone had been asked. It arrives with the quorum it is the timeout arm of.
+    await commit("Find out who is available before contacting anyone.", "MISSING_STEP", [
+      node("Confirm roster availability", "task", "setup", {
+        instruction: "Read the roster and list who has not yet answered.",
+        outputs: [{ name: "availability", type: "string[]" }],
+        effect_class: "pure",
+      }),
+    ]);
+    say("authored: read the roster");
+  }
 
   // ── the loop ──────────────────────────────────────────────────────────────────────────
   for (let n = 1; n <= MAX_ITERATIONS; n += 1) {
@@ -478,8 +502,10 @@ export async function runPursuit(options: PursuitOptions): Promise<PursuitResult
       if (target.type !== "wait") continue;
       const ruling = RULINGS[target.id];
       if (ruling === undefined) continue;
-      if (authored.has(`ruled:${target.id}`)) continue;
-      authored.add(`ruled:${target.id}`);
+      // Asked and answered is a fact about the GRAPH, not about this process. A ruling
+      // already recorded is one a restarted loop must not record twice.
+      const already = graph.nodes.find((candidate) => candidate.id === target.id);
+      if ((already?.status.outcomes?.length ?? 0) > 0) continue;
       const outcome = await proposeOrRecover(
         ruling.why,
         "NEW_CONSTRAINT",
@@ -537,10 +563,11 @@ export async function runPursuit(options: PursuitOptions): Promise<PursuitResult
     //    place the graph grows. Each reaction fires once — a re-plan that could fire twice is
     //    a loop that never terminates.
     for (const reaction of REACTIONS) {
-      if (authored.has(reaction.id)) continue;
       const latest = await graphNow();
+      // `when` is asked of the GRAPH every time, and answers false once the plan is there.
+      // Nothing remembers having fired it, which is what lets a killed loop be restarted by
+      // a different process and reach the same place.
       if (!reaction.when(latest)) continue;
-      authored.add(reaction.id);
       await commit(reaction.why, reaction.reasonCode, reaction.ops(latest));
       did.push(`planned ${reaction.id}`);
     }
@@ -609,6 +636,7 @@ export async function runPursuit(options: PursuitOptions): Promise<PursuitResult
       kona.payloadHash(envelope.body_text),
       `inviting ${who.display_name} to play in goal on Thursday`,
     );
+    await options.beforeSend?.(nodeId, key);
     const receipt = await provider.send(envelope);
     await kona.effectRecord(
       cwd,
@@ -640,7 +668,9 @@ const REACTIONS: Reaction[] = [
     // ONLY once the roster is committed. Authoring this in the same batch that reads the
     // roster is refused with UNEVIDENCED_RECIPIENT, and rightly: nothing outside that batch
     // would attest to Dana existing.
-    when: (graph) => stateOf(graph, "confirm-roster-availability") === "done",
+    when: (graph) =>
+      stateOf(graph, "confirm-roster-availability") === "done" &&
+      !has(graph, "ask-dana-to-play-in-goal"),
     // The escalation is `$0` and comes FIRST, because `on_timeout` on the waits below has to
     // name it and `$N` resolves only against an EARLIER op in the same batch. Naming it by
     // the slug it is about to be given is refused with `UNKNOWN_NODE`, and correctly — at
@@ -700,6 +730,10 @@ const REACTIONS: Reaction[] = [
 
 function stateOf(graph: GraphJson, id: string): string | null {
   return graph.nodes.find((candidate) => candidate.id === id)?.status.state ?? null;
+}
+
+function has(graph: GraphJson, id: string): boolean {
+  return graph.nodes.some((candidate) => candidate.id === id);
 }
 
 /**

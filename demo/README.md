@@ -25,28 +25,36 @@ the way a human on stage does: as a subprocess, through `demo/kona.ts`.
 mailbox/     the MailboxProvider port (provision / send / poll-thread) and its two
              implementations. Knows nothing about nodes, tags, or correlation.
 personas/    the cast and the reply simulator. Produces the world's bytes, decides nothing.
-script/      two runs — see below — and the §7.2 assertions one of them has to pass.
+script/      three runs — see below — and the §7.2 assertions one of them has to pass.
 kona.ts      the subprocess seam.
 ```
 
-## The two runs, and why there are two
+## The three runs, and why there are three
 
-| | `divergence.ts` (T7.4) | `pursuit.ts` (T8.1) |
-|---|---|---|
-| proves | the graph diverges in ways `withParam` cannot | **a pursuit finishes** |
-| shape | a scripted replay: eleven batches, hand-written `baseVersion`s | a loop: `kona next` decides what happens, head is read not predicted |
-| ends | where its author decided to stop | when the frontier is empty |
-| exercises | CAS, branch topology, the §7 assertions | readiness, `poll`, the human gate, invariant 2's refusal, `resume` |
+| | `divergence.ts` (T7.4) | `pursuit.ts` (T8.1) | `kill-resume.ts` (T8.3) |
+|---|---|---|---|
+| proves | the graph diverges in ways `withParam` cannot | **a pursuit finishes** | **a killed pursuit is recoverable** |
+| shape | a scripted replay: eleven batches, hand-written `baseVersion`s | a loop: `kona next` decides what happens, head is read not predicted | `SIGKILL` to a detached process group, then a fresh process |
+| ends | where its author decided to stop | when the frontier is empty | when a human could have carried on |
+| exercises | CAS, branch topology, the §7 assertions | readiness, `poll`, the human gate, invariant 2's refusal | the outbox's crash windows, the lock, torn tails, restart-from-log |
 
-They are not redundant and neither subsumes the other. A replay can prove things about
-*structure* that a loop cannot make happen on cue; a loop can prove things about
-*termination* that a replay assumes. Between them, `--base-version` is exercised both ways:
-pinned to a literal, which catches an unexpected writer, and read from head, which is what a
-real orchestrator does.
+None of them subsumes another. A replay proves things about *structure* that a loop cannot
+make happen on cue; a loop proves things about *termination* that a replay assumes; and only
+a real signal proves that the state a crash leaves is the state the tests simulate.
 
-The correlation bug in §6.5 — `kona brief` handing out the sender's reply address while `kona
-poll` watched for the wait's — was invisible to both halves' unit tests and to the replay. It
-took a loop that sent mail and then went looking for the answer.
+Between them, `--base-version` is exercised both ways: pinned to a literal, which catches an
+unexpected writer, and read from head, which is what a real orchestrator does.
+
+Each of the last two found a bug the others could not see.
+
+- **The correlation mismatch.** `kona brief` handed out the sender's reply address while
+  `kona poll` watched for the wait's, so every reply in a real run would have correlated to
+  nothing. Both halves had passing unit tests. It took a loop that sent mail and then went
+  looking for the answer.
+- **The lock naming a corpse.** `kill -9` a writer mid-write and the next command said
+  "another writer holds it (pid N)" for thirty seconds — in exactly the window a crash gets
+  discovered in. `acquireLock` now asks whether the pid is running. It still never reclaims;
+  what changed is only what a human is told.
 
 ## Running it
 
@@ -54,7 +62,12 @@ took a loop that sent mail and then went looking for the answer.
 bun demo/script/divergence.ts            # offline, deterministic, no install step
 bun demo/script/divergence.ts --mailpit  # against a running Mailpit
 bun demo/script/pursuit.ts               # the full loop; exits non-zero if anything is left open
+bun demo/script/kill-resume.ts           # kill -9 eleven times, and recover from each
 ```
+
+`kill-resume.ts` spawns and destroys a pursuit per kill point, so the full eight-point sweep
+takes about a minute. `bun test` runs the same rehearsal with three points — the property
+asserted is identical and the coverage of it is thinner. Run the script for the full sweep.
 
 `--mailpit` expects Mailpit on `http://localhost:8025`. It is **not** installed by this repo
 and is **not** needed for the assertions to run — `bun test` uses the in-process provider and

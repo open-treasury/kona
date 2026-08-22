@@ -5,8 +5,9 @@
  * alike. `flock` is POSIX-only and Windows has no equivalent; it is the same amount of
  * code, so the portable one is the one to write first.
  *
- * The lock is held only for the duration of a write (§6.1), which is why a stale lock is
- * a crash rather than a slow peer, and why reclaiming one after a bounded age is safe.
+ * The lock is held only for the duration of a write (§6.1), so a lock that outlives a write
+ * is a crash rather than a slow peer. Which one it is decides only what a HUMAN is told —
+ * nothing here ever reclaims. See the note on `acquireLock`.
  */
 
 import { link, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,6 +15,33 @@ import type { Clock } from "./clock.ts";
 
 /** A legal write is a read, a validate and an append. Thirty seconds is generous. */
 export const STALE_LOCK_MS = 30_000;
+
+/**
+ * Is the process that wrote this lock still running?
+ *
+ * Signal 0 is the POSIX liveness probe: it validates the pid and permissions and delivers
+ * nothing. **EPERM means the process EXISTS** and belongs to somebody else, so it counts as
+ * alive; only ESRCH means gone. Getting that backwards would tell an operator to delete a
+ * lock somebody is actively holding.
+ *
+ * Two honest limits, and both fail in the safe direction:
+ *
+ * - **PID reuse.** A recycled pid makes a dead holder look alive, which errs toward "someone
+ *   may be writing" — the conservative answer. The dangerous direction, a live holder looking
+ *   dead, cannot come from reuse.
+ * - **Another machine.** A pid means nothing on a different host. §1 refuses to run on a
+ *   network filesystem precisely so that this question never arises: the lock is local, so
+ *   the pid is ours to ask about.
+ */
+function holderIsRunning(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: string } | null)?.code === "EPERM";
+  }
+}
 
 export interface LockInfo {
   pid: number;
@@ -87,6 +115,7 @@ export async function acquireLock(
   now: Clock,
   pid: number,
   staleAfterMs: number = STALE_LOCK_MS,
+  isRunning: (holderPid: number) => boolean = holderIsRunning,
 ): Promise<LockOutcome> {
   const info: LockInfo = { pid, started_at: now() };
 
@@ -98,7 +127,13 @@ export async function acquireLock(
 
   const holder = await readLockInfo(path);
   const age = holder === null ? Number.NaN : Date.parse(now()) - Date.parse(holder.started_at);
-  const stale = Number.isNaN(age) || age >= staleAfterMs;
+  // Age alone is a PROXY for "the holder is dead", and a poor one for the first thirty
+  // seconds — which is exactly the window a crash is discovered in. Measured: `kill -9`
+  // mid-write and the next command said "another writer holds it (pid 41usa)", naming a
+  // corpse, and a human had to wait out the timer to be told the truth. Asking whether the
+  // pid is running answers it in the moment.
+  const dead = holder !== null && !isRunning(holder.pid);
+  const stale = Number.isNaN(age) || age >= staleAfterMs || dead;
 
   // A STALE LOCK IS NOT RECLAIMED AUTOMATICALLY, and that is a deliberate reversal.
   //
@@ -115,11 +150,16 @@ export async function acquireLock(
   return {
     ok: false,
     reason: stale ? "STALE_LOCK" : "LOCK_HELD",
+    // Three messages, because a human does three different things about them. The evidence
+    // each rests on is named, so nobody has to guess how sure the tool is.
     message: stale
       ? `${path} was left behind by a writer that is no longer running ` +
-        `(pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"}). ` +
-        `Make sure no kona process is running, then delete the file to continue.`
-      : `another writer holds ${path} (pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"})`,
+        `(pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"}` +
+        (dead ? "; that process is gone). " : "). ") +
+        (dead
+          ? "Delete the file to continue."
+          : "Make sure no kona process is running, then delete the file to continue.")
+      : `another writer holds ${path} (pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"}, still running)`,
     holder,
   };
 }

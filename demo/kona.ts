@@ -36,13 +36,36 @@ export class KonaError extends Error {
   readonly reason: string;
 
   constructor(argv: readonly string[], code: number, stderr: string) {
-    const reason = reasonOf(stderr);
-    super(`kona ${argv.join(" ")} exited ${code}: ${stderr.trim()}`);
+    const reason = reasonOf(stderr, code);
+    super(`kona ${argv.join(" ")} exited ${String(code)}: ${stderr.trim() || describe(code)}`);
     this.name = "KonaError";
     this.code = code;
     this.stderr = stderr;
     this.reason = reason;
   }
+}
+
+/**
+ * What a bare exit code means when there is no stderr to read.
+ *
+ * §6.8 requires every non-zero exit to write a symbolic reason, so an EMPTY stderr means the
+ * process never reached its own error path — it was killed. A shell reports a signal death as
+ * `128 + signum`, which is where 143 (SIGTERM) and 137 (SIGKILL) come from.
+ *
+ * This exists because of `kona-atq`: a rare `KonaError` with empty stderr under full-suite
+ * load, which read as a mystery for as long as nobody could tell 143 from a refusal. It was
+ * bun's test runner SIGTERMing the subprocesses of a test that had timed out, and the
+ * cascade landing on whatever ran next. Naming it is what turned it into a five-minute fix.
+ */
+function describe(code: number): string {
+  const SIGNALS: Record<number, string> = { 137: "SIGKILL", 143: "SIGTERM", 130: "SIGINT" };
+  const signal = SIGNALS[code];
+  if (signal !== undefined) {
+    return `killed by ${signal} — no stderr, because it never reached its own error path`;
+  }
+  return code > 128
+    ? `killed by signal ${String(code - 128)} — no stderr, because it never reached its own error path`
+    : "(no stderr)";
 }
 
 /**
@@ -52,8 +75,11 @@ export class KonaError extends Error {
  * CLI layer rejects with `REFUSED <REASON> detail`, where `REFUSED` is the class and the
  * reason is the second token. One parser, both shapes.
  */
-export function reasonOf(stderr: string): string {
-  const tokens = stderr.trim().split(/\s+/);
+export function reasonOf(stderr: string, code = 1): string {
+  const trimmed = stderr.trim();
+  // Nothing to read. §6.8 makes that impossible for a refusal, so this is a signal.
+  if (trimmed.length === 0) return code > 128 ? `KILLED_BY_SIGNAL_${String(code - 128)}` : "UNKNOWN";
+  const tokens = trimmed.split(/\s+/);
   const first = tokens[0] ?? "UNKNOWN";
   return first === "REFUSED" ? (tokens[1] ?? first) : first;
 }
