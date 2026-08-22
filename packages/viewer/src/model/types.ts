@@ -131,6 +131,21 @@ export interface NodeView {
   observedAtVersion: number;
   /** Set on a node whose effect moves bytes we cannot take back (§6.6). */
   irreversible: boolean;
+  /**
+   * Nothing has to happen before this — the activity diagram's initial node.
+   *
+   * Computed over flow (dependencies plus timeout routes), so the escalation every wait
+   * escapes to is NOT one, even though nothing depends on it.
+   */
+  isStart: boolean;
+  /**
+   * Nothing depends on this **at this version** — and that wording is the whole caveat.
+   *
+   * §6.1 makes the topology mutate mid-run, so this is not the activity diagram's *final*
+   * node: a leaf today grows children tomorrow, which is the claim rather than an edge case.
+   * A superseded node is neither a start nor an end; it was replaced.
+   */
+  isEnd: boolean;
 }
 
 export interface GraphView {

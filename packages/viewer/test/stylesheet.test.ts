@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -58,14 +58,31 @@ describe("the compiled stylesheet is not stale", () => {
     const theme = readFileSync(join(PACKAGE, "src", "theme.css"), "utf8");
     expect(theme).toContain("source(none)");
     expect(theme).toMatch(/@source\s+"\.\/\*\*\/\*\.\{ts,tsx\}"/);
+  });
 
-    // And the proof it is working: none of the three is in the output any more, and none of
-    // them is used by a component either.
+  test("the bundle carries a utility if and only if `src/` mentions it", () => {
+    // NOT a fixed list of forbidden class names. That was the first version of this test and
+    // it decayed exactly as you would expect: `.grow` and `.transition` are now used by real
+    // components, so asserting their absence began failing for the right reason in the wrong
+    // test.
+    //
+    // The invariant that does not decay: for any single-word utility, it is in the bundle IF
+    // AND ONLY IF `src/` mentions it somewhere. Test prose cannot put one in; a component
+    // using one cannot leave it out. Comments in `src/` count, and should — the scanner reads
+    // them too, and scoping it to `src/` was the whole fix, not teaching it to skip comments.
     const styles = readFileSync(join(PACKAGE, "src", "styles.css"), "utf8");
-    for (const leaked of [".static {", ".grow {", ".transition {"]) {
-      expect(`${leaked} in styles.css: ${String(styles.includes(leaked))}`).toBe(
-        `${leaked} in styles.css: false`,
-      );
+    const source = readdirSync(join(PACKAGE, "src"), { recursive: true, encoding: "utf8" })
+      .filter((entry) => entry.endsWith(".ts") || entry.endsWith(".tsx"))
+      .map((entry) => readFileSync(join(PACKAGE, "src", entry), "utf8"))
+      .join("\n");
+
+    // Single-word utilities that need no arbitrary value, so presence is unambiguous. Some
+    // are used today and some are not; the test does not care which, only that the two
+    // answers agree.
+    for (const utility of ["static", "grow", "transition", "isolate", "contents", "collapse", "invisible", "italic", "truncate"]) {
+      const inBundle = styles.includes(`\n  .${utility} {`);
+      const inSource = new RegExp(`\\b${utility}\\b`).test(source);
+      expect(`${utility}: bundle=${String(inBundle)}`).toBe(`${utility}: bundle=${String(inSource)}`);
     }
   });
 });

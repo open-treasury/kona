@@ -23,7 +23,10 @@ import { NOW, V, folded, logText } from "./fixture.ts";
 
 const FOLD = folded();
 const GRAPH = FOLD.graph;
-const HOUR = 3_600_000;
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 /** Node id → the moment it succeeded, exactly as `PursuitView.completionTime` carries it. */
 const DONE: ReadonlyMap<string, Instant> = completionTimeOf(FOLD.records);
@@ -146,6 +149,36 @@ describe("waitStateOf", () => {
     });
   });
 
+  /**
+   * §6.2's duration grammar is `\d+[smhd]`, and this pursuit only ever says `48h`. Three of
+   * the four units are therefore unexercised by the story itself, and a unit that returned
+   * the wrong multiple would not look wrong: a `2d` wait scaled as hours paints itself blown
+   * forty-six hours before its deadline, on a countdown that reads perfectly plausibly, and
+   * `on_timeout` routes the pursuit to the escalation while the counterparty is still well
+   * inside the window they were given. The multipliers here are the calendar's, not the
+   * module's — a day is twenty-four of the hour the fixture already pins.
+   */
+  const DURATIONS: [text: string, span: number][] = [
+    ["30s", 30 * SECOND],
+    ["15m", 15 * MINUTE],
+    ["6h", 6 * HOUR],
+    ["2d", 2 * DAY],
+    ["48h", 48 * HOUR],
+  ];
+
+  test.each(DURATIONS)("a %s deadline runs from the anchor's completion", (text, span) => {
+    const graph = variant((g) => {
+      const deadline = node("wait-for-dana", g).spec.deadline;
+      if (deadline === undefined || !("after" in deadline)) throw new Error("shape changed");
+      deadline.duration = text;
+    });
+    const state = wait("wait-for-dana", NOW, graph);
+    expect(state.deadlineAt).toBe(succeededAt("ask-dana-to-play-in-goal") + span);
+    expect(state.remainingMs).toBe((state.deadlineAt ?? 0) - NOW);
+    expect(state.deadlineLabel).toBe(`${text} after ask-dana-to-play-in-goal`);
+    expect(state.unresolvedReason).toBeNull();
+  });
+
   describe("the clock is anchored to the completion, never to the last touch", () => {
     // D1. §6.4 makes `record_output` legal against a terminal node, so the version that last
     // TOUCHED the anchor keeps moving after it finished: a delivery receipt, or a §6.5 `late`
@@ -259,6 +292,95 @@ describe("waitStateOf", () => {
     });
   });
 
+  describe("{after, duration} whose anchor is not in the graph at all", () => {
+    /**
+     * The third way an anchored deadline can fail to arm, and the only one the eight versions
+     * cannot show: the anchor is not a node yet. `add_node` takes a plain id and neither the
+     * schema nor the fold refuses one the graph has not seen, so a forward reference is a
+     * legal log — and rule 6's read-only time travel manufactures one out of any ordinary log
+     * the moment the reader scrolls back to a version before the anchor landed.
+     *
+     * D5 is what is at stake: the honest answer is the reason in words, and anything that
+     * throws here throws out of `waitStateOf` and takes the whole canvas down with it, at the
+     * exact moment the reader is scrubbing back to ask what happened. The sibling reasons —
+     * an unparseable duration, and an anchor that is present but unfinished — are the two
+     * tests above; the reader is told which of the three it is, because what to do about it
+     * differs: fix the spec, wait, or scroll forward.
+     */
+    const QUINN_WAIT = "wait-for-quinn";
+    const QUINN_ASK = "ask-quinn-to-play-in-goal";
+
+    const forwardRef =
+      logText() +
+      mutation(
+        V.patReserved + 1,
+        "2026-08-22T02:00:00.000Z",
+        [
+          {
+            op: "add_node",
+            id: QUINN_WAIT,
+            label: "Wait for Quinn",
+            type: "wait",
+            spec: {
+              instruction: "Wait for Quinn's reply about playing in goal.",
+              effect_class: "pure",
+              deadline: { after: QUINN_ASK, duration: "48h" },
+              on_timeout: "escalate-no-goalie-found",
+              match: { kind: "event", conditions: [{ kind: "reply", on: "satisfied" }] },
+            },
+          },
+        ],
+        "Quinn's wait goes in ahead of the ask it is anchored to.",
+      ) +
+      mutation(
+        V.patReserved + 2,
+        "2026-08-22T03:00:00.000Z",
+        [
+          {
+            op: "add_node",
+            id: QUINN_ASK,
+            label: "Ask Quinn to play in goal",
+            type: "task",
+            spec: { instruction: "Ask Quinn to play in goal on Thursday.", effect_class: "pure" },
+          },
+        ],
+        "And now the ask itself.",
+      );
+
+    const before = foldLog(forwardRef, { upToVersion: V.patReserved + 1 });
+    const after = foldLog(forwardRef);
+
+    test("a forward reference is a log the store accepts, not a shape we invented", () => {
+      expect(before.damaged).toEqual([]);
+      expect(after.damaged).toEqual([]);
+      expect(before.graph.nodes.has(QUINN_WAIT)).toBe(true);
+      expect(before.graph.nodes.has(QUINN_ASK)).toBe(false);
+      expect(after.graph.nodes.has(QUINN_ASK)).toBe(true);
+    });
+
+    test("the wait names the missing node instead of throwing", () => {
+      const state = wait(QUINN_WAIT, NOW, before.graph, completionTimeOf(before.records));
+      expect(state.phase).toBe("unarmed");
+      expect(state.deadlineAt).toBeNull();
+      expect(state.remainingMs).toBeNull();
+      expect(state.unresolvedReason).toContain(QUINN_ASK);
+      expect(state.unresolvedReason).toContain("not in the graph");
+      // The spec still renders, so the reader can see what the wait was *meant* to run from.
+      expect(state.deadlineLabel).toBe(`48h after ${QUINN_ASK}`);
+    });
+
+    test("one version on, the same wait gives the other reason", () => {
+      // The anchor exists now and has not finished — a different fact about the same wait,
+      // and a different thing for the reader to do about it.
+      const state = wait(QUINN_WAIT, NOW, after.graph, completionTimeOf(after.records));
+      expect(node(QUINN_ASK, after.graph).status.state).toBe("active");
+      expect(state.phase).toBe("unarmed");
+      expect(state.deadlineAt).toBeNull();
+      expect(state.unresolvedReason).toContain("still active");
+      expect(state.unresolvedReason).not.toContain("not in the graph");
+    });
+  });
+
   test("a failed anchor starts no clock at all", () => {
     // D2. Priya's address bounced 550, so `ask-priya-to-play-in-goal` is terminal but never
     // succeeded — the same test `satisfiesBlockingEdge` applies to a blocking edge. A send
@@ -305,6 +427,27 @@ describe("waitStateOf", () => {
       expect(wait("goalie-confirmed", at - 1).phase).toBe("awaiting");
       expect(wait("goalie-confirmed", at - 1).remainingMs).toBe(1);
       expect(wait("goalie-confirmed", at).phase).toBe("blown");
+    });
+
+    test("an {at} that is not a timestamp leaves the wait unarmed, never NaN", () => {
+      // The schema wants ISO-8601 and gets it today, but `{at}` is a string on the wire and
+      // the viewer folds whatever the file holds — an older build's stamp, or a line someone
+      // edited during an incident. `Date.parse` answers NaN, and NaN is the worst possible
+      // deadline: `now >= NaN` is false at every clock, so the wait would count down forever
+      // as `awaiting` while its counterparty is long past due, and the very first render of
+      // the chip would put `formatInstant(NaN)` on screen — a RangeError thrown out of the
+      // canvas, which is precisely what D5 forbids. The reason belongs in words.
+      const graph = variant((g) => {
+        node("goalie-confirmed", g).spec.deadline = { at: "next Thursday" };
+      });
+      const state = wait("goalie-confirmed", NOW, graph);
+      expect(state.phase).toBe("unarmed");
+      expect(state.deadlineAt).toBeNull();
+      expect(state.remainingMs).toBeNull();
+      // The label repeats what the log said rather than a formatted date it cannot compute.
+      expect(state.deadlineLabel).toBe("due next Thursday");
+      expect(state.unresolvedReason).toContain("next Thursday");
+      expect(state.unresolvedReason).toContain("not a parseable timestamp");
     });
   });
 
@@ -416,9 +559,9 @@ describe("predicateCount", () => {
    * successfully and carries this verdict, optionally in this role. Derived from the graph
    * rather than listed, so a regenerated fixture moves these numbers instead of stranding them.
    */
-  function answers(verdict: string, role?: string): string[] {
-    return inEdges(GRAPH, "goalie-confirmed")
-      .map((edge) => node(edge.from))
+  function answers(verdict: string, role?: string, graph: Graph = GRAPH): string[] {
+    return inEdges(graph, "goalie-confirmed")
+      .map((edge) => node(edge.from, graph))
       .filter((source) => {
         if (!satisfiesBlockingEdge(source)) return false;
         const outcome = source.status.outcome;
@@ -501,6 +644,72 @@ describe("predicateCount", () => {
     expect(predicateCount(graph, node("goalie-confirmed", graph))?.live).toBe(1);
   });
 
+  describe("an answer recorded without closing the wait is still an answer", () => {
+    /**
+     * §6.4 makes `record_outcome` and `set_status` separate ops, so a batch may record a
+     * verdict and leave the wait open — the fixture's own v4 and v5 do both in one breath,
+     * but nothing obliges a store to. §6.7 then makes the resolving outcome first-wins and
+     * final: that source has answered, whether or not anyone has got round to closing it.
+     *
+     * So the outcome question has to be asked of every source, not only of the terminal ones.
+     * Asking terminality first counts a source that has already spoken as one more answer
+     * still to come, and `live` is the number rule 4 puts on the node under `0/1` — the
+     * reader is told the quorum has two more chances at it when it has one, and leaves an
+     * escalation unfired on the strength of it.
+     */
+    const answered = foldLog(
+      logText() +
+        mutation(
+          V.patReserved + 1,
+          "2026-08-22T02:00:00.000Z",
+          [
+            {
+              op: "record_outcome",
+              node: "wait-for-eligibility-ruling",
+              verdict: "ignore",
+              evidence_ref: "<m-301@mail>",
+            },
+          ],
+          "Marcus's committee let the ruling lapse; nobody has closed the wait yet.",
+        ),
+    );
+
+    /** In-edge sources of the quorum that have not yet given a resolving answer. */
+    function unanswered(graph: Graph): string[] {
+      return inEdges(graph, "goalie-confirmed")
+        .map((edge) => node(edge.from, graph))
+        .filter((source) => source.status.outcome === null)
+        .map((source) => source.id);
+    }
+
+    test("the appended record is real, and it leaves the wait open", () => {
+      expect(answered.damaged).toEqual([]);
+      expect(answered.torn_tail).toBeNull();
+      const ruling = node("wait-for-eligibility-ruling", answered.graph);
+      expect(ruling.status.outcome?.verdict).toBe("ignore");
+      expect(ruling.status.state).toBe("active");
+      expect(isTerminal(ruling.status.state)).toBe(false);
+    });
+
+    test("live drops by one — an open source that answered cannot answer again", () => {
+      expect(unanswered(GRAPH)).toEqual(["wait-for-eligibility-ruling", "wait-for-pat"]);
+      expect(unanswered(answered.graph)).toEqual(["wait-for-pat"]);
+
+      const before = predicateCount(GRAPH, node("goalie-confirmed"));
+      const after = predicateCount(answered.graph, node("goalie-confirmed", answered.graph));
+      expect(before?.live).toBe(unanswered(GRAPH).length);
+      expect(after?.live).toBe(unanswered(answered.graph).length);
+      expect(after?.live).toBe((before?.live ?? 0) - 1);
+    });
+
+    test("and `have` does not move — `ignore` is not the verdict the quorum counts", () => {
+      const after = predicateCount(answered.graph, node("goalie-confirmed", answered.graph));
+      expect(after?.have).toBe(answers("confirmed", "goalie", answered.graph).length);
+      expect(after?.have).toBe(0);
+      expect(after?.met).toBe(false);
+    });
+  });
+
   test("a matching verdict with matching attrs contributes and meets the quorum", () => {
     const graph = variant((g) => {
       const outcome = node("wait-for-dana", g).status.outcome;
@@ -523,6 +732,49 @@ describe("predicateCount", () => {
     });
     const count = predicateCount(graph, node("goalie-confirmed", graph));
     expect(count?.have).toBe(0);
+    expect(count?.met).toBe(false);
+  });
+
+  test("a confirmation that carried no attrs at all is not a confirmation of this role", () => {
+    // The absent-attrs case, which is not the wrong-value case above: nothing contradicts the
+    // filter here, there is simply nothing to check it against. A counterparty who said yes
+    // without saying to what has not answered the question the quorum asked, and counting
+    // them renders `1/1 met` on `goalie-confirmed` — the roster locked, the escalation never
+    // fired — on the strength of a reply that never mentioned the goal.
+    const graph = variant((g) => {
+      const outcome = node("wait-for-dana", g).status.outcome;
+      if (outcome === null) throw new Error("dana has no outcome");
+      outcome.verdict = "confirmed";
+      delete outcome.attrs;
+    });
+    const dana = node("wait-for-dana", graph);
+    expect(dana.status.outcome?.verdict).toBe("confirmed"); // the verdict alone would match
+    expect(dana.status.outcome?.attrs).toBeUndefined();
+    expect(satisfiesBlockingEdge(dana)).toBe(true); // and the source is otherwise countable
+
+    const count = predicateCount(graph, node("goalie-confirmed", graph));
+    expect(count?.have).toBe(answers("confirmed", "goalie", graph).length);
+    expect(count?.have).toBe(0);
+    expect(count?.contributors).toEqual([]);
+    expect(count?.met).toBe(false);
+  });
+
+  test("attrs that answer a different question do not answer this one", () => {
+    // Attrs are present and say something true — Dana was happy to — but never name a role.
+    // Every key the filter asks for has to be THERE, not merely un-contradicted, or the
+    // quorum counts an answer that never claimed the role it is counting.
+    const graph = variant((g) => {
+      const outcome = node("wait-for-dana", g).status.outcome;
+      if (outcome === null) throw new Error("dana has no outcome");
+      outcome.verdict = "confirmed";
+      outcome.attrs = { reason: "happy to" };
+    });
+    expect(node("wait-for-dana", graph).status.outcome?.attrs?.["role"]).toBeUndefined();
+
+    const count = predicateCount(graph, node("goalie-confirmed", graph));
+    expect(count?.have).toBe(answers("confirmed", "goalie", graph).length);
+    expect(count?.have).toBe(0);
+    expect(count?.contributors).toEqual([]);
     expect(count?.met).toBe(false);
   });
 
@@ -648,6 +900,24 @@ describe("predicateCount", () => {
     expect(count?.label).toContain("unreadable predicate");
     // The population is still knowable even when the question is not.
     expect(count?.live).toBe(2);
+  });
+
+  test("a healthy predicate renders the quorum inline, never the fallback", () => {
+    // Rule 4's line on the node: what would close this wait, in one phrase. The `??` behind
+    // it says only `predicate: satisfied`, which is true of every predicate wait ever written
+    // and tells the reader nothing about the threshold they are watching — it is the
+    // malformed case below and nothing else. Only this line names the verdict, the role and
+    // the number.
+    const state = wait("goalie-confirmed");
+    const count = state.predicate;
+    if (count === null) throw new Error("goalie-confirmed carries no predicate count");
+    expect(state.matchKind).toBe("predicate");
+    expect(state.matchLabel).toBe("count confirmed role=goalie >= 1");
+    // And it is the same quorum the counter beneath it parsed, said once. The chip reading
+    // `0/1` and a line naming a different threshold would be the node disagreeing with itself.
+    expect(state.matchLabel).toBe(
+      ["count", ...count.label.split(" · "), count.op, count.need].join(" "),
+    );
   });
 
   test("a malformed predicate leaves the wait renderable", () => {

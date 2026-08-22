@@ -42,6 +42,26 @@ export function formatInstant(ms: number): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)}Z`;
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * A timestamp for a person: `Aug 22, 06:57Z`.
+ *
+ * The `Z` stays. This file's rule is UTC throughout — a pursuit's log is UTC and a local
+ * rendering would disagree with the file it claims to be showing — and a UTC time printed
+ * without its marker is not friendlier, it is a time in the wrong zone with no way to tell.
+ * The year is dropped because a pursuit runs for days, and the one on screen is this one.
+ */
+export function formatStamp(iso: string): string {
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return iso;
+  const date = new Date(parsed);
+  const month = MONTHS[date.getUTCMonth()] ?? "";
+  const hh = String(date.getUTCHours()).padStart(2, "0");
+  const mm = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${month} ${String(date.getUTCDate())}, ${hh}:${mm}Z`;
+}
+
 export function formatIso(iso: string): string {
   const parsed = Date.parse(iso);
   return Number.isNaN(parsed) ? iso : formatInstant(parsed);

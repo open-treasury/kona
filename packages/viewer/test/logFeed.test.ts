@@ -17,10 +17,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { foldLog } from "@kona/core";
 import { LOG_RELATIVE_PATH, findPursuitRoot, readLog, watchLog } from "../src/server/logFeed.ts";
 import { headVersion, logText } from "./fixture.ts";
+
+/** The module under test, as a path a spawned child can import. Derived, so a move follows. */
+const LOG_FEED = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "server", "logFeed.ts");
 
 let base: string;
 let root: string;
@@ -232,6 +236,81 @@ describe("watchLog", () => {
     await Bun.sleep(300);
     expect(fired).toBe(1);
   });
+
+  test("the released watch lets the process end — the half a callback count cannot see", async () => {
+    // The test above passes with `watcher.close()` deleted: `live = false` is enough to stop
+    // the callback on its own. What `close()` buys is the other half of the sentence, and it
+    // is invisible from inside the process doing the watching — a live `fs.watch` holds the
+    // event loop open, so the only witness is a process that is allowed to end. `serveViewer`
+    // calls this unsubscribe from `stop()`, which makes this the difference between `kona
+    // view` ending on Ctrl-C and hanging there with nothing on screen to explain itself.
+    //
+    // The child proves the watch was really open — it appends and waits for the event —
+    // before it unwatches. A script that exits without ever having opened a watcher exits
+    // promptly for a reason that has nothing to do with `close()`, and would read as a pass.
+    // Measured here: ~50ms end to end against this module, still running after ten seconds
+    // with the `close()` removed.
+    const home = mkdtempSync(join(tmpdir(), "kona-logfeed-exit-"));
+    try {
+      const pursuit = join(home, "pursuit");
+      mkdirSync(join(pursuit, ".kona"), { recursive: true });
+      writeFileSync(join(pursuit, LOG_RELATIVE_PATH), "");
+
+      const probe = join(home, "probe.ts");
+      writeFileSync(
+        probe,
+        [
+          `import { appendFileSync } from "node:fs";`,
+          `import { watchLog } from ${JSON.stringify(LOG_FEED)};`,
+          // Exit 3 rather than hang if the event never arrives: that is a broken premise, and
+          // it must not be reported as the leak this test is looking for.
+          // Generous on purpose. This test discriminates between "exits in ~50ms" and "never
+          // exits", so every budget in it can be wide without weakening the claim — and a tight
+          // one turns a loaded machine into a red suite. `fs.watch` delivery on macOS is not
+          // prompt when the rest of the suite is holding an HTTP server and hammering the disk.
+          `const giveUp = setTimeout(() => { process.exit(3); }, 8000);`,
+          `let sawChange = () => {};`,
+          `const changed = new Promise((resolve) => { sawChange = resolve; });`,
+          `const unwatch = watchLog(${JSON.stringify(pursuit)}, () => { sawChange(); }, 10);`,
+          `appendFileSync(${JSON.stringify(join(pursuit, LOG_RELATIVE_PATH))}, '{"v":1}\\n');`,
+          `await changed;`,
+          `clearTimeout(giveUp);`,
+          `unwatch();`,
+          // Nothing else here holds the loop open. If the watcher is still attached, this is
+          // where the process fails to end.
+        ].join("\n"),
+      );
+
+      const child = Bun.spawn({
+        // Run it out of the temp directory, not the repo: the child needs nothing from the
+        // workspace, and standing it somewhere else keeps the suite's own resolution out of
+        // what is being measured.
+        cmd: [process.execPath, "run", probe],
+        cwd: home,
+        stdout: "ignore",
+        stderr: "inherit",
+      });
+      try {
+        const LEAKED = "still running — the fs.watch outlived its unsubscribe";
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        const overran = new Promise<typeof LEAKED>((resolve) => {
+          deadline = setTimeout(() => {
+            resolve(LEAKED);
+          }, 12_000);
+        });
+        const outcome = await Promise.race([child.exited, overran]);
+        if (deadline !== undefined) clearTimeout(deadline);
+
+        // Not "it finished in time" — the exit status itself. A 3 says the watch never fired
+        // and this run proved nothing; anything else says the child died on its own error.
+        expect(outcome).toBe(0);
+      } finally {
+        child.kill();
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   test("an append inside the window after unsubscribing never lands", async () => {
     await quiet();

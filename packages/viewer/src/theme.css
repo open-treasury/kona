@@ -103,8 +103,21 @@
    * The five statuses (§6.2 froze them), each mapped onto the kit rather than given a new hue.
    * `-fill` is the chip's tinted background, `-ink` the text and the card's left rule.
    *
-   * `sending` is ochre deliberately: §6.2 makes it NOT terminal — it means the real world's
-   * answer is unknown — so it must read as unfinished, not as progress.
+   * The traffic light, and why `active` is not the yellow.
+   *
+   * The tempting mapping is green=go, yellow=in-progress, red=stop. It does not survive §6.2,
+   * because **`sending` is the yellow** and it has a stronger claim: it is the one non-terminal
+   * status that looks finished from the outside — the bytes have left and what the world did
+   * with them is unknown. That is the anxious state, and amber is the colour for it.
+   *
+   * Which leaves `active` meaning "exists, nobody has run it yet" — queued, not in flight. Blue
+   * is the conventional colour for that and, more to the point, it is the one that is still
+   * free.
+   *
+   * `-ink` is what paints the card's status glyph. The `-fill` half is the tinted chip
+   * background and is currently unreferenced — status became a ring rather than a chip — so
+   * Tailwind emits no utility for it. It stays because it is half of the vocabulary, and the
+   * next thing that needs a status chip should not have to invent the tint again.
    */
   --color-status-active-fill: var(--color-tag-cobalt-bg);
   --color-status-active-ink: var(--color-cobalt-bold);
@@ -247,6 +260,34 @@
     stroke-dasharray: 3 4;
   }
 
+  /*
+   * The two arcs that are NOT dependencies. §6.2 keeps them on the node rather than in the
+   * edge list — `spec.on_timeout` and `provenance.superseded_by` — and a canvas that drew only
+   * `graph.edges` left the escalation and every retired node looking stranded. They are drawn
+   * so that neither can be mistaken for something that gates work: a dependency is solid.
+   */
+  .react-flow__edge.e-timeout .react-flow__edge-path {
+    stroke: var(--color-ochre-bold);
+    stroke-width: 1.25;
+    stroke-dasharray: 5 4;
+    opacity: 0.45;
+  }
+
+  /* The arrows into and out of the two notation circles. Quiet: they carry no state, they only
+     say where the flow enters and leaves. */
+  .react-flow__edge.e-marker .react-flow__edge-path {
+    stroke: var(--color-carbon-40);
+    stroke-width: 1.25;
+  }
+
+  .react-flow__edge.e-supersedes .react-flow__edge-path {
+    stroke: var(--color-carbon-40);
+    stroke-width: 1.25;
+    stroke-dasharray: 1 4;
+    stroke-linecap: round;
+    opacity: 0.7;
+  }
+
   .react-flow__edge.e-sat .react-flow__edge-path {
     stroke: var(--color-success);
     stroke-width: 2;
@@ -270,6 +311,16 @@
     fill: var(--color-carbon-40);
   }
 
+  /*
+   * The notation circles have handles too — an edge has to attach to something — but theirs
+   * must not be seen. On a card a handle reads as a connector point, which is the Actions
+   * idiom and correct; flanking a bare initial or final circle it reads as two stray dots
+   * beside the one mark that is supposed to be a single clean symbol.
+   */
+  .react-flow__node-kona-marker .react-flow__handle {
+    opacity: 0;
+  }
+
   /* The graph is read-only, so a handle is decoration: small, dim, and never a drop target. */
   .react-flow__handle {
     width: 5px;
@@ -284,22 +335,6 @@
     display: none;
   }
 
-  /* The library ships light-mode chrome that is nearly right and the wrong white. */
-  .react-flow__minimap {
-    background: var(--color-background);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-subtle);
-  }
-
-  .react-flow__minimap-mask {
-    fill: --alpha(var(--color-titanium) / 80%);
-    stroke: none;
-  }
-
-  .react-flow__minimap-node {
-    stroke: none;
-  }
 
   .react-flow__controls {
     box-shadow: var(--shadow-subtle);

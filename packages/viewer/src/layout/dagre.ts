@@ -16,6 +16,7 @@
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { EdgeLabel, GraphLabel, NodeLabel } from "@dagrejs/dagre";
 import type { Graph, NodeType } from "@kona/core";
+import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 
 /** A placed node, in React Flow's coordinates: `x`/`y` are the TOP-LEFT corner. */
 export interface NodeBox {
@@ -28,6 +29,12 @@ export interface NodeBox {
 export interface Layout {
   /** Insertion order, so anything that iterates it gets rule 7's visual order for free. */
   boxes: Map<string, NodeBox>;
+  /**
+   * The two notation circles, placed by the same pass so their arrows are short and land where
+   * the eye expects. Deliberately a SEPARATE map from `boxes`: they are not pursuit nodes, and
+   * anything counting or iterating the graph's nodes must not pick them up by accident.
+   */
+  markers: Map<string, NodeBox>;
   width: number;
   height: number;
   /** The key this layout was computed under, carried on the value so a cache cannot mis-pair
@@ -36,22 +43,40 @@ export interface Layout {
 }
 
 /**
- * Fixed sizes. Nothing is measured, ever.
+ * Fixed sizes. Nothing is measured, ever — rule 7 wants a deterministic layout, and measuring
+ * the DOM makes the geometry a function of the reader's installed fonts: the same log would
+ * lay out differently on two machines, and a webfont swapping in mid-render would move every
+ * node after the reader had started reading.
  *
- * Rule 7 wants a deterministic layout, and measuring the DOM makes the geometry a function of
- * the reader's installed fonts: the same log would lay out differently on two machines, and a
- * webfont swapping in mid-render would move every node after the reader had started reading.
- * A `wait` is the taller box because rule 4 makes it carry a deadline countdown and a
- * predicate counter under its label; a task carries neither.
+ * Fixed **per type** rather than per card — which is the constraint that
+ * shapes the card, so it is worth stating plainly.
+ *
+ * A card that grew to fit its content would be the obvious thing and it would break rule 2. Its
+ * height would then depend on the blocked reason and the recorded outcome, both of which appear
+ * and vanish on a *status* tick — so a reply landing would change a box, change the layout, and
+ * re-rank the whole graph. That is precisely the freeze this module exists to prevent.
+ *
+ * So each type reserves its worst case instead: a task is a title row plus ONE detail row
+ * (blocked reason, or the verdict, or nothing), and a wait is a title row plus the match line
+ * plus that same detail row. The countdown does not need a row of its own — it rides in the
+ * trailing slot on the title, the way a duration does in a GitHub Actions run graph.
+ *
+ * Measured against the 31-arm pursuit: this takes the graph from 5216px tall to about 3300, so
+ * `fitView`'s legibility floor now shows about sixteen arms rather than ten (kona-e6-8h7.10).
  */
 export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: number }>> = {
-  task: { width: 260, height: 96 },
-  // Five rows at the busiest: type and status, label, deadline, match plus counter, and the
-  // blocked reason. Measured against `goalie-confirmed`, which carries all five — at 112 the
-  // label's descenders clipped, and a clipped label reads as a rendering fault rather than a
-  // full card.
-  wait: { width: 260, height: 122 },
+  task: { width: 300, height: 62 },
+  wait: { width: 300, height: 82 },
 };
+
+/**
+ * The initial and final circles. Small enough to read as punctuation rather than as a step.
+ *
+ * The box IS the circle, and that is load-bearing: React Flow attaches an edge at the handle,
+ * which sits on the box edge, so any padding between the box and the drawn circle shows up as
+ * a gap between the arrow and the mark it is pointing at.
+ */
+export const MARKER_SIZE = { width: 20, height: 20 } as const;
 
 /**
  * Everything the picture is a function of, and nothing else.
@@ -66,13 +91,20 @@ export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: numbe
  * `observed_at_version` and the graph version. Those are exactly what a status tick moves, and
  * a status tick must not move a node.
  *
+ * `on_timeout` is in for the same reason `superseded_by` is: the canvas draws it, so it is part
+ * of the picture. It is safe to fold in because `spec` is written once by `add_node` and no
+ * other op touches it — a status tick cannot move it, which is the only property this signature
+ * has to protect.
+ *
  * Node ids are `[a-z0-9][a-z0-9-]*` (§6.2), so `:`, `>` and a newline cannot occur inside one
  * and the encoding needs no escaping to stay unambiguous.
  */
 export function topologySignature(graph: Graph): string {
   const parts: string[] = [];
   for (const node of graph.nodes.values()) {
-    parts.push(`n:${node.id}:${node.type}:${node.provenance.superseded_by ?? ""}`);
+    parts.push(
+      `n:${node.id}:${node.type}:${node.provenance.superseded_by ?? ""}:${node.spec.on_timeout ?? ""}`,
+    );
   }
   for (const edge of graph.edges) {
     parts.push(`e:${edge.from}>${edge.to}>${edge.condition?.on ?? ""}`);
@@ -107,7 +139,7 @@ function runDagre(graph: Graph, signature: string): Layout {
   const g = new graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>();
   // Left to right: a pursuit reads as a chain of dependencies, and `{from, to}` means "to
   // requires from". The rank gap is wide enough for an edge label to sit in later.
-  g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 96, marginx: 24, marginy: 24 });
+  g.setGraph({ rankdir: "LR", nodesep: 18, ranksep: 72, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
 
   for (const node of graph.nodes.values()) {
@@ -116,7 +148,11 @@ function runDagre(graph: Graph, signature: string): Layout {
     // every later layout reads.
     g.setNode(node.id, { ...NODE_SIZE[node.type] });
   }
-  for (const edge of graph.edges) {
+  // Every edge the canvas will DRAW, not just the dependencies — `viewEdges` is the one
+  // answer to "what is in the picture", so ranking and drawing cannot disagree. An arc that
+  // dagre never saw gets routed across the whole canvas to reach a node the layout did not
+  // know it was attached to.
+  for (const edge of viewEdges(graph)) {
     // `setEdge` mints any endpoint it does not already know, and a minted node has no size:
     // dagre would place a phantom and shove the real boxes around it. A dangling edge is a
     // shape the model already names (`BlockedCause.kind === "missing"`), so it is skipped here
@@ -124,6 +160,19 @@ function runDagre(graph: Graph, signature: string): Layout {
     if (graph.nodes.has(edge.from) && graph.nodes.has(edge.to)) {
       g.setEdge(edge.from, edge.to);
     }
+  }
+
+  // The two notation circles, and the arrows that make them mean anything. Adding them to the
+  // SAME pass is what keeps those arrows short: an unranked marker would be placed at the
+  // origin and its arrow would cross the whole canvas to reach the first step.
+  const terminals = flowTerminals(graph);
+  if (terminals.starts.size > 0) {
+    g.setNode(START_MARKER_ID, { ...MARKER_SIZE });
+    for (const id of terminals.starts) g.setEdge(START_MARKER_ID, id);
+  }
+  if (terminals.ends.size > 0) {
+    g.setNode(END_MARKER_ID, { ...MARKER_SIZE });
+    for (const id of terminals.ends) g.setEdge(id, END_MARKER_ID);
   }
 
   dagreLayout(g);
@@ -144,8 +193,20 @@ function runDagre(graph: Graph, signature: string): Layout {
     });
   }
 
+  const markers = new Map<string, NodeBox>();
+  for (const id of [START_MARKER_ID, END_MARKER_ID]) {
+    if (!g.hasNode(id)) continue;
+    const placed = g.node(id);
+    markers.set(id, {
+      x: (placed.x ?? 0) - MARKER_SIZE.width / 2,
+      y: (placed.y ?? 0) - MARKER_SIZE.height / 2,
+      width: MARKER_SIZE.width,
+      height: MARKER_SIZE.height,
+    });
+  }
+
   const label = g.graph();
-  return { boxes, width: extent(label.width), height: extent(label.height), signature };
+  return { boxes, markers, width: extent(label.width), height: extent(label.height), signature };
 }
 
 /**

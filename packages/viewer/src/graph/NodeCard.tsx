@@ -1,10 +1,19 @@
 /**
  * §6.10 rule 4: **every node renders its own state inline.**
  *
- * Status chip, wait predicate, deadline countdown, predicate counter, and for a blocked node
- * the reason as text. Dify's loudest UX complaint is having to leave the graph to find out what
+ * Status, wait predicate, deadline countdown, predicate counter, and for a blocked node the
+ * reason as text. Dify's loudest UX complaint is having to leave the graph to find out what
  * happened; a card that says "blocked" and makes you click to learn why has the same defect in
  * a smaller font.
+ *
+ * The shape is GitHub Actions': a **circular status glyph** leading a single title row, with
+ * the one number that matters trailing it, and detail underneath only where there is detail.
+ * That layout is worth borrowing for a specific reason — a run graph and a pursuit graph are
+ * read the same way, by scanning a column of rows for the one that is not green — and it buys
+ * back a third of the card height, which is the thing that bites at 31 arms (kona-e6-8h7.10).
+ *
+ * Where it stops: Actions has one status and one duration per row, and rule 4 asks for more
+ * than that. So the glyph and the trailing metric are theirs, and the rows beneath are ours.
  *
  * Everything rendered here was decided in `model/` and arrives on `NodeView`. This component
  * makes no judgment of its own — that is the rule that keeps the canvas and the CLI agreeing.
@@ -12,13 +21,24 @@
 
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Check, CircleSlash, Clock, Radio, Sigma, TriangleAlert, UserCheck, Zap } from "lucide-react";
+import {
+  Circle,
+  CircleCheck,
+  CircleSlash,
+  CircleX,
+  LoaderCircle,
+  Radio,
+  Sigma,
+  TriangleAlert,
+  UserCheck,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { Status } from "@kona/core";
 import type { NodeView, WaitPhase, WaitState } from "../model/types.ts";
 import { NODE_SIZE } from "../layout/dagre.ts";
 import { formatDuration } from "../format.ts";
 import { cn } from "../lib/cn.ts";
-import { Badge, StatusBadge } from "../ui/badge.tsx";
+import { Badge } from "../ui/badge.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
 export const KONA_NODE_TYPE = "kona";
@@ -28,13 +48,18 @@ export interface CardData extends Record<string, unknown> {
   fresh: boolean;
 }
 
-/** The left rule is the status, at a glance, from across a room. */
-const EDGE_TONE: Record<string, string> = {
-  active: "border-l-status-active-ink",
-  sending: "border-l-status-sending-ink",
-  done: "border-l-status-done-ink",
-  failed: "border-l-status-failed-ink",
-  dropped: "border-l-status-dropped-ink",
+/**
+ * The five statuses (§6.2 froze them) as one glyph each, in the Actions vocabulary: a ring you
+ * read by its shape before you read it by its colour. `sending` spins because it is the one
+ * status that is genuinely mid-flight, and `active` is a bare ring because "queued, nobody has
+ * run it" is the absence of an outcome rather than an outcome of its own.
+ */
+const STATUS_GLYPH: Record<Status, { icon: LucideIcon; tone: string; spin: boolean }> = {
+  active: { icon: Circle, tone: "text-status-active-ink", spin: false },
+  sending: { icon: LoaderCircle, tone: "text-status-sending-ink", spin: true },
+  done: { icon: CircleCheck, tone: "text-status-done-ink", spin: false },
+  failed: { icon: CircleX, tone: "text-status-failed-ink", spin: false },
+  dropped: { icon: CircleSlash, tone: "text-status-dropped-ink", spin: false },
 };
 
 /**
@@ -58,85 +83,118 @@ const MATCH_ICON: Record<string, LucideIcon> = {
 };
 
 const ROW = "flex min-w-0 items-center gap-1.5 font-mono text-[10px]";
-const TEXT = "truncate";
 
-function Row({
-  icon: Icon,
-  className,
-  children,
-}: {
-  icon: LucideIcon;
-  className?: string;
-  children: React.ReactNode;
-}): React.ReactElement {
+/** The countdown, and only for a wait whose clock is still running. */
+function countdownOf(wait: WaitState): string | null {
+  if (wait.phase !== "awaiting" && wait.phase !== "blown") return null;
+  if (wait.remainingMs === null) return null;
+  return wait.remainingMs >= 0
+    ? `${formatDuration(wait.remainingMs)} left`
+    : `${formatDuration(-wait.remainingMs)} over`;
+}
+
+function StatusGlyph({ status }: { status: Status }): React.ReactElement {
+  const glyph = STATUS_GLYPH[status];
   return (
-    <div className={cn(ROW, "text-muted-foreground", className)}>
-      <Icon aria-hidden className="size-3 shrink-0 opacity-70" />
-      {children}
-    </div>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <glyph.icon
+          aria-label={status}
+          className={cn("size-4 shrink-0", glyph.tone, glyph.spin && "animate-spin")}
+        />
+      </TooltipTrigger>
+      <TooltipContent>{status}</TooltipContent>
+    </Tooltip>
   );
 }
 
-function WaitRows({ wait }: { wait: WaitState }): React.ReactElement {
-  // A countdown belongs only to a wait whose clock is still running. A resolved wait that
-  // answered before its deadline would otherwise render "6h left" for ever, which reads as
-  // still-waiting — the one thing rule 8's three colours exist to distinguish. Where there is
-  // no countdown, the reason there is none is the next most useful thing to say.
-  const live = wait.phase === "awaiting" || wait.phase === "blown";
-  const countdown =
-    live && wait.remainingMs !== null
-      ? wait.remainingMs >= 0
-        ? `${formatDuration(wait.remainingMs)} left`
-        : `${formatDuration(-wait.remainingMs)} over`
-      : null;
-  const MatchIcon = MATCH_ICON[wait.matchKind ?? "event"] ?? Radio;
-
-  return (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className={cn(ROW, WAIT_TONE[wait.phase])}>
-            <Clock aria-hidden className="size-3 shrink-0 opacity-70" />
-            <span className={TEXT}>
-              {countdown ?? wait.unresolvedReason ?? wait.deadlineLabel}
-            </span>
-          </div>
-        </TooltipTrigger>
-        <TooltipContent>
-          <div>{wait.deadlineLabel}</div>
-          {wait.unresolvedReason !== null && (
-            <div className="mt-1 opacity-70">{wait.unresolvedReason}</div>
-          )}
-          {wait.onTimeout !== null && (
-            <div className="mt-1 opacity-70">on timeout → {wait.onTimeout}</div>
-          )}
-        </TooltipContent>
-      </Tooltip>
-
-      <Row icon={MatchIcon}>
-        <span className={TEXT}>{wait.matchLabel}</span>
-        {wait.predicate !== null && (
-          <Badge
-            tone="outline"
-            size="xs"
-            className={cn(
-              "ml-auto text-[10px] normal-case",
-              wait.predicate.met && "border-status-done-ink text-status-done-ink",
-            )}
-          >
-            {wait.predicate.have}/{wait.predicate.need}
-          </Badge>
+/**
+ * The one line under the title that a TASK gets: why it cannot run, or what it answered. There
+ * is exactly one, and it is reserved whether or not it has content — see `NODE_SIZE`, where
+ * the reason is that a height which grew with the status would re-run dagre on a status tick.
+ */
+function DetailRow({ view }: { view: NodeView }): React.ReactElement | null {
+  const blocked = view.blocked;
+  if (blocked !== null) {
+    return (
+      <div
+        className={cn(
+          ROW,
+          "text-status-failed-ink",
+          blocked.unreachable && "font-semibold",
         )}
-      </Row>
-    </>
+      >
+        {blocked.unreachable ? (
+          <CircleSlash aria-hidden className="size-3 shrink-0 opacity-70" />
+        ) : (
+          <TriangleAlert aria-hidden className="size-3 shrink-0 opacity-70" />
+        )}
+        <span className="truncate">{blocked.summary}</span>
+      </div>
+    );
+  }
+  const outcome = view.node.status.outcome;
+  if (outcome !== null) {
+    return (
+      <div className={cn(ROW, "text-muted-foreground")}>
+        <span className="w-3 shrink-0" />
+        <span className="truncate">{outcome.verdict}</span>
+      </div>
+    );
+  }
+  return null;
+}
+
+function WaitRow({ wait }: { wait: WaitState }): React.ReactElement {
+  const MatchIcon = MATCH_ICON[wait.matchKind ?? "event"] ?? Radio;
+  // When there is no clock, WHY there is no clock outranks what would close the wait. A reader
+  // looking at a wait is looking for the countdown; "anchored to X, which is still active" is
+  // the answer to the question they actually asked, and the match label is one hover away.
+  const line = wait.unresolvedReason ?? wait.matchLabel;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className={cn(ROW, "text-muted-foreground")}>
+          <MatchIcon aria-hidden className="size-3 shrink-0 opacity-70" />
+          <span className="truncate">{line}</span>
+          {wait.predicate !== null && (
+            <Badge
+              tone="outline"
+              size="xs"
+              className={cn(
+                "ml-auto text-[10px] normal-case",
+                wait.predicate.met && "border-success text-success",
+              )}
+            >
+              {wait.predicate.have}/{wait.predicate.need}
+            </Badge>
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>
+        <div>{wait.deadlineLabel}</div>
+        {wait.unresolvedReason !== null && (
+          <div className="mt-1 opacity-70">{wait.unresolvedReason}</div>
+        )}
+        {wait.onTimeout !== null && (
+          <div className="mt-1 opacity-70">on timeout → {wait.onTimeout}</div>
+        )}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
 function NodeCard({ data, selected }: NodeProps): React.ReactElement {
   const { view, fresh } = data as unknown as CardData;
   const node = view.node;
-  const blocked = view.blocked;
+  const wait = view.wait;
   const superseded = node.provenance.superseded_by !== null;
+
+  // The trailing slot is Actions' duration column, and it holds ONLY what fits there: a
+  // countdown. It briefly held the deadline prose as a fallback, and that prose ate the label —
+  // every wait on the canvas rendered as `Wait…`, which is the one thing a card must never lose.
+  // Where there is no countdown, the row beneath says why.
+  const trailing = wait === null ? null : countdownOf(wait);
 
   return (
     <div
@@ -145,10 +203,9 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
       // touching it with it — silently, no warning, just no lines.
       style={NODE_SIZE[node.type]}
       className={cn(
-        "flex flex-col gap-1.5 overflow-hidden rounded-lg border border-border px-2.5 py-2",
-        "border-l-[3px] bg-card shadow-subtle",
+        "flex flex-col justify-center gap-1 overflow-hidden rounded-lg border border-border",
+        "bg-card px-3 py-2 shadow-subtle",
         "transition-[border-color,box-shadow,opacity] duration-[--transition-medium]",
-        EDGE_TONE[node.status.state],
         // Dimmed, not erased. Nothing is ever deleted from a Kona graph, and a node that has
         // been dropped or replaced is still part of how the pursuit got here — §6.3's whole
         // argument. On a light ground the floor for that is higher than on a dark one: below
@@ -161,57 +218,34 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
     >
       <Handle type="target" position={Position.Left} isConnectable={false} />
 
-      <div className="flex min-w-0 items-center gap-1.5">
-        <Badge tone="outline" size="xs">
-          {node.type}
-        </Badge>
-        <StatusBadge status={node.status.state} />
-        <span className="flex-1" />
-        {view.readiness === "ready" && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_0_3px_--alpha(var(--color-primary)/20%)]" />
-            </TooltipTrigger>
-            <TooltipContent>on the ready frontier — `kona next` would dispatch this</TooltipContent>
-          </Tooltip>
-        )}
-        {view.irreversible && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Zap aria-hidden className="size-3 shrink-0 text-status-sending-ink" />
-            </TooltipTrigger>
-            <TooltipContent>
-              effect_class {node.spec.effect_class} — this moves bytes we cannot take back
-            </TooltipContent>
-          </Tooltip>
+      <div className="flex min-w-0 items-center gap-2">
+        <StatusGlyph status={node.status.state} />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* `min-w-0` is what makes the truncation land on the LABEL's own box rather than
+                on the flex row, and `flex-1` is what stops the trailing slot taking width the
+                label needed. Without the pair, a long countdown wins an argument it should
+                never have been in. */}
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>
+          </TooltipTrigger>
+          <TooltipContent>{node.spec.instruction}</TooltipContent>
+        </Tooltip>
+        {trailing !== null && (
+          // Actions puts a duration here. A pursuit's equivalent is how long is left, which is
+          // the number a reader is actually waiting on.
+          <span
+            className={cn(
+              "shrink-0 font-mono text-[10px] tabular-nums",
+              WAIT_TONE[wait?.phase ?? "unarmed"],
+            )}
+          >
+            {trailing}
+          </span>
         )}
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <div className="line-clamp-2 text-[12.5px] leading-tight font-semibold">
-            {node.label}
-          </div>
-        </TooltipTrigger>
-        <TooltipContent>{node.spec.instruction}</TooltipContent>
-      </Tooltip>
-
-      {view.wait !== null && <WaitRows wait={view.wait} />}
-
-      {blocked !== null && (
-        <Row
-          icon={blocked.unreachable ? CircleSlash : TriangleAlert}
-          className={cn("text-status-failed-ink", blocked.unreachable && "font-semibold")}
-        >
-          <span className={TEXT}>{blocked.summary}</span>
-        </Row>
-      )}
-
-      {node.status.outcome !== null && (
-        <Row icon={Check} className="text-wait-resolved">
-          <span className={TEXT}>{node.status.outcome.verdict}</span>
-        </Row>
-      )}
+      {wait !== null && <WaitRow wait={wait} />}
+      <DetailRow view={view} />
 
       <Handle type="source" position={Position.Right} isConnectable={false} />
     </div>

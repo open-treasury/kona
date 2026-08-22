@@ -8,8 +8,24 @@
  * legible, which is the entire argument for building the diff animation first (rule 1).
  *
  * The tween runs off `requestAnimationFrame` rather than CSS transitions because React Flow
- * is in fully controlled mode: positions are props, so the only place they can change smoothly
- * is here.
+ * is in fully controlled mode: positions are props, and they have to be — the edges are drawn
+ * from the same store the nodes are, so animating the nodes with a CSS transition would leave
+ * every edge attached to where its node used to be for the length of the tween.
+ *
+ * **The noise this makes, and the fix that does not work.** Re-rendering the nodes ~28 times
+ * makes React Flow re-measure each time, and the browser emits `ResizeObserver loop completed
+ * with undelivered notifications` about once a frame — 96 of them, measured, for one version
+ * landing. It is not an exception: the spec says the skipped observations go out on the next
+ * frame, and Chrome reports it through `window.onerror` with no stack and line 0. It is
+ * invisible under `kona view`, which serves a production bundle with no error overlay, and it
+ * paints a red panel over the canvas under `bun run dev`.
+ *
+ * **Do not try to swallow it.** A capture-phase `window` `error` listener that matches the
+ * message and calls `stopImmediatePropagation` — with or without `preventDefault` — silences
+ * it and simultaneously stops React Flow ever finishing its measuring pass: nodes render,
+ * `fitView` never runs, and **every edge disappears**. Measured both ways, twice. Whatever
+ * xyflow does with that event, it needs it. A quiet console is not worth a canvas with no
+ * edges on it.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -41,7 +57,10 @@ function prefersReducedMotion(): boolean {
  * tween is safe — the running frame's positions are what the next tween starts from, so a
  * burst of appends produces one continuous motion rather than a stutter back to the old rank.
  */
-export function useTweenedPositions(target: Positions, durationMs: number = DEFAULT_MS): Positions {
+export function useTweenedPositions(
+  target: Positions,
+  durationMs: number = DEFAULT_MS,
+): Positions {
   const [positions, setPositions] = useState<Positions>(target);
   const renderedRef = useRef<Positions>(target);
   const frameRef = useRef<number | null>(null);

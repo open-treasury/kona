@@ -24,6 +24,7 @@
 import type { Graph } from "@kona/core";
 import { isIrreversible, readyFrontier } from "@kona/core";
 import { blockedReason, readinessOf } from "./blocked.ts";
+import { flowTerminals } from "./edges.ts";
 import { waitStateOf } from "./waitState.ts";
 import type { GraphView, Instant, NodeView } from "./types.ts";
 
@@ -50,6 +51,9 @@ export function buildGraphView(
   const nodes: NodeView[] = [];
   const byId = new Map<string, NodeView>();
   const order = new Map<string, number>();
+  // Once for the whole graph rather than per node: the answer for one card depends on every
+  // edge in the pursuit, so asking it thirty-one times would be thirty-one full sweeps.
+  const terminals = flowTerminals(graph);
 
   for (const node of graph.nodes.values()) {
     const view: NodeView = {
@@ -66,6 +70,8 @@ export function buildGraphView(
       createdAtVersion: node.provenance.created_by_version,
       observedAtVersion: node.status.observed_at_version,
       irreversible: isIrreversible(node.spec.effect_class),
+      isStart: terminals.starts.has(node.id),
+      isEnd: terminals.ends.has(node.id),
     };
 
     order.set(node.id, nodes.length);
