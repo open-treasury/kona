@@ -16,9 +16,11 @@
 import { useState } from "react";
 import type { TimelineEntry } from "../model/types.ts";
 import { formatIso } from "../format.ts";
+import { reasonGloss, reasonLabel } from "../model/reason.ts";
 import { cn } from "../lib/cn.ts";
 import { Badge } from "../ui/badge.tsx";
 import { ScrollArea } from "../ui/scroll-area.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
 export interface TimelineProps {
   entries: readonly TimelineEntry[];
@@ -55,6 +57,7 @@ function Entry({
   isHead: boolean;
 }): React.ReactElement {
   const shape = shapeOf(entry);
+  const gloss = reasonGloss(entry.reasonCode);
   const [open, setOpen] = useState(false);
   const extras =
     entry.expectedEffect !== null ||
@@ -73,9 +76,24 @@ function Entry({
       <div aria-current={isHead ? "true" : undefined} className="px-3 py-2.5">
         <div className="flex items-baseline gap-2 font-mono text-[10px] text-carbon-40">
           <span className="font-semibold text-foreground">v{entry.version}</span>
-          <Badge tone="reason" size="xs">
-            {entry.reasonCode}
-          </Badge>
+          {/*
+            §6.3's machine-readable half, said out loud. `MISSING_STEP` is a value you filter a
+            log by; it is not a thing you say to a person, and rendering it raw made the one
+            field that names WHAT KIND OF THING HAPPENED the least readable thing on the row.
+            The tooltip carries the category's meaning and the exact enum value, so the
+            queryable half is one hover away rather than gone.
+          */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge tone="reason" size="xs" className="cursor-help">
+                {reasonLabel(entry.reasonCode)}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              {gloss ?? "a cause this build of the viewer does not have a description for"}
+              <div className="mt-1 font-mono opacity-70">reason_code: {entry.reasonCode}</div>
+            </TooltipContent>
+          </Tooltip>
           <span className="flex-1" />
           <span className="truncate">{entry.actor}</span>
           <span className="shrink-0">{formatIso(entry.observedAt)}</span>
