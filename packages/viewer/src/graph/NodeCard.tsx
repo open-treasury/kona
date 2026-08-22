@@ -22,16 +22,15 @@
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
 import {
-  Asterisk,
   Circle,
   CircleCheck,
   CircleSlash,
   CircleX,
-  ListChecks,
   LoaderCircle,
-  Mail,
+  Radio,
+  Sigma,
   TriangleAlert,
-  User,
+  UserCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Status } from "@kona/core";
@@ -77,37 +76,11 @@ const WAIT_TONE: Record<WaitPhase, string> = {
   dropped: "text-carbon-40",
 };
 
-/**
- * How this wait closes, at 12px and monochrome — so the test is the SILHOUETTE, not the detail.
- *
- * Two rules shaped these. Nothing here may be round: the glyph 8px to the left is the status,
- * and the status vocabulary is the whole circle family, so a second circle in the row is a
- * second status. And nothing here may state an OUTCOME, because this row renders while the
- * wait is still open — the reason `human` is a plain `User` and not `UserCheck` is that §6.2's
- * decisions include `ignore` and `reject`, and a checkmark on an undecided question is the card
- * answering a question the log has not.
- *
- *   event      the answer arrives from outside, and `channel` is `z.literal("email")` — so the
- *              envelope is what is actually happening, not a metaphor for it.
- *   human      a person has to rule. Neutral on purpose; the ruling has not happened.
- *   predicate  "n of m are satisfied", which is also what the badge at the end of this very row
- *              says. Σ was the honest register and had no silhouette at 12px, and it means
- *              *sum* where the semantics are *threshold*.
- */
 const MATCH_ICON: Record<string, LucideIcon> = {
-  event: Mail,
-  human: User,
-  predicate: ListChecks,
+  event: Radio,
+  human: UserCheck,
+  predicate: Sigma,
 };
-
-/**
- * For a kind this build has never heard of — D5 says render additively, and W2 adds kinds.
- *
- * It must not be one of the three. The previous fallback was the `event` icon, so a kind added
- * upstream would have rendered as an email arriving, which is a specific claim about how the
- * wait closes rather than an admission that we do not know.
- */
-const MATCH_FALLBACK: LucideIcon = Asterisk;
 
 const ROW = "flex min-w-0 items-center gap-1.5 font-mono text-[10px]";
 
@@ -173,11 +146,7 @@ function DetailRow({ view }: { view: NodeView }): React.ReactElement | null {
 }
 
 function WaitRow({ wait }: { wait: WaitState }): React.ReactElement {
-  // `matchKind` is null when the wait has no match block at all — a wait nothing can ever
-  // close. That is not the `event` kind and must not borrow its envelope; the line beside it
-  // says so in words.
-  const MatchIcon =
-    wait.matchKind === null ? MATCH_FALLBACK : (MATCH_ICON[wait.matchKind] ?? MATCH_FALLBACK);
+  const MatchIcon = MATCH_ICON[wait.matchKind ?? "event"] ?? Radio;
   // When there is no clock, WHY there is no clock outranks what would close the wait. A reader
   // looking at a wait is looking for the countdown; "anchored to X, which is still active" is
   // the answer to the question they actually asked, and the match label is one hover away.
