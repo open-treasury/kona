@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "paths": {
+      "@kona/core": ["../packages/core/src/index.ts"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

@@ -72,7 +72,12 @@ export default {
   $schema: "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   packageManager: "npm",
   testRunner: "command",
-  commandRunner: { command: "bun test" },
+  // Scoped to `packages/` on purpose. Every tier mutates code under `packages/`, and the
+  // demo suite exercises `demo/` — so running it per mutant tests nothing and costs
+  // everything: it re-runs a full divergence scenario per assertion, ~18s, against a
+  // packages suite that takes 0.4s. Across ~1400 mutants that is the difference between
+  // half a minute and seven hours.
+  commandRunner: { command: "bun test packages" },
   // The command runner reports no per-test coverage, so this must be "off".
   coverageAnalysis: "off",
   tsconfigFile: "stryker-no-such-tsconfig.json",
