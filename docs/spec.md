@@ -373,7 +373,7 @@ React Flow (fully controlled) + dagre `rankdir:'LR'`, positions derived every ve
 | # | Rule |
 |---|---|
 | 1 | **Build the diff animation first.** File change → re-layout → tween → flash the new subtree. The claim is only *visible* if the viewer shows topology changing |
-| 2 | **Memoize dagre on `graph_version`; never re-layout on a status tick.** Burr's graph view froze on exactly this until July 2026, and the fan-out is where it bites |
+| 2 | **Memoize dagre on a TOPOLOGY SIGNATURE; never re-layout on a status tick.** Burr's graph view froze on exactly this until July 2026, and the fan-out is where it bites. *(Corrected during E6: this rule originally said "memoize on `graph_version`", which defeats its own second clause — `graph_version` bumps on a status tick too, so keying on it re-runs dagre for every reservation, receipt and reply. The signature is `{node id, type, superseded_by}` per node and `{from, to, condition}` per edge; eight of the fixture's thirteen versions change none of it, and five of those eight are the outbox. `packages/viewer/test/layout.test.ts` asserts the cache returns the IDENTICAL object across a reserve→record pair, because React re-renders on identity and an equal-but-fresh layout would defeat the memo at the only layer where it pays.)* |
 | 3 | **Collapse fan-out groups by default** — one container, aggregate status, edges redirected to it |
 | 4 | **Every node renders its own state inline** — status chip, wait predicate, deadline countdown, predicate counter, and for a blocked node **the reason as text** |
 | 5 | **The second panel is the mutation timeline** — version + op + rationale. *That panel, not the canvas, is the differentiator* |
@@ -443,18 +443,21 @@ Per-package Stryker floors where mutation testing pays: **`validate()` and `fold
 
 ## 8. Definition of Done
 
-- [ ] `bun run typecheck` and `bun run lint` clean
-- [ ] **`--why` is required on every mutating verb** — a commit without a rationale is impossible, not discouraged
-- [ ] All 3 invariants enforced pre-commit, each with a distinct rejection naming the node; the parser rejects shape first
-- [ ] **Rejected mutations are logged** — a refused mutation is procedural memory too
-- [ ] No `delete_node` verb and no `rollback` opcode anywhere in code or schema
-- [ ] Folding the log twice yields an identical graph; a torn final line is tolerated
-- [ ] Nothing outside the CLI reads or writes `.kona/`; **no verb calls a model**
-- [ ] `kona resume` on a fresh terminal prints correct status in **< 60 s** with no session state
-- [ ] Every irreversible node carries a payload-independent `effect_key`; the three crash windows behave per §6.6
-- [ ] Only the orchestrator mutates topology; a subagent attempting it is refused
-- [ ] Viewer holds zero authoritative state; dagre memoized on `graph_version`; zero outbound calls
-- [ ] Startup refuses on a network filesystem
+Each line names where it is enforced, because a checklist that cannot be re-checked by a
+stranger is a memory rather than a definition.
+
+- [x] `bun run typecheck` and `bun run lint` clean — plus `knip` and 1,200 tests, as `bun run check`
+- [x] **`--why` is required on every mutating verb** — `cli.test.ts` "a commit without a rationale is impossible"; `--reason-code` is checked against the closed vocabulary, so `BECAUSE` is refused too
+- [x] All 3 invariants enforced pre-commit, each with a distinct rejection naming the node; the parser rejects shape first — `TERMINAL_NODE_PROTECTED` / `UNCOMPENSATED_SUPERSEDE`, `PREDICATE_UNSATISFIABLE`, `EFFECT_BUDGET_EXHAUSTED` / `UNEVIDENCED_RECIPIENT`. Invariant 1 is an **op-delta against pre-commit head**, never a post-state predicate
+- [x] **Rejected mutations are logged** — `.kona/rejections.jsonl`, best-effort and never a system of record. `demo/test/pursuit.test.ts` reads back the two refusals a live run produced, with the rationale each carried
+- [x] No `delete_node` verb and no `rollback` opcode anywhere in code or schema — `FORBIDDEN_OP_KINDS` exists so the check has something to assert against; `purity.test.ts` greps `core` for the strings and `contracts.test.ts` proves the parser refuses each
+- [x] Folding the log twice yields an identical graph; a torn final line is tolerated — and `dropTornTail` truncates by BYTES before the next append, so a torn line cannot be buried mid-file where it stops being a tail
+- [x] Nothing outside the CLI reads or writes `.kona/`; **no verb calls a model** — the purity gate is three mechanisms (a tsconfig with `types: []`, an oxlint override, and a test for what still typechecks), and a test greps the plugin's hook script for `.kona`
+- [x] `kona resume` on a fresh terminal prints correct status in **< 60 s** with no session state — **measured at 135 ms**, after a real `SIGKILL` to a real process group, eleven times (`demo/script/kill-resume.ts`)
+- [x] Every irreversible node carries a payload-independent `effect_key`; the three crash windows behave per §6.6 — the key is `hash(node_id, created_by_version)` and the `payload_hash` proves the bytes, so re-reserving the same slot with different bytes is `EFFECT_PAYLOAD_MISMATCH` rather than a second send
+- [x] Only the orchestrator mutates topology; a subagent attempting it is refused — and invariant 2 EXEMPTS a subagent from the satisfiability check, because an actor that cannot author the repair must not be blocked for failing to include one
+- [x] Viewer holds zero authoritative state; dagre memoized on a **topology signature** (see §6.10 rule 2 — the original wording named `graph_version`, which re-layouts on the status ticks the same rule forbids); zero outbound calls
+- [x] Startup refuses on a network filesystem — path heuristic for Dropbox / iCloud / OneDrive / Google Drive / UNC, with `--force`
 - [ ] Repo public before the demo **with `probes/` and `research/`** — the concessions ledger is the receipts
 
 ---
