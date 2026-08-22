@@ -1,0 +1,269 @@
+<title>Pursuit Version Trees</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#f5f6f8; --raise:#ffffff; --ink:#16181d; --ink-2:#3c4250; --mute:#667085;
+  --line:#dfe3ea; --line-2:#eceff4;
+  --teal:#0d6d68; --ochre:#a86a10; --rose:#a3374a;
+  --done-fill:#e7ebf1; --active-fill:#ffffff;
+  --shadow:0 1px 2px rgba(22,24,29,.06),0 8px 24px rgba(22,24,29,.05);
+}
+:root:not([data-theme="light"]){ @media (prefers-color-scheme: dark){
+  :root{}
+}}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#101218; --raise:#171a22; --ink:#e8eaf0; --ink-2:#c2c8d4; --mute:#8b93a4;
+  --line:#282d38; --line-2:#1e222b;
+  --teal:#4fbfb6; --ochre:#d8a24a; --rose:#e08094;
+  --done-fill:#20252f; --active-fill:#171a22;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);
+}}
+:root[data-theme="dark"]{
+  --paper:#101218; --raise:#171a22; --ink:#e8eaf0; --ink-2:#c2c8d4; --mute:#8b93a4;
+  --line:#282d38; --line-2:#1e222b;
+  --teal:#4fbfb6; --ochre:#d8a24a; --rose:#e08094;
+  --done-fill:#20252f; --active-fill:#171a22;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1240px;margin:0 auto;padding:40px 28px 72px}
+header{display:flex;flex-direction:column;gap:10px;margin-bottom:8px}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:11.5px;
+  letter-spacing:.11em; text-transform:uppercase; color:var(--mute);
+}
+h1{
+  font-family:"Bricolage Grotesque","IBM Plex Sans",sans-serif; font-weight:700;
+  font-size:clamp(30px,4.4vw,46px); line-height:1.04; letter-spacing:-.022em;
+  margin:0; text-wrap:balance;
+}
+.lede{max-width:66ch;color:var(--ink-2);margin:2px 0 0}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.tag{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--mute);
+  border:1px solid var(--line);border-radius:2px;padding:3px 8px;background:var(--raise);
+}
+hr.rule{border:0;border-top:1px solid var(--line);margin:28px 0 24px}
+.layout{display:grid;grid-template-columns:280px minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+
+/* version rail — the sequence is real, so it is numbered */
+.rail{display:flex;flex-direction:column;gap:0;border-left:1px solid var(--line)}
+.vbtn{
+  position:relative;display:grid;grid-template-columns:auto 1fr;gap:12px;
+  align-items:baseline;width:100%;text-align:left;cursor:pointer;
+  background:none;border:0;border-bottom:1px solid var(--line-2);
+  padding:13px 12px 13px 18px;color:inherit;font:inherit;
+}
+.vbtn:hover{background:var(--raise)}
+.vbtn[aria-current="true"]{background:var(--raise)}
+.vbtn[aria-current="true"]::before{
+  content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:2px;background:var(--teal);
+}
+.vnum{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:500;color:var(--ink)}
+.vwhy{font-size:12.5px;color:var(--mute);line-height:1.4}
+.vcode{
+  display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:10.5px;
+  letter-spacing:.05em;padding:1px 5px;border-radius:2px;margin-bottom:3px;
+  border:1px solid currentColor;
+}
+.c-grow{color:var(--ochre)} .c-contra{color:var(--rose)} .c-plain{color:var(--mute)}
+.vbtn:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+
+/* panel */
+.panel{background:var(--raise);border:1px solid var(--line);border-radius:3px;box-shadow:var(--shadow)}
+.phead{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:16px;align-items:baseline;justify-content:space-between}
+.ptitle{font-family:"Bricolage Grotesque",sans-serif;font-weight:600;font-size:19px;letter-spacing:-.01em}
+.counts{display:flex;gap:14px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.counts b{color:var(--ink);font-weight:500}
+.why{padding:14px 22px;border-bottom:1px solid var(--line-2);font-size:13.5px;color:var(--ink-2);max-width:78ch}
+.why .lbl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute);display:block;margin-bottom:3px}
+.ops{padding:10px 22px 14px;display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid var(--line)}
+.op{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--ink-2);background:var(--done-fill);border-radius:2px;padding:2px 7px}
+.canvas{overflow-x:auto;padding:22px}
+svg{display:block}
+.nlabel{font-family:"IBM Plex Sans",sans-serif;font-size:11.5px;fill:var(--ink)}
+.nid{font-family:"IBM Plex Mono",monospace;font-size:9.5px;fill:var(--mute)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;padding:14px 22px;border-top:1px solid var(--line);font-size:12px;color:var(--mute)}
+.key{display:flex;align-items:center;gap:7px}
+.sw{width:20px;height:12px;border-radius:2px;border:1.5px solid var(--mute);background:var(--done-fill)}
+.sw.new{border-color:var(--ochre);background:var(--active-fill)}
+.sw.done{background:var(--done-fill);border-color:var(--mute)}
+.sw.sup{border-color:var(--rose);background:var(--active-fill);border-style:dashed}
+.sw.drop{border-color:var(--line);background:var(--paper);opacity:.6}
+footer{margin-top:26px;font-size:12.5px;color:var(--mute);max-width:74ch}
+code{font-family:"IBM Plex Mono",monospace;font-size:.92em}
+@media (prefers-reduced-motion:no-preference){
+  .node{transition:opacity .18s ease}
+}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Frontier-Bench v0.1 &middot; production-planning &middot; claude-sonnet-5</span>
+  <h1>The plan rewrote itself</h1>
+  <p class="lede">A live Kona pursuit, recorded during a benchmark run. Each version is one commit to an
+  append-only log; the graph is a fold over that log, so every tree below is reconstructed, not stored.
+  Select a version to see the plan as it stood, with the reason the agent gave for changing it.</p>
+  <div class="meta">
+    <span class="tag" id="t-vers"></span>
+    <span class="tag" id="t-ops"></span>
+    <span class="tag" id="t-nodes"></span>
+    <span class="tag">live snapshot</span>
+  </div>
+</header>
+
+<hr class="rule">
+
+<div class="layout">
+  <nav class="rail" id="rail" aria-label="Versions"></nav>
+  <section class="panel">
+    <div class="phead">
+      <span class="ptitle" id="ptitle">v0</span>
+      <div class="counts" id="counts"></div>
+    </div>
+    <div class="why" id="why"></div>
+    <div class="ops" id="ops"></div>
+    <div class="canvas" id="canvas"></div>
+    <div class="legend">
+      <span class="key"><span class="sw new"></span> added in this version</span>
+      <span class="key"><span class="sw"></span> active</span>
+      <span class="key"><span class="sw done"></span> done</span>
+      <span class="key"><span class="sw sup"></span> superseded</span>
+      <span class="key"><span class="sw drop"></span> dropped (arm not taken)</span>
+    </div>
+  </section>
+</div>
+
+<footer>
+  Seeded with a five-node, task-agnostic skeleton so the agent opened on a live frontier rather than an
+  empty store &mdash; every earlier run stalled at authoring a graph from nothing. Everything past v1 is
+  the agent's own work: it added fifteen nodes at v3, recorded outcomes at v2, v4 and v5, and at v6
+  superseded the generic placeholder it had outgrown. Two nodes show as <code>dropped</code> — an arm the graph resolved away rather than a step anyone abandoned.
+</footer>
+</div>
+
+<script>
+const DATA = {"task": "terminal-bench/production-planning", "model": "claude-sonnet-5", "versions": [{"version": 0, "why": "pursuit initialised", "reason_code": "OTHER", "alternatives": [], "actor": "human", "n_ops": 0, "op_counts": {}, "nodes": [], "edges": []}, {"version": 1, "why": "Skeleton plan: understand before deciding, decide before doing, verify against stated requirements.", "reason_code": "MISSING_STEP", "alternatives": [], "actor": "orchestrator", "n_ops": 9, "op_counts": {"add_node": 5, "add_edge": 4}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "active", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "active", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "active", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "active", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}]}, {"version": 2, "why": "Read README, connections.yaml, dbgw.py source, and all three DB schemas via gateway schema command.", "reason_code": "OTHER", "alternatives": [], "actor": "orchestrator", "n_ops": 2, "op_counts": {"record_output": 1, "set_status": 1}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "done", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "active", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "active", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "active", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}]}, {"version": 3, "why": "Decompose full production planning task into data gathering, feasibility, scheduling, SQL generation, gateway application, and verification steps.", "reason_code": "MISSING_STEP", "alternatives": [], "actor": "orchestrator", "n_ops": 37, "op_counts": {"add_node": 15, "add_edge": 22}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "done", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "active", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "active", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "active", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "active", "type": "task", "group": null}, {"id": "query-reference-data-from-all-systems", "label": "Query reference data from all systems", "status": "active", "type": "task", "group": null}, {"id": "identify-existing-wip-and-its-lines", "label": "Identify existing WIP and its lines", "status": "active", "type": "task", "group": null}, {"id": "identify-engineering-released-skus-and-qualified", "label": "Identify engineering-released SKUs and qualified lines", "status": "active", "type": "task", "group": null}, {"id": "compute-routing-durations-with-setup", "label": "Compute routing durations with setup", "status": "active", "type": "task", "group": null}, {"id": "build-shift-calendar-and-downtime-constraints-pe", "label": "Build shift calendar and downtime constraints per line", "status": "active", "type": "task", "group": null}, {"id": "select-eligible-non-wip-sales-orders", "label": "Select eligible non-WIP sales orders", "status": "active", "type": "task", "group": null}, {"id": "check-wms-inventory-feasibility-per-candidate-or", "label": "Check WMS inventory feasibility per candidate order", "status": "active", "type": "task", "group": null}, {"id": "build-final-schedule-wip-first-then-prioritized", "label": "Build final schedule (WIP first, then prioritized orders) respecting all constraints", "status": "active", "type": "task", "group": null}, {"id": "generate-erp-writeback-sql", "label": "Generate ERP writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-mes-writeback-sql", "label": "Generate MES writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-wms-writeback-sql", "label": "Generate WMS writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "apply-erp-writeback-via-gateway", "label": "Apply ERP writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-mes-writeback-via-gateway", "label": "Apply MES writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-wms-writeback-via-gateway", "label": "Apply WMS writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "verify-audit-log-and-overall-plan-validity", "label": "Verify audit log and overall plan validity", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}, {"from": "understand-the-inputs", "to": "query-reference-data-from-all-systems"}, {"from": "query-reference-data-from-all-systems", "to": "identify-existing-wip-and-its-lines"}, {"from": "query-reference-data-from-all-systems", "to": "identify-engineering-released-skus-and-qualified"}, {"from": "query-reference-data-from-all-systems", "to": "compute-routing-durations-with-setup"}, {"from": "query-reference-data-from-all-systems", "to": "build-shift-calendar-and-downtime-constraints-pe"}, {"from": "identify-engineering-released-skus-and-qualified", "to": "select-eligible-non-wip-sales-orders"}, {"from": "select-eligible-non-wip-sales-orders", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "compute-routing-durations-with-setup", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "identify-existing-wip-and-its-lines", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "check-wms-inventory-feasibility-per-candidate-or", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-shift-calendar-and-downtime-constraints-pe", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-erp-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-mes-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-wms-writeback-sql"}, {"from": "generate-erp-writeback-sql", "to": "apply-erp-writeback-via-gateway"}, {"from": "generate-mes-writeback-sql", "to": "apply-mes-writeback-via-gateway"}, {"from": "generate-wms-writeback-sql", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "apply-mes-writeback-via-gateway"}, {"from": "apply-mes-writeback-via-gateway", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-mes-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-wms-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}]}, {"version": 4, "why": "Captured full checkable requirement list from task description before building the plan.", "reason_code": "OTHER", "alternatives": [], "actor": "orchestrator", "n_ops": 2, "op_counts": {"record_output": 1, "set_status": 1}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "done", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "done", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "active", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "active", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "active", "type": "task", "group": null}, {"id": "query-reference-data-from-all-systems", "label": "Query reference data from all systems", "status": "active", "type": "task", "group": null}, {"id": "identify-existing-wip-and-its-lines", "label": "Identify existing WIP and its lines", "status": "active", "type": "task", "group": null}, {"id": "identify-engineering-released-skus-and-qualified", "label": "Identify engineering-released SKUs and qualified lines", "status": "active", "type": "task", "group": null}, {"id": "compute-routing-durations-with-setup", "label": "Compute routing durations with setup", "status": "active", "type": "task", "group": null}, {"id": "build-shift-calendar-and-downtime-constraints-pe", "label": "Build shift calendar and downtime constraints per line", "status": "active", "type": "task", "group": null}, {"id": "select-eligible-non-wip-sales-orders", "label": "Select eligible non-WIP sales orders", "status": "active", "type": "task", "group": null}, {"id": "check-wms-inventory-feasibility-per-candidate-or", "label": "Check WMS inventory feasibility per candidate order", "status": "active", "type": "task", "group": null}, {"id": "build-final-schedule-wip-first-then-prioritized", "label": "Build final schedule (WIP first, then prioritized orders) respecting all constraints", "status": "active", "type": "task", "group": null}, {"id": "generate-erp-writeback-sql", "label": "Generate ERP writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-mes-writeback-sql", "label": "Generate MES writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-wms-writeback-sql", "label": "Generate WMS writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "apply-erp-writeback-via-gateway", "label": "Apply ERP writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-mes-writeback-via-gateway", "label": "Apply MES writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-wms-writeback-via-gateway", "label": "Apply WMS writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "verify-audit-log-and-overall-plan-validity", "label": "Verify audit log and overall plan validity", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}, {"from": "understand-the-inputs", "to": "query-reference-data-from-all-systems"}, {"from": "query-reference-data-from-all-systems", "to": "identify-existing-wip-and-its-lines"}, {"from": "query-reference-data-from-all-systems", "to": "identify-engineering-released-skus-and-qualified"}, {"from": "query-reference-data-from-all-systems", "to": "compute-routing-durations-with-setup"}, {"from": "query-reference-data-from-all-systems", "to": "build-shift-calendar-and-downtime-constraints-pe"}, {"from": "identify-engineering-released-skus-and-qualified", "to": "select-eligible-non-wip-sales-orders"}, {"from": "select-eligible-non-wip-sales-orders", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "compute-routing-durations-with-setup", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "identify-existing-wip-and-its-lines", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "check-wms-inventory-feasibility-per-candidate-or", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-shift-calendar-and-downtime-constraints-pe", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-erp-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-mes-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-wms-writeback-sql"}, {"from": "generate-erp-writeback-sql", "to": "apply-erp-writeback-via-gateway"}, {"from": "generate-mes-writeback-sql", "to": "apply-mes-writeback-via-gateway"}, {"from": "generate-wms-writeback-sql", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "apply-mes-writeback-via-gateway"}, {"from": "apply-mes-writeback-via-gateway", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-mes-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-wms-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}]}, {"version": 5, "why": "Approach matches already-authored plan graph (v3); recording decision node to keep graph consistent.", "reason_code": "OTHER", "alternatives": [], "actor": "orchestrator", "n_ops": 2, "op_counts": {"record_output": 1, "set_status": 1}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "done", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "done", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "done", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "active", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "active", "type": "task", "group": null}, {"id": "query-reference-data-from-all-systems", "label": "Query reference data from all systems", "status": "active", "type": "task", "group": null}, {"id": "identify-existing-wip-and-its-lines", "label": "Identify existing WIP and its lines", "status": "active", "type": "task", "group": null}, {"id": "identify-engineering-released-skus-and-qualified", "label": "Identify engineering-released SKUs and qualified lines", "status": "active", "type": "task", "group": null}, {"id": "compute-routing-durations-with-setup", "label": "Compute routing durations with setup", "status": "active", "type": "task", "group": null}, {"id": "build-shift-calendar-and-downtime-constraints-pe", "label": "Build shift calendar and downtime constraints per line", "status": "active", "type": "task", "group": null}, {"id": "select-eligible-non-wip-sales-orders", "label": "Select eligible non-WIP sales orders", "status": "active", "type": "task", "group": null}, {"id": "check-wms-inventory-feasibility-per-candidate-or", "label": "Check WMS inventory feasibility per candidate order", "status": "active", "type": "task", "group": null}, {"id": "build-final-schedule-wip-first-then-prioritized", "label": "Build final schedule (WIP first, then prioritized orders) respecting all constraints", "status": "active", "type": "task", "group": null}, {"id": "generate-erp-writeback-sql", "label": "Generate ERP writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-mes-writeback-sql", "label": "Generate MES writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-wms-writeback-sql", "label": "Generate WMS writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "apply-erp-writeback-via-gateway", "label": "Apply ERP writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-mes-writeback-via-gateway", "label": "Apply MES writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-wms-writeback-via-gateway", "label": "Apply WMS writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "verify-audit-log-and-overall-plan-validity", "label": "Verify audit log and overall plan validity", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}, {"from": "understand-the-inputs", "to": "query-reference-data-from-all-systems"}, {"from": "query-reference-data-from-all-systems", "to": "identify-existing-wip-and-its-lines"}, {"from": "query-reference-data-from-all-systems", "to": "identify-engineering-released-skus-and-qualified"}, {"from": "query-reference-data-from-all-systems", "to": "compute-routing-durations-with-setup"}, {"from": "query-reference-data-from-all-systems", "to": "build-shift-calendar-and-downtime-constraints-pe"}, {"from": "identify-engineering-released-skus-and-qualified", "to": "select-eligible-non-wip-sales-orders"}, {"from": "select-eligible-non-wip-sales-orders", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "compute-routing-durations-with-setup", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "identify-existing-wip-and-its-lines", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "check-wms-inventory-feasibility-per-candidate-or", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-shift-calendar-and-downtime-constraints-pe", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-erp-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-mes-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-wms-writeback-sql"}, {"from": "generate-erp-writeback-sql", "to": "apply-erp-writeback-via-gateway"}, {"from": "generate-mes-writeback-sql", "to": "apply-mes-writeback-via-gateway"}, {"from": "generate-wms-writeback-sql", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "apply-mes-writeback-via-gateway"}, {"from": "apply-mes-writeback-via-gateway", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-mes-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-wms-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}]}, {"version": 6, "why": "Generic do-the-work placeholder is superseded by the detailed 15-node plan authored in v3, starting with query-reference-data-from-all-systems.", "reason_code": "CONTRADICTION", "alternatives": [], "actor": "orchestrator", "n_ops": 2, "op_counts": {"supersede_node": 1, "set_status": 1}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "done", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "done", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "done", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "dropped", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "dropped", "type": "task", "group": null}, {"id": "query-reference-data-from-all-systems", "label": "Query reference data from all systems", "status": "active", "type": "task", "group": null}, {"id": "identify-existing-wip-and-its-lines", "label": "Identify existing WIP and its lines", "status": "active", "type": "task", "group": null}, {"id": "identify-engineering-released-skus-and-qualified", "label": "Identify engineering-released SKUs and qualified lines", "status": "active", "type": "task", "group": null}, {"id": "compute-routing-durations-with-setup", "label": "Compute routing durations with setup", "status": "active", "type": "task", "group": null}, {"id": "build-shift-calendar-and-downtime-constraints-pe", "label": "Build shift calendar and downtime constraints per line", "status": "active", "type": "task", "group": null}, {"id": "select-eligible-non-wip-sales-orders", "label": "Select eligible non-WIP sales orders", "status": "active", "type": "task", "group": null}, {"id": "check-wms-inventory-feasibility-per-candidate-or", "label": "Check WMS inventory feasibility per candidate order", "status": "active", "type": "task", "group": null}, {"id": "build-final-schedule-wip-first-then-prioritized", "label": "Build final schedule (WIP first, then prioritized orders) respecting all constraints", "status": "active", "type": "task", "group": null}, {"id": "generate-erp-writeback-sql", "label": "Generate ERP writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-mes-writeback-sql", "label": "Generate MES writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-wms-writeback-sql", "label": "Generate WMS writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "apply-erp-writeback-via-gateway", "label": "Apply ERP writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-mes-writeback-via-gateway", "label": "Apply MES writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-wms-writeback-via-gateway", "label": "Apply WMS writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "verify-audit-log-and-overall-plan-validity", "label": "Verify audit log and overall plan validity", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}, {"from": "understand-the-inputs", "to": "query-reference-data-from-all-systems"}, {"from": "query-reference-data-from-all-systems", "to": "identify-existing-wip-and-its-lines"}, {"from": "query-reference-data-from-all-systems", "to": "identify-engineering-released-skus-and-qualified"}, {"from": "query-reference-data-from-all-systems", "to": "compute-routing-durations-with-setup"}, {"from": "query-reference-data-from-all-systems", "to": "build-shift-calendar-and-downtime-constraints-pe"}, {"from": "identify-engineering-released-skus-and-qualified", "to": "select-eligible-non-wip-sales-orders"}, {"from": "select-eligible-non-wip-sales-orders", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "compute-routing-durations-with-setup", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "identify-existing-wip-and-its-lines", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "check-wms-inventory-feasibility-per-candidate-or", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-shift-calendar-and-downtime-constraints-pe", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-erp-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-mes-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-wms-writeback-sql"}, {"from": "generate-erp-writeback-sql", "to": "apply-erp-writeback-via-gateway"}, {"from": "generate-mes-writeback-sql", "to": "apply-mes-writeback-via-gateway"}, {"from": "generate-wms-writeback-sql", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "apply-mes-writeback-via-gateway"}, {"from": "apply-mes-writeback-via-gateway", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-mes-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-wms-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}]}, {"version": 7, "why": "All reference tables queried via gateway and dumped to /tmp/data for offline analysis; verified structures for sales_orders, routings, bom, engineering_gate, line_capability, shift_calendar, downtime_event, wip, inventory_lots.", "reason_code": "OTHER", "alternatives": [], "actor": "orchestrator", "n_ops": 2, "op_counts": {"record_output": 1, "set_status": 1}, "nodes": [{"id": "understand-the-inputs", "label": "Understand the inputs", "status": "done", "type": "task", "group": null}, {"id": "state-the-requirements", "label": "State the requirements", "status": "done", "type": "task", "group": null}, {"id": "decide-the-approach", "label": "Decide the approach", "status": "done", "type": "task", "group": null}, {"id": "do-the-work", "label": "Do the work", "status": "dropped", "type": "task", "group": null}, {"id": "verify-against-the-requirements", "label": "Verify against the requirements", "status": "dropped", "type": "task", "group": null}, {"id": "query-reference-data-from-all-systems", "label": "Query reference data from all systems", "status": "done", "type": "task", "group": null}, {"id": "identify-existing-wip-and-its-lines", "label": "Identify existing WIP and its lines", "status": "active", "type": "task", "group": null}, {"id": "identify-engineering-released-skus-and-qualified", "label": "Identify engineering-released SKUs and qualified lines", "status": "active", "type": "task", "group": null}, {"id": "compute-routing-durations-with-setup", "label": "Compute routing durations with setup", "status": "active", "type": "task", "group": null}, {"id": "build-shift-calendar-and-downtime-constraints-pe", "label": "Build shift calendar and downtime constraints per line", "status": "active", "type": "task", "group": null}, {"id": "select-eligible-non-wip-sales-orders", "label": "Select eligible non-WIP sales orders", "status": "active", "type": "task", "group": null}, {"id": "check-wms-inventory-feasibility-per-candidate-or", "label": "Check WMS inventory feasibility per candidate order", "status": "active", "type": "task", "group": null}, {"id": "build-final-schedule-wip-first-then-prioritized", "label": "Build final schedule (WIP first, then prioritized orders) respecting all constraints", "status": "active", "type": "task", "group": null}, {"id": "generate-erp-writeback-sql", "label": "Generate ERP writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-mes-writeback-sql", "label": "Generate MES writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "generate-wms-writeback-sql", "label": "Generate WMS writeback SQL", "status": "active", "type": "task", "group": null}, {"id": "apply-erp-writeback-via-gateway", "label": "Apply ERP writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-mes-writeback-via-gateway", "label": "Apply MES writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "apply-wms-writeback-via-gateway", "label": "Apply WMS writeback via gateway", "status": "active", "type": "task", "group": null}, {"id": "verify-audit-log-and-overall-plan-validity", "label": "Verify audit log and overall plan validity", "status": "active", "type": "task", "group": null}], "edges": [{"from": "understand-the-inputs", "to": "state-the-requirements"}, {"from": "state-the-requirements", "to": "decide-the-approach"}, {"from": "decide-the-approach", "to": "do-the-work"}, {"from": "do-the-work", "to": "verify-against-the-requirements"}, {"from": "understand-the-inputs", "to": "query-reference-data-from-all-systems"}, {"from": "query-reference-data-from-all-systems", "to": "identify-existing-wip-and-its-lines"}, {"from": "query-reference-data-from-all-systems", "to": "identify-engineering-released-skus-and-qualified"}, {"from": "query-reference-data-from-all-systems", "to": "compute-routing-durations-with-setup"}, {"from": "query-reference-data-from-all-systems", "to": "build-shift-calendar-and-downtime-constraints-pe"}, {"from": "identify-engineering-released-skus-and-qualified", "to": "select-eligible-non-wip-sales-orders"}, {"from": "select-eligible-non-wip-sales-orders", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "compute-routing-durations-with-setup", "to": "check-wms-inventory-feasibility-per-candidate-or"}, {"from": "identify-existing-wip-and-its-lines", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "check-wms-inventory-feasibility-per-candidate-or", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-shift-calendar-and-downtime-constraints-pe", "to": "build-final-schedule-wip-first-then-prioritized"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-erp-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-mes-writeback-sql"}, {"from": "build-final-schedule-wip-first-then-prioritized", "to": "generate-wms-writeback-sql"}, {"from": "generate-erp-writeback-sql", "to": "apply-erp-writeback-via-gateway"}, {"from": "generate-mes-writeback-sql", "to": "apply-mes-writeback-via-gateway"}, {"from": "generate-wms-writeback-sql", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "apply-mes-writeback-via-gateway"}, {"from": "apply-mes-writeback-via-gateway", "to": "apply-wms-writeback-via-gateway"}, {"from": "apply-erp-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-mes-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}, {"from": "apply-wms-writeback-via-gateway", "to": "verify-audit-log-and-overall-plan-validity"}]}]};
+
+const CODE_CLASS = {MISSING_STEP:"c-grow", CONTRADICTION:"c-contra"};
+const HEAD = DATA.versions[DATA.versions.length-1];
+document.getElementById("t-vers").textContent = DATA.versions.length + " versions";
+document.getElementById("t-ops").textContent = DATA.versions.reduce((a,v)=>a+v.n_ops,0) + " ops";
+document.getElementById("t-nodes").textContent = "5 seeded → " + HEAD.nodes.length + " nodes";
+const rail = document.getElementById("rail");
+let current = DATA.versions.length - 1;
+
+DATA.versions.forEach((v, i) => {
+  const b = document.createElement("button");
+  b.className = "vbtn";
+  b.type = "button";
+  b.setAttribute("aria-current", String(i === current));
+  b.innerHTML =
+    '<span class="vnum">v' + v.version + '</span>' +
+    '<span><span class="vcode ' + (CODE_CLASS[v.reason_code] || "c-plain") + '">' +
+    (v.reason_code || "—") + '</span><br><span class="vwhy">' +
+    (v.why || "").replace(/</g, "&lt;") + '</span></span>';
+  b.addEventListener("click", () => { current = i; render(); });
+  rail.appendChild(b);
+});
+
+function layout(nodes, edges){
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const incoming = new Map(nodes.map(n => [n.id, []]));
+  edges.forEach(e => { if (incoming.has(e.to)) incoming.get(e.to).push(e.from); });
+  const depth = new Map();
+  const visit = (id, seen) => {
+    if (depth.has(id)) return depth.get(id);
+    if (seen.has(id)) return 0;
+    seen.add(id);
+    const ins = incoming.get(id) || [];
+    const d = ins.length === 0 ? 0 : 1 + Math.max(...ins.map(p => byId.has(p) ? visit(p, seen) : -1));
+    depth.set(id, d);
+    return d;
+  };
+  nodes.forEach(n => visit(n.id, new Set()));
+  const layers = new Map();
+  nodes.forEach(n => {
+    const d = depth.get(n.id) || 0;
+    if (!layers.has(d)) layers.set(d, []);
+    layers.get(d).push(n);
+  });
+  const COLW = 208, ROWH = 62, PADX = 8, PADY = 8;
+  const pos = new Map();
+  [...layers.keys()].sort((a,b)=>a-b).forEach(d => {
+    layers.get(d).forEach((n, i) => {
+      pos.set(n.id, {x: PADX + d * COLW, y: PADY + i * ROWH});
+    });
+  });
+  const maxD = Math.max(0, ...[...layers.keys()]);
+  const maxR = Math.max(1, ...[...layers.values()].map(a => a.length));
+  return {pos, w: PADX*2 + maxD*COLW + 184, h: PADY*2 + maxR*ROWH};
+}
+
+function render(){
+  const v = DATA.versions[current];
+  const prev = current > 0 ? new Set(DATA.versions[current-1].nodes.map(n=>n.id)) : new Set();
+
+  [...rail.children].forEach((c,i)=>c.setAttribute("aria-current", String(i===current)));
+  document.getElementById("ptitle").textContent = "v" + v.version;
+  document.getElementById("counts").innerHTML =
+    '<span><b>' + v.nodes.length + '</b> nodes</span>' +
+    '<span><b>' + v.edges.length + '</b> edges</span>' +
+    '<span><b>' + v.n_ops + '</b> ops</span>';
+  document.getElementById("why").innerHTML =
+    '<span class="lbl">why</span>' + (v.why || "—").replace(/</g,"&lt;");
+  document.getElementById("ops").innerHTML =
+    Object.entries(v.op_counts).map(([k,n]) => '<span class="op">' + k + ' &times;' + n + '</span>').join("")
+    || '<span class="op">no ops &mdash; genesis</span>';
+
+  const canvas = document.getElementById("canvas");
+  if (v.nodes.length === 0){
+    canvas.innerHTML = '<p style="color:var(--mute);font-family:IBM Plex Mono,monospace;font-size:13px;margin:8px 0">'
+      + 'genesis record &mdash; the log exists, the graph is empty</p>';
+    return;
+  }
+  const {pos, w, h} = layout(v.nodes, v.edges);
+  const NW = 176, NH = 40;
+  let s = '<svg viewBox="0 0 ' + w + ' ' + h + '" width="' + w + '" height="' + h + '" role="img" aria-label="Plan graph at version ' + v.version + '">';
+  s += '<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">'
+     + '<path d="M0 0 L8 4 L0 8 z" fill="var(--line)"/></marker></defs>';
+  v.edges.forEach(e => {
+    const a = pos.get(e.from), b = pos.get(e.to);
+    if (!a || !b) return;
+    const x1 = a.x + NW, y1 = a.y + NH/2, x2 = b.x, y2 = b.y + NH/2;
+    const mx = (x1 + x2) / 2;
+    s += '<path d="M' + x1 + ' ' + y1 + ' C' + mx + ' ' + y1 + ',' + mx + ' ' + y2 + ',' + x2 + ' ' + y2 +
+         '" fill="none" stroke="var(--line)" stroke-width="1.25" marker-end="url(#ar)"/>';
+  });
+  v.nodes.forEach(n => {
+    const p = pos.get(n.id); if (!p) return;
+    const isNew = !prev.has(n.id) && current > 0;
+    const sup = n.status === "superseded";
+    const drop = n.status === "dropped";
+    const done = n.status === "done";
+    const stroke = isNew ? "var(--ochre)" : sup ? "var(--rose)" : drop ? "var(--line)" : "var(--mute)";
+    const fill = done ? "var(--done-fill)" : "var(--active-fill)";
+    const dash = (sup || drop) ? ' stroke-dasharray="4 3"' : '';
+    const label = (n.label || n.id).replace(/</g,"&lt;");
+    const short = label.length > 26 ? label.slice(0,25) + "\u2026" : label;
+    s += '<g class="node">';
+    s += '<rect x="' + p.x + '" y="' + p.y + '" width="' + NW + '" height="' + NH +
+         '" rx="3" fill="' + fill + '" stroke="' + stroke + '" stroke-width="' + (isNew?1.8:1.2) + '"' + dash + (drop?' opacity="0.55"':'') + '/>';
+    s += '<text class="nlabel" x="' + (p.x+10) + '" y="' + (p.y+17) + '"' + (done?' opacity="0.62"':'') + '>' + short + '</text>';
+    s += '<text class="nid" x="' + (p.x+10) + '" y="' + (p.y+30) + '">' + n.status + '</text>';
+    s += '<title>' + label + ' — ' + n.status + '</title>';
+    s += '</g>';
+  });
+  s += '</svg>';
+  canvas.innerHTML = s;
+}
+render();
+</script>

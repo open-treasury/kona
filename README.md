@@ -12,6 +12,7 @@ breaks. Every change carries its rationale. Any fresh session reads the file and
 > All judgment lives in the Claude Code plugin.
 
 Design: [`docs/prd.md`](docs/prd.md) · [`docs/spec.md`](docs/spec.md) · [`docs/plan.md`](docs/plan.md)
+Measurement (proposal): [`docs/eval.md`](docs/eval.md)
 
 Those three rest on an evidence base that is **not published**: six empirical probe runs and a
 200-technology prior-art review. Both quote heavily from primary sources, and the probe

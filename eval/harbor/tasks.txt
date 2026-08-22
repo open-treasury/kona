@@ -1,0 +1,21 @@
+# The six tasks, and why these six.
+#
+# Every one has a NATIVE agent budget of <= 60 minutes in its own task.toml, so the run
+# uses --agent-timeout-multiplier 1.0 and each task gets exactly the time its author
+# intended. Nothing is truncated, so "you crippled the tasks" is not available as an
+# objection to whatever the result turns out to be.
+#
+# Excluded for the same reason they would otherwise qualify:
+#   data-anonymization  native budget 60m but a 120m VERIFIER, and 24h expert time
+#   html-js-filter      native budget 60m but a 30m Playwright verifier -> 70m window becomes 90m
+#
+# Wall-clock = 60m (longest agent budget) + 10m (longest verifier) = ~70 minutes.
+# Footprint  = 20 GB x 2 arms = 40 GB container RAM, 20 vCPU. A 48-64 GB VM.
+#
+# task                        budget  verify  mem   expert  category
+bun-sourcemap-leak          #    30m     10m  2 GB   1.5 h  Software
+cli-2ph-simplex             #    42m     10m  2 GB   2.0 h  Software
+layout-config-recreation    #    60m      3m  4 GB   2.0 h  Media
+cargo-flight-dispatch       #    60m     10m  4 GB   2.5 h  Operations
+production-planning         #    60m      2m  4 GB   4.0 h  Operations
+kv-live-surgery             #    60m      0m  4 GB   4.0 h  Software

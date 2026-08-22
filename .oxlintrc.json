@@ -44,7 +44,10 @@
     ".stryker-tmp",
     "reports",
     "docs",
-    "fixtures"
+    "fixtures",
+    "eval/jobs",
+    "eval/dist",
+    "eval/.venv"
   ],
   "overrides": [
     {
@@ -110,6 +113,14 @@
     {
       "files": [
         "demo/**/*.ts"
+      ],
+      "rules": {
+        "eslint/no-console": "off"
+      }
+    },
+    {
+      "files": [
+        "eval/**/*.ts"
       ],
       "rules": {
         "eslint/no-console": "off"

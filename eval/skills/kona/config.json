@@ -1,0 +1,9 @@
+{
+  "identity": {
+    "mailbox": "agent@localhost",
+    "display_name": "Terminal agent",
+    "signature": "-- automated benchmark run",
+    "authority": "This pursuit sends nothing and contacts nobody. Every node is effect_class 'pure'. Do not attempt to email, message or otherwise reach any person."
+  },
+  "effect_budget": 0
+}

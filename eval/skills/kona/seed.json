@@ -1,0 +1,21 @@
+[
+  {"op":"add_node","label":"Understand the inputs","type":"task",
+   "spec":{"instruction":"Read every input the task provides and record what each one contains. Do not change anything yet.",
+           "outputs":[{"name":"inputs","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"add_node","label":"State the requirements","type":"task",
+   "spec":{"instruction":"Write down what the finished work must satisfy, as checkable statements.",
+           "outputs":[{"name":"requirements","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"add_node","label":"Decide the approach","type":"task",
+   "spec":{"instruction":"Choose how to satisfy the requirements. Split this node into concrete steps with kona mutate once the shape is clear.",
+           "outputs":[{"name":"approach","type":"string"}],"effect_class":"pure"}},
+  {"op":"add_node","label":"Do the work","type":"task",
+   "spec":{"instruction":"Carry out the approach. Add nodes as sub-steps become known rather than holding them in your head.",
+           "outputs":[{"name":"changes","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"add_node","label":"Verify against the requirements","type":"task",
+   "spec":{"instruction":"Check the finished work against each requirement and record the evidence.",
+           "outputs":[{"name":"verification","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"add_edge","from":"$0","to":"$1"},
+  {"op":"add_edge","from":"$1","to":"$2"},
+  {"op":"add_edge","from":"$2","to":"$3"},
+  {"op":"add_edge","from":"$3","to":"$4"}
+]
