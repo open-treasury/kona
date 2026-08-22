@@ -153,11 +153,18 @@ ops <<'EOF'
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
  {"op":"add_edge","from":"$3","to":"$4"},
- {"op":"add_edge","from":"$4","to":"goalie-confirmed","condition":{"on":"satisfied"}},
- {"op":"set_status","node":"$3","status":"sending","evidence_ref":"ek_pat_v7"}
+ {"op":"add_edge","from":"$4","to":"goalie-confirmed","condition":{"on":"satisfied"}}
 ]
 EOF
 commit 6 "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too." CONTRADICTION
+
+# v8 — Pat's invite goes through the OUTBOX rather than a hand-set status, so the fixture
+# carries a real open reservation: fsynced, sent-or-not-unknown, awaiting an answer.
+# This is the state §6.6 exists for, and a hand-written `sending` with an empty
+# effect_log would be a state the CLI can never actually produce.
+${KONA} effect reserve ask-pat-to-play-in-goal \
+  --payload-hash "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f0" \
+  --why "Pat is the last untried goalie and the deadline is Thursday" >/dev/null
 
 mkdir -p "${ROOT}/fixtures"
 cp .kona/mutations.jsonl "${ROOT}/fixtures/thursday.mutations.jsonl"

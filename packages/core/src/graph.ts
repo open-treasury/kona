@@ -15,8 +15,14 @@ import { TERMINAL_SUCCESS_STATUS, isResolvingVerdict, isTerminal } from "./vocab
 export interface EffectRecord {
   effect_key: string;
   payload_hash: string;
+  /** When the intent was durably appended. Always set. */
   attempted_at: string;
+  /**
+   * When the world's answer came back. `null` means the answer is UNKNOWN, not that
+   * nothing happened — §6.6 keeps these two fields distinct so that state is nameable.
+   */
   completed_at: string | null;
+  outcome: "sent" | "failed" | null;
   message_id: string | null;
 }
 

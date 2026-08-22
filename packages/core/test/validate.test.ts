@@ -126,14 +126,15 @@ describe("invariant 1 — terminal & effect protection", () => {
 
 /** A node that has already put an email on the wire. */
 function withEffect(): Graph {
-    const graph = seeded([task("Send invite")]);
-    const node = graph.nodes.get("send-invite");
-    if (node === undefined) throw new Error("fixture");
+  const graph = seeded([task("Send invite")]);
+  const node = graph.nodes.get("send-invite");
+  if (node === undefined) throw new Error("fixture");
   node.status.effect_log.push({
     effect_key: "ek_1",
     payload_hash: "h1",
     attempted_at: "2026-08-21T10:00:00.000Z",
     completed_at: "2026-08-21T10:00:01.000Z",
+    outcome: "sent",
     message_id: "<m-1>",
   });
   return graph;

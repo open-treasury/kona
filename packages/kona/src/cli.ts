@@ -7,13 +7,20 @@
  */
 
 import { parseArgs, type ParseArgsConfig } from "node:util";
-import { ACTOR_KINDS, REASON_CODES, type ActorKind, type ReasonCode } from "@kona/core";
+import {
+  ACTOR_KINDS,
+  REASON_CODES,
+  type ActorKind,
+  type EffectOutcome,
+  type ReasonCode,
+} from "@kona/core";
 import type { Io } from "./io.ts";
 import { EXIT_OK, EXIT_REFUSED } from "./exit.ts";
 import { runInit } from "./commands/init.ts";
 import { runGraph } from "./commands/graph.ts";
 import { runNext } from "./commands/next.ts";
 import { runMutate } from "./commands/mutate.ts";
+import { runRecord, runReserve } from "./commands/effect.ts";
 
 /**
  * §6.8's nine verbs. Listing the unbuilt ones is deliberate: a verb that is absent from
@@ -28,7 +35,7 @@ const VERBS: { name: string; summary: string; built: boolean }[] = [
   { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", built: false },
   { name: "poll", summary: "scan each armed wait's cursor", built: false },
   { name: "resume", summary: "reconcile-then-repair", built: false },
-  { name: "effect", summary: "reserve | record — the outbox", built: false },
+  { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", built: true },
   { name: "view", summary: "start the localhost viewer", built: false },
 ];
 
@@ -108,6 +115,16 @@ const VERB_OPTIONS: Record<string, Options> = {
   },
   graph: { ...COMMON, version: { type: "string" } },
   next: { ...COMMON },
+  effect: {
+    ...COMMON,
+    "payload-hash": { type: "string" },
+    key: { type: "string" },
+    outcome: { type: "string" },
+    "message-id": { type: "string" },
+    why: { type: "string" },
+    "reason-code": { type: "string", default: "OTHER" },
+    "actor-id": { type: "string", default: "executor" },
+  },
   mutate: {
     ...COMMON,
     ops: { type: "string" },
@@ -120,6 +137,54 @@ const VERB_OPTIONS: Record<string, Options> = {
     "actor-id": { type: "string", default: "orchestrator" },
   },
 };
+
+const EFFECT_OUTCOMES = ["sent", "failed"] as const;
+
+/**
+ * `kona effect reserve|record <node>`. Both are mutating verbs, so §8's `--why` applies.
+ * `--reason-code` defaults to OTHER on purpose: the closed vocabulary describes why a PLAN
+ * changed (COUNTERPARTY_DECLINED, MISSING_STEP...), and none of it describes "I sent the
+ * message I was told to send". Forcing a wrong code is worse than defaulting to OTHER.
+ */
+async function runEffect(
+  values: Record<string, unknown>,
+  positionals: readonly string[],
+  io: Io,
+): Promise<number> {
+  const [action, node] = positionals;
+  if (action !== "reserve" && action !== "record") {
+    io.err(`REFUSED BAD_SUBCOMMAND kona effect takes 'reserve' or 'record', got '${action ?? "nothing"}'`);
+    return EXIT_REFUSED;
+  }
+  if (node === undefined || node.length === 0) {
+    io.err(`REFUSED MISSING_NODE kona effect ${action} needs a node id`);
+    return EXIT_REFUSED;
+  }
+
+  const why = requireString(values, "why", io);
+  if (why === null) return EXIT_REFUSED;
+  const reasonCode = requireMember<ReasonCode>(values, "reason-code", REASON_CODES, io);
+  if (reasonCode === null) return EXIT_REFUSED;
+
+  const rationale = { why, reasonCode };
+  const json = values["json"] === true;
+  const actorId = String(values["actor-id"]);
+
+  if (action === "reserve") {
+    const payloadHash = requireString(values, "payload-hash", io);
+    if (payloadHash === null) return EXIT_REFUSED;
+    return await runReserve(io, { node, payloadHash, rationale, actorId, json });
+  }
+
+  const key = requireString(values, "key", io);
+  if (key === null) return EXIT_REFUSED;
+  const outcome = requireMember<EffectOutcome>(values, "outcome", EFFECT_OUTCOMES, io);
+  if (outcome === null) return EXIT_REFUSED;
+  const messageId = requireString(values, "message-id", io);
+  if (messageId === null) return EXIT_REFUSED;
+
+  return await runRecord(io, { node, key, outcome, messageId, rationale, actorId, json });
+}
 
 export async function run(argv: readonly string[], io: Io): Promise<number> {
   const [verb, ...rest] = argv;
@@ -140,13 +205,15 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   }
 
   let values: Record<string, unknown>;
+  let positionals: string[];
   try {
-    ({ values } = parseArgs({
+    ({ values, positionals } = parseArgs({
       args: [...rest],
       options: VERB_OPTIONS[verb],
-      allowPositionals: false,
+      // Only `effect` takes positionals — its subcommand and its node.
+      allowPositionals: verb === "effect",
       strict: true,
-    }) as { values: Record<string, unknown> });
+    }));
   } catch (cause) {
     io.err(`REFUSED BAD_FLAG ${cause instanceof Error ? cause.message : String(cause)}`);
     return EXIT_REFUSED;
@@ -160,6 +227,10 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
       actorId: String(values["actor-id"]),
       json,
     });
+  }
+
+  if (verb === "effect") {
+    return await runEffect(values, positionals, io);
   }
 
   if (verb === "next") {

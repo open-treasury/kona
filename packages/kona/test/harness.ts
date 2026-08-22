@@ -3,7 +3,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fixedClock } from "../src/clock.ts";
 import type { Io } from "../src/io.ts";
 
 export interface Harness {
@@ -12,6 +11,8 @@ export interface Harness {
   out: string[];
   err: string[];
   writeOps: (name: string, ops: unknown) => string;
+  /** Advance the fixed clock, so a test can tell `attempted_at` from `completed_at`. */
+  setClock: (iso: string) => void;
   reset: () => void;
   cleanup: () => void;
 }
@@ -20,15 +21,19 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
   const dir = mkdtempSync(join(tmpdir(), "kona-test-"));
   const out: string[] = [];
   const err: string[] = [];
+  let clock = now;
 
   return {
     dir,
     out,
     err,
+    setClock: (iso) => {
+      clock = iso;
+    },
     io: {
       cwd: dir,
       pid: 4242,
-      now: fixedClock(now),
+      now: () => clock,
       out: (line) => out.push(line),
       err: (line) => err.push(line),
     },

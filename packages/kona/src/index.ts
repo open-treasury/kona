@@ -13,3 +13,6 @@ export * from "./pursuit.ts";
 export * from "./commands/graph.ts";
 export * from "./commands/next.ts";
 export * from "./commands/mutate.ts";
+export * from "./commands/effect.ts";
+export * from "./commit.ts";
+export * from "./hash.ts";

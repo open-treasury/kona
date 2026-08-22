@@ -137,6 +137,7 @@ function withHistory(): Graph {
     payload_hash: "h1",
     attempted_at: "2026-08-21T10:00:00.000Z",
     completed_at: null,
+    outcome: null,
     message_id: null,
   });
   return graph;
@@ -161,6 +162,7 @@ describe("cloning preserves what an op did not touch", () => {
       payload_hash: "h2",
       attempted_at: "2026-08-21T11:00:00.000Z",
       completed_at: null,
+      outcome: null,
       message_id: null,
     });
     node?.status.conditions.push({ type: "x", status: "open", reason: "y", at: "2026-08-21T11:00:00.000Z" });

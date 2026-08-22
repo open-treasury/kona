@@ -1,0 +1,291 @@
+/**
+ * `kona effect reserve|record` through the real verb, against a real log (§6.6, §7).
+ *
+ * The spec's crash table has three rows, and two of them leave IDENTICAL bytes on disk —
+ * a `sending` node with `completed_at: null`. Nothing in the log distinguishes "fsynced
+ * but never sent" from "sent but never recorded", which is why the safe behaviour is that
+ * re-reserving the same payload is a no-op rather than a send, and why resume must hand
+ * the state to a human rather than retry it.
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { GraphProjection, Node } from "@kona/core";
+import { run } from "../src/cli.ts";
+import { effectKey } from "../src/hash.ts";
+import { harness, type Harness } from "./harness.ts";
+
+let h: Harness;
+
+const PIVOT = [
+  {
+    op: "add_node",
+    label: "Ask Dana",
+    type: "task",
+    spec: {
+      instruction: "Email Dana.",
+      outputs: [{ name: "sent", type: "string" }],
+      effect_class: "pivot",
+      effect: { channel: "email", recipient_ref: "roster#dana" },
+    },
+  },
+  {
+    op: "add_node",
+    label: "Confirm roster",
+    type: "task",
+    spec: { instruction: "Read the roster.", effect_class: "pure" },
+  },
+];
+
+/** The key for `ask-dana`, created at v1. Computed the same way the CLI computes it. */
+const KEY = effectKey("ask-dana", 1);
+
+beforeEach(async () => {
+  h = harness();
+  expect(await run(["init"], h.io)).toBe(0);
+  const ops = h.writeOps("ops.json", PIVOT);
+  expect(
+    await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "ask", "--reason-code", "MISSING_STEP"], h.io),
+  ).toBe(0);
+  h.reset();
+});
+afterEach(() => h.cleanup());
+
+async function nodeOf(id: string): Promise<Node> {
+  h.reset();
+  expect(await run(["graph", "--json"], h.io)).toBe(0);
+  const projection = JSON.parse(h.out[0] ?? "{}") as GraphProjection;
+  const node = projection.nodes.find((n) => n.id === id);
+  if (node === undefined) throw new Error(`no node ${id}`);
+  return node;
+}
+
+function logLineCount(): number {
+  return readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n").length;
+}
+
+async function reserve(payloadHash: string, node = "ask-dana"): Promise<number> {
+  h.reset();
+  return await run(
+    ["effect", "reserve", node, "--payload-hash", payloadHash, "--why", "sending the invite"],
+    h.io,
+  );
+}
+
+async function record(key: string, outcome: string, messageId: string): Promise<number> {
+  h.reset();
+  return await run(
+    ["effect", "record", "ask-dana", "--key", key, "--outcome", outcome, "--message-id", messageId, "--why", "provider replied"],
+    h.io,
+  );
+}
+
+describe("reserve", () => {
+  test("appends the intent, moves the node to sending, and fsyncs before anything is sent", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    const node = await nodeOf("ask-dana");
+    expect(node.status.state).toBe("sending");
+    expect(node.status.effect_log).toHaveLength(1);
+    expect(node.status.effect_log[0]?.effect_key).toBe(KEY);
+    expect(node.status.effect_log[0]?.payload_hash).toBe("sha256:aaa");
+    expect(node.status.effect_log[0]?.completed_at).toBeNull();
+  });
+
+  test("the key is payload-independent — the same slot for a different body", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    const first = (await nodeOf("ask-dana")).status.effect_log[0]?.effect_key;
+    expect(first).toBe(effectKey("ask-dana", 1));
+    // Nothing about the payload participates: the key is a function of node and version.
+    expect(first).not.toContain("aaa");
+  });
+
+  test("refuses a node that moves no bytes", async () => {
+    expect(await reserve("sha256:aaa", "confirm-roster")).toBe(1);
+    expect(h.err[0]).toContain("NOT_AN_EFFECT_NODE");
+  });
+
+  test("refuses a node that does not exist", async () => {
+    expect(await reserve("sha256:aaa", "ghost")).toBe(1);
+    expect(h.err[0]).toContain("UNKNOWN_NODE");
+  });
+
+  test("--payload-hash is required — the hash is what proves the bytes were approved", async () => {
+    h.reset();
+    expect(await run(["effect", "reserve", "ask-dana", "--why", "x"], h.io)).toBe(1);
+    expect(h.err[0]).toContain("--payload-hash");
+  });
+
+  test("--why is required, exactly as on every other mutating verb", async () => {
+    h.reset();
+    expect(await run(["effect", "reserve", "ask-dana", "--payload-hash", "h"], h.io)).toBe(1);
+    expect(h.err[0]).toContain("--why");
+  });
+
+  test("the reservation is a real mutation carrying a real rationale", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    const lines = readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n");
+    const reservation = JSON.parse(lines[2] ?? "");
+    expect(reservation.rationale.why).toBe("sending the invite");
+    expect(reservation.actor.kind).toBe("subagent");
+    expect(reservation.outcome).toBeNull();
+  });
+});
+
+describe("the three crash windows (§6.6)", () => {
+  test("window 1 — crash between append and fsync: nothing happened", async () => {
+    // Nothing is written until fsync returns, so the node is still dispatchable.
+    expect((await nodeOf("ask-dana")).status.state).toBe("active");
+    expect((await nodeOf("ask-dana")).status.effect_log).toEqual([]);
+  });
+
+  test("window 2 — crash between fsync and send: re-reserving the SAME payload is a no-op", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(h.out[0]).toContain("already reserved");
+    // One entry: the retry moved nothing and sent nothing.
+    expect((await nodeOf("ask-dana")).status.effect_log).toHaveLength(1);
+  });
+
+  test("window 2 — the retry does not append a version", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    const before = logLineCount();
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(logLineCount()).toBe(before);
+  });
+
+  test("window 3 — sent but not recorded leaves the same bytes as window 2, and stays sending", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    const node = await nodeOf("ask-dana");
+    // This is genuinely indistinguishable from window 2 in the log. `sending` means the
+    // world's answer is unknown — not that nothing happened.
+    expect(node.status.state).toBe("sending");
+    expect(node.status.effect_log[0]?.completed_at).toBeNull();
+    expect(node.status.effect_log[0]?.outcome).toBeNull();
+  });
+});
+
+describe("a rewritten body is a loud error, never a second send", () => {
+  test("same key, different payload_hash is refused", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await reserve("sha256:bbb")).toBe(1);
+    expect(h.err[0]).toContain("EFFECT_PAYLOAD_MISMATCH");
+    expect(h.err[0]).toContain("sha256:aaa");
+    expect(h.err[0]).toContain("sha256:bbb");
+  });
+
+  test("the check is REACHABLE, which is the whole point of a payload-independent key", async () => {
+    // A key derived from the body would yield a different key for a different body, so
+    // this branch could never be entered and the second email would send.
+    expect(await reserve("sha256:aaa")).toBe(0);
+    await reserve("sha256:bbb");
+    expect((await nodeOf("ask-dana")).status.effect_log).toHaveLength(1);
+  });
+
+  test("and it is never a silent no-op", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await reserve("sha256:bbb")).not.toBe(0);
+  });
+});
+
+describe("record", () => {
+  test("closes the reservation and completes the node", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    const node = await nodeOf("ask-dana");
+    expect(node.status.state).toBe("done");
+    expect(node.status.effect_log[0]?.outcome).toBe("sent");
+    expect(node.status.effect_log[0]?.message_id).toBe("<m-101@mail>");
+    expect(node.status.effect_log[0]?.completed_at).not.toBeNull();
+  });
+
+  test("attempted_at and completed_at are distinct fields with distinct meanings", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    h.setClock("2026-08-21T12:05:00.000Z");
+    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    const entry = (await nodeOf("ask-dana")).status.effect_log[0];
+    expect(entry?.attempted_at).toBe("2026-08-21T12:00:00.000Z");
+    expect(entry?.completed_at).toBe("2026-08-21T12:05:00.000Z");
+  });
+
+  test("a message id containing a colon survives the round trip", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "sent", "<m:101:x@mail>")).toBe(0);
+    expect((await nodeOf("ask-dana")).status.effect_log[0]?.message_id).toBe("<m:101:x@mail>");
+  });
+
+  test("a failure marks the node failed and is NOT a send", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "failed", "550 user unknown")).toBe(0);
+    const node = await nodeOf("ask-dana");
+    expect(node.status.state).toBe("failed");
+    expect(node.status.effect_log[0]?.outcome).toBe("failed");
+  });
+
+  test("refuses when nothing is open — you cannot record a send you never reserved", async () => {
+    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(1);
+    expect(h.err[0]).toContain("NO_OPEN_EFFECT");
+  });
+
+  test("refuses a key that is not the open one", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record("ek_forged", "sent", "<m-101@mail>")).toBe(1);
+    expect(h.err[0]).toContain("EFFECT_KEY_MISMATCH");
+    expect(h.err[0]).toContain(KEY);
+  });
+
+  test("refuses an outcome outside the closed set", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "maybe", "<m-101@mail>")).toBe(1);
+    expect(h.err[0]).toContain("BAD_FLAG");
+  });
+
+  test("recording twice is refused — the slot is closed", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await record(KEY, "sent", "<m-102@mail>")).toBe(1);
+    expect(h.err[0]).toContain("NO_OPEN_EFFECT");
+  });
+});
+
+describe("a node that has moved bytes is never re-executed", () => {
+  test("reserving after a successful send is refused", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await reserve("sha256:aaa")).toBe(1);
+    expect(h.err[0]).toContain("EFFECT_ALREADY_SENT");
+  });
+
+  test("even with a different payload", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await reserve("sha256:zzz")).toBe(1);
+    expect(h.err[0]).toContain("EFFECT_ALREADY_SENT");
+  });
+
+  test("a node that is not active cannot be dispatched", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "failed", "550")).toBe(0);
+    // `failed` is terminal; the retry path is supersede-with-a-replacement, which mints a
+    // new node and therefore a new slot. Nothing re-opens a closed one.
+    expect(await reserve("sha256:aaa")).toBe(1);
+    expect(h.err[0]).toContain("NOT_DISPATCHABLE");
+  });
+});
+
+describe("dispatch", () => {
+  test.each([
+    ["no subcommand", ["effect"]],
+    ["an unknown subcommand", ["effect", "cancel", "ask-dana"]],
+  ])("%s is refused", async (_name, argv) => {
+    h.reset();
+    expect(await run([...argv, "--why", "x"], h.io)).toBe(1);
+    expect(h.err[0]).toContain("BAD_SUBCOMMAND");
+  });
+
+  test("a missing node id is refused", async () => {
+    h.reset();
+    expect(await run(["effect", "reserve", "--why", "x", "--payload-hash", "h"], h.io)).toBe(1);
+    expect(h.err[0]).toContain("MISSING_NODE");
+  });
+});

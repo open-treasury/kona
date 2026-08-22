@@ -1,6 +1,6 @@
 # Fixtures
 
-`thursday.*` is one pursuit — "find a goalie for Thursday" — carried through eight
+`thursday.*` is one pursuit — "find a goalie for Thursday" — carried through nine
 versions by the real binary. **Regenerate with `./scripts/make-fixture.sh`**; never hand-edit,
 because the point is that it cannot drift from what the CLI actually emits.
 
@@ -26,7 +26,11 @@ the wait engine or the outbox.
   `…-and-eligibility`. Nothing is ever deleted.
 - **Two deadline shapes**, `{at}` and `{after, duration}`, plus `on_timeout` on every wait.
 - **Three scopes** (`setup`, `goalies`, `marcus`) for group rendering.
-- **Eight versions with real rationale** — every one carries a `why` and a `reason_code`,
+- **A real open outbox reservation** on `ask-pat-to-play-in-goal` — fsynced, sent-or-not
+  unknown, `completed_at: null`. This is §6.6's whole reason for existing, and it is the
+  state a viewer most needs to render distinctly: `sending` does **not** mean "in progress",
+  it means *the real world's answer is unknown*.
+- **Nine versions with real rationale** — every one carries a `why` and a `reason_code`,
   which is what the timeline panel renders. That panel, not the canvas, is the differentiator.
 
 ## The story, version by version
@@ -41,12 +45,13 @@ the wait engine or the outbox.
 | 5 | Sam declines but refers **Marcus, who is not on the roster**; eligibility needs a human |
 | 6 | the roster step is superseded by one that also checks eligibility |
 | 7 | Priya's address bounces `550`; her wait is dropped, and Pat is asked |
+| 8 | Pat's invite is **reserved through the outbox** — an intent on disk, no answer yet |
 
 ## Caveats
 
-The wait engine and the outbox are not built, so **`status.effect_log` is empty
-everywhere** and no wait carries a cursor or resolution. Those fields will appear; treat
-the JSON as **additive** and do not switch exhaustively on the current field set. The two
+The wait engine is not built, so no wait carries a cursor or resolution yet. Those fields
+will appear; treat the JSON as **additive** and do not switch exhaustively on the current
+field set. The two
 things that are frozen are the ones the visual vocabulary needs: **2 node types and 5
 statuses.**
 

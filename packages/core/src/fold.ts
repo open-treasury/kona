@@ -102,7 +102,7 @@ export function foldLog(text: string, options: FoldOptions = {}): FoldResult {
     // No ceiling means no ceiling; folding to head is the default, not a special case.
     if (parsed.v > (options.upToVersion ?? Number.POSITIVE_INFINITY)) break;
 
-    const applied = applyOps(graph, parsed.ops, parsed.v);
+    const applied = applyOps(graph, parsed.ops, parsed.v, parsed.occurred_at);
     if (!applied.ok) {
       damaged.push({
         line: entry.line,

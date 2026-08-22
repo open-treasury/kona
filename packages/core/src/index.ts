@@ -5,6 +5,7 @@ export * from "./ids.ts";
 export * from "./schema.ts";
 export * from "./graph.ts";
 export * from "./result.ts";
+export * from "./effect.ts";
 export * from "./apply.ts";
 export * from "./normalize.ts";
 export * from "./fold.ts";

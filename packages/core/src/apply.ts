@@ -7,6 +7,7 @@
  */
 
 import type { CommittedOp } from "./schema.ts";
+import { parseEffectEvidence } from "./effect.ts";
 import type { Edge, Graph, Node, NodeSpec, OutcomeRecord } from "./graph.ts";
 import { isNodeTerminal, resolvingOutcome } from "./graph.ts";
 import { type Result, ok, refuse } from "./result.ts";
@@ -109,6 +110,7 @@ function applyOne(
   graph: Graph,
   op: CommittedOp,
   version: number,
+  occurredAt: string,
   opIndex: number,
 ): Result<null> {
   const at = { op_index: opIndex };
@@ -166,6 +168,34 @@ function applyOne(
           node: op.node,
           ...at,
         });
+      }
+      // §6.6 — the outbox rides on `evidence_ref`, because there is no seventh op. This
+      // MATERIALISES what the log already says; it decides nothing, so re-folding an old
+      // log cannot produce an effect ledger the operator never approved.
+      const evidence = parseEffectEvidence(op.evidence_ref);
+      if (evidence !== null && evidence.kind === "reserve") {
+        node.status.effect_log.push({
+          effect_key: evidence.effect_key,
+          payload_hash: evidence.payload_hash,
+          attempted_at: occurredAt,
+          completed_at: null,
+          outcome: null,
+          message_id: null,
+        });
+      } else if (evidence !== null) {
+        const reserved = node.status.effect_log.find(
+          (entry) => entry.effect_key === evidence.effect_key && entry.completed_at === null,
+        );
+        if (reserved === undefined) {
+          return refuse(
+            "UNRESERVED_EFFECT",
+            `no open reservation '${evidence.effect_key}' on '${op.node}' to record against`,
+            { node: op.node, ...at },
+          );
+        }
+        reserved.completed_at = occurredAt;
+        reserved.outcome = evidence.outcome;
+        reserved.message_id = evidence.message_id;
       }
       node.status.state = op.status;
       node.status.observed_at_version = version;
@@ -257,14 +287,23 @@ function applyOne(
  * Apply a committed batch. Returns a new graph; `graph` is never touched, which is what
  * lets invariant 1 compare pre-commit head against the post-commit result.
  */
+/**
+ * Stand-in timestamp for a DRY RUN. `validate` applies a batch against a clone purely to
+ * test the invariants, and that graph is discarded — `mutate` writes the record and the
+ * next read folds it with the record's real `occurred_at`. Nothing stamped with this ever
+ * reaches disk.
+ */
+const DRY_RUN_TIME = "";
+
 export function applyOps(
   graph: Graph,
   ops: readonly CommittedOp[],
   version: number,
+  occurredAt: string = DRY_RUN_TIME,
 ): Result<Graph> {
   const draft = cloneGraph(graph);
   for (const { op, index } of orderOps(ops)) {
-    const outcome = applyOne(draft, op, version, index);
+    const outcome = applyOne(draft, op, version, occurredAt, index);
     if (!outcome.ok) return outcome;
   }
   draft.version = version;
