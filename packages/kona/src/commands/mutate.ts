@@ -43,6 +43,7 @@ export async function runMutate(io: Io, options: MutateOptions): Promise<number>
       return { refused: EXIT_STALE_BASE_VERSION };
     }
     return {
+      baseVersion: options.baseVersion,
       commit: {
         ops: rawOps,
         rationale: {

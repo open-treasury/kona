@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 export const KONA_DIR = ".kona";
 export const LOG_FILE = "mutations.jsonl";
 export const LOCK_FILE = "lock";
+export const REJECTIONS_FILE = "rejections.jsonl";
 
 export interface KonaPaths {
   /** The pursuit root — the directory containing `.kona/`. */
@@ -15,11 +16,22 @@ export interface KonaPaths {
   log: string;
   /** Held only during a write. */
   lock: string;
+  /**
+   * §8's procedural memory. Append-only, NEVER folded, and not a system of record — the
+   * graph is still exactly `fold(mutations.jsonl)`. Deleting this loses memory, not state.
+   */
+  rejections: string;
 }
 
 export function konaPaths(root: string): KonaPaths {
   const dir = join(root, KONA_DIR);
-  return { root, dir, log: join(dir, LOG_FILE), lock: join(dir, LOCK_FILE) };
+  return {
+    root,
+    dir,
+    log: join(dir, LOG_FILE),
+    lock: join(dir, LOCK_FILE),
+    rejections: join(dir, REJECTIONS_FILE),
+  };
 }
 
 /**

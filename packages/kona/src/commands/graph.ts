@@ -5,6 +5,8 @@
  */
 
 import { projectGraph } from "@kona/core";
+import { readFile } from "node:fs/promises";
+import { parseRejections } from "../rejections.ts";
 import { EXIT_OK, EXIT_REFUSED } from "../exit.ts";
 import { openPursuit, reportDamage } from "../pursuit.ts";
 import type { Io } from "../io.ts";
@@ -19,6 +21,21 @@ export interface GraphOptions {
    * makes the timeline panel, not the canvas, the differentiator.
    */
   history?: boolean;
+  /**
+   * The refusals this pursuit has accumulated (§8). Never folded, and not part of the
+   * graph — but §8 also says nothing outside the CLI reads `.kona/`, so this is how a
+   * reader gets at them.
+   */
+  rejections?: boolean;
+}
+
+/** Absent is the normal case: a pursuit that has refused nothing has no file. */
+async function readRejections(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
@@ -30,17 +47,32 @@ export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
   const folded = opened.folded;
   const projection = projectGraph(folded.graph);
 
+  const refusals =
+    options.rejections === true ? parseRejections(await readRejections(opened.paths.rejections)) : null;
+
   if (options.json) {
     io.out(
       JSON.stringify({
         ...projection,
         ...(options.history === true ? { history: folded.records } : {}),
+        ...(refusals === null ? {} : { rejections: refusals.records }),
         // A torn tail is the expected shape of a crash, not damage: append-then-fsync can
         // only ever truncate the last line. It is reported, and it is not an error.
         torn_tail: folded.torn_tail !== null,
         damaged: folded.damaged,
       }),
     );
+  } else if (refusals !== null) {
+    io.out(
+      refusals.records.length === 0
+        ? `version ${projection.version} · nothing has been refused`
+        : `version ${projection.version} · ${refusals.records.length} refusal(s)`,
+    );
+    for (const record of refusals.records) {
+      io.out(`  ${record.at}  ${record.rejection.reason}  ${record.rejection.message}`);
+      io.out(`    wanted: ${record.rationale?.why ?? "(no rationale)"}`);
+    }
+    if (refusals.damaged > 0) io.out(`  ${refusals.damaged} unreadable line(s)`);
   } else {
     io.out(`version ${projection.version} · ${projection.nodes.length} nodes · ${projection.edges.length} edges`);
     for (const node of projection.nodes) {

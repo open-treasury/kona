@@ -5,6 +5,7 @@ export * from "./netfs.ts";
 export * from "./clock.ts";
 export * from "./lock.ts";
 export * from "./store.ts";
+export * from "./rejections.ts";
 export * from "./exit.ts";
 export * from "./io.ts";
 export * from "./cli.ts";

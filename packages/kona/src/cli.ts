@@ -112,7 +112,12 @@ const VERB_OPTIONS: Record<string, Options> = {
     "actor-id": { type: "string", default: "operator" },
     config: { type: "string" },
   },
-  graph: { ...COMMON, version: { type: "string" }, history: { type: "boolean", default: false } },
+  graph: {
+    ...COMMON,
+    version: { type: "string" },
+    history: { type: "boolean", default: false },
+    rejections: { type: "boolean", default: false },
+  },
   next: { ...COMMON },
   brief: { ...COMMON },
   resume: { ...COMMON, "dry-run": { type: "boolean", default: false } },
@@ -264,12 +269,13 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 
   if (verb === "graph") {
     const history = values["history"] === true;
+    const rejections = values["rejections"] === true;
     if (values["version"] !== undefined) {
       const version = requireInteger(values, "version", io);
       if (version === null) return EXIT_REFUSED;
-      return await runGraph(io, { json, version, history });
+      return await runGraph(io, { json, version, history, rejections });
     }
-    return await runGraph(io, { json, history });
+    return await runGraph(io, { json, history, rejections });
   }
 
   const opsFile = requireString(values, "ops", io);

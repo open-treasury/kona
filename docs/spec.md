@@ -101,11 +101,13 @@ Greenfield: `docs/` only. No source, no toolchain, no CI. Block 0's output is th
 .kona/
   mutations.jsonl   # THE FILE. append-only, fsync'd. Never compacted, never GC'd.
   lock              # O_EXCL lockfile, held only during a write (portable; see §1)
+  rejections.jsonl  # §8's procedural memory. NEVER folded, not a system of record.
 ```
 
 **Write order is the durability story:** `append → fsync → then take the side effect.` Never the reverse.
 
 - The graph is `fold(mutations.jsonl)`. There is no snapshot to keep coherent.
+- **`rejections.jsonl` is a third file and deliberately not a third system of record.** §8 requires a refused mutation to be remembered, and it cannot live in the log: `fold` needs versions to increment by one, and a refused batch changed nothing. Nothing folds this file, nothing decides anything from it, and deleting it loses memory rather than state — so the two-file rule's actual purpose, one system of record and no snapshot that can go stale against it, is intact. A stale base version is *not* recorded: that is contention, not a defect in the batch.
 - Node payloads hold **handles and summaries, never bodies** — the read budget of an LLM re-reading the graph on resume is the real ceiling.
 - JSON only, never pickle. `schema_version` on line 1.
 - Refuse to run on a network filesystem; rename semantics corrupt on Dropbox/iCloud/NFS.

@@ -23,6 +23,7 @@ import { appendRecord, dropTornTail, readLogText } from "./store.ts";
 import { withLock } from "./lock.ts";
 import { EXIT_REFUSED, exitCodeFor } from "./exit.ts";
 import type { Io } from "./io.ts";
+import { appendRejection } from "./rejections.ts";
 import { foldLog } from "@kona/core";
 
 export interface Rationale {
@@ -43,7 +44,16 @@ export interface Batch {
  * What a caller decides once it can see pre-commit head: either the batch to commit, or
  * an exit code because it has already explained the refusal on stderr.
  */
-export type BuildResult = { commit: Batch } | { refused: number };
+export type BuildResult =
+  | {
+      commit: Batch;
+      /**
+       * What the author believed head was, when they said so. Recorded on a rejection so a
+       * CAS failure is distinguishable from a batch that was simply wrong.
+       */
+      baseVersion?: number;
+    }
+  | { refused: number };
 
 export interface Committed {
   version: number;
@@ -86,6 +96,24 @@ export async function commitBatch(
     });
     if (!validated.ok) {
       io.err(formatRejection(validated.rejection));
+      // §8: a refused mutation is procedural memory too. Written inside the lock, and
+      // best-effort — a refusal must not become a crash because the note about it failed.
+      await appendRejection(
+        paths,
+        {
+          at: io.now(),
+          actor: decision.commit.actor,
+          head_version: folded.graph.version,
+          base_version: decision.baseVersion ?? null,
+          ops: decision.commit.ops,
+          rationale: {
+            why: decision.commit.rationale.why,
+            reason_code: decision.commit.rationale.reasonCode,
+          },
+          rejection: validated.rejection,
+        },
+        io.err,
+      );
       return { ok: false as const, code: exitCodeFor(validated.rejection) };
     }
 
