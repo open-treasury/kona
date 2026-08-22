@@ -22,24 +22,21 @@ import { runNext } from "./commands/next.ts";
 import { runBrief } from "./commands/brief.ts";
 import { runResume } from "./commands/resume.ts";
 import { DEFAULT_VIEW_PORT, runView } from "./commands/view.ts";
+import { runPoll } from "./commands/poll.ts";
 import { runMutate } from "./commands/mutate.ts";
 import { runRecord, runReserve } from "./commands/effect.ts";
 
-/**
- * §6.8's nine verbs. Listing the unbuilt ones is deliberate: a verb that is absent from
- * `--help` gets reinvented, and a verb that reports "not built yet" cannot be mistaken
- * for one that silently did nothing.
- */
-const VERBS: { name: string; summary: string; built: boolean }[] = [
-  { name: "init", summary: "create .kona/, refuse on a network filesystem", built: true },
-  { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync", built: true },
-  { name: "graph", summary: "the only read contract", built: true },
-  { name: "next", summary: "the ready frontier, computed never stored", built: true },
-  { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", built: true },
-  { name: "poll", summary: "scan each armed wait's cursor", built: false },
-  { name: "resume", summary: "reconcile-then-repair", built: true },
-  { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", built: true },
-  { name: "view", summary: "start the localhost viewer — user-run, never plugin-spawned", built: true },
+/** §6.8's nine verbs. All nine, and no tenth. */
+const VERBS: { name: string; summary: string }[] = [
+  { name: "init", summary: "create .kona/, refuse on a network filesystem", },
+  { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync", },
+  { name: "graph", summary: "the only read contract", },
+  { name: "next", summary: "the ready frontier, computed never stored", },
+  { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", },
+  { name: "poll", summary: "which wait is each inbound reply for", },
+  { name: "resume", summary: "reconcile-then-repair", },
+  { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", },
+  { name: "view", summary: "start the localhost viewer — user-run, never plugin-spawned", },
 ];
 
 function usage(): string {
@@ -50,9 +47,7 @@ function usage(): string {
     "  .kona/mutations.jsonl + the clock + the mailbox cursor.",
     "",
     "Verbs:",
-    ...VERBS.map((v) => `  ${v.built ? " " : "·"} ${v.name.padEnd(7)} ${v.summary}`),
-    "",
-    "  · not built yet",
+    ...VERBS.map((v) => `  ${v.name.padEnd(7)} ${v.summary}`),
     "",
     "Exit: 0 ok · 1 refused · 3 stale base version · 4 invariant violation",
   ];
@@ -122,6 +117,7 @@ const VERB_OPTIONS: Record<string, Options> = {
   brief: { ...COMMON },
   resume: { ...COMMON, "dry-run": { type: "boolean", default: false } },
   view: { ...COMMON, port: { type: "string" } },
+  poll: { ...COMMON, inbound: { type: "string" } },
   effect: {
     ...COMMON,
     "payload-hash": { type: "string" },
@@ -201,13 +197,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     return EXIT_OK;
   }
 
-  const known = VERBS.find((v) => v.name === verb);
-  if (known === undefined) {
+  if (!VERBS.some((v) => v.name === verb)) {
     io.err(`REFUSED UNKNOWN_VERB '${verb}' is not a kona verb; try --help`);
-    return EXIT_REFUSED;
-  }
-  if (!known.built) {
-    io.err(`REFUSED NOT_IMPLEMENTED '${verb}' is specified but not built yet`);
     return EXIT_REFUSED;
   }
 
@@ -249,6 +240,11 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 
   if (verb === "effect") {
     return await runEffect(values, positionals, io);
+  }
+
+  if (verb === "poll") {
+    const inbound = values["inbound"];
+    return await runPoll(io, { json, ...(typeof inbound === "string" ? { inboundFile: inbound } : {}) });
   }
 
   if (verb === "view") {

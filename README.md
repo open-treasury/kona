@@ -18,7 +18,8 @@ Evidence: [`docs/probes/`](docs/probes/) (six empirical runs) · [`docs/research
 
 ## Status
 
-Block 1, first vertical slice: **`init` → `mutate` → `graph`, end to end.**
+**All nine verbs of §6.8.** The CLI surface is complete; invariants 2 and 3 and the
+viewer are the remaining work.
 
 | Verb | |
 |---|---|
@@ -29,8 +30,8 @@ Block 1, first vertical slice: **`init` → `mutate` → `graph`, end to end.**
 | `kona brief` | a node's subgraph plus identity, correlation and fail-closed preconditions |
 | `kona effect` | `reserve` \| `record` — the outbox, the only verbs that touch the world |
 | `kona resume` | reconcile-then-repair: fires overdue deadlines, surfaces unknown sends |
+| `kona poll` | which wait each inbound reply belongs to — and nothing about what it says |
 | `kona view` | the localhost server behind the viewer — user-run, never plugin-spawned |
-| `poll` | specified, not built; it needs the mailbox port. The CLI says so rather than doing nothing |
 
 Of the three invariants, **#1 (terminal & effect protection)** is enforced. #2 and #3 land
 with the wait and outbox engines.

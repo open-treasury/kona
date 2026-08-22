@@ -51,9 +51,16 @@ describe("dispatch", () => {
     expect(h.err[0]).toContain("UNKNOWN_VERB");
   });
 
-  test("a specified-but-unbuilt verb says so rather than doing nothing", async () => {
-    expect(await run(["poll"], h.io)).toBe(1);
-    expect(h.err[0]).toContain("NOT_IMPLEMENTED");
+  test("all nine verbs dispatch — none is listed and then missing", async () => {
+    // Every one refuses for a REASON OF ITS OWN outside a pursuit, which is the proof that
+    // dispatch reached the verb rather than falling through to "not a kona verb".
+    for (const verb of ["mutate", "graph", "next", "brief", "poll", "resume", "effect", "view"]) {
+      h.reset();
+      await run([verb], h.io);
+      expect(h.err[0] ?? "").not.toContain("UNKNOWN_VERB");
+    }
+    h.reset();
+    expect(await run(["init", "--json"], h.io)).toBe(0);
   });
 
   test("an unknown flag is refused rather than ignored", async () => {
