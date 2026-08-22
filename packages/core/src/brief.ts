@@ -118,7 +118,8 @@ export interface Brief {
     upstream: UpstreamNeighbour[];
     downstream: DownstreamNeighbour[];
   };
-  identity: Identity;
+  /** Null on a pure node: there is nobody to speak for, so none is required. */
+  identity: Identity | null;
   correlation: Correlation | null;
   effect_key: string | null;
   preconditions_satisfied: Preconditions;
@@ -201,22 +202,30 @@ export function buildBrief(
     return { ok: false, reason: "UNKNOWN_NODE", message: `node '${nodeId}' does not exist` };
   }
 
-  // §6.9: brief returns these three things "or it refuses". An executor handed a brief
-  // with no identity will sign as nobody and commit to anything.
   const { identity } = config;
-  if (identity === undefined) {
-    return {
-      ok: false,
-      reason: "NO_IDENTITY",
-      message:
-        "this pursuit has no identity configured; an executor cannot speak for someone the graph cannot name",
-    };
-  }
 
   let correlation: Correlation | null = null;
   let correlationDetail = "node sends nothing, so it needs no reply address";
   let correlationOk = true;
   if (node.spec.effect !== undefined) {
+    // §6.9: brief returns these three things "or it refuses". An executor handed a brief with
+    // no identity will sign as nobody and commit to anything.
+    //
+    // Asked HERE, and not at the top, because only a node that SENDS has anybody to sign to.
+    // A pure node has no counterparty, no reply address and nothing to commit on anyone's
+    // behalf — the correlation check below already says exactly that in words. Refusing it
+    // for a missing identity made effect-free pursuits unusable without inventing a mailbox
+    // nobody reads, and §6.2 makes `effect_class: "pure"` first-class rather than degenerate.
+    if (identity === undefined) {
+      return {
+        ok: false,
+        reason: "NO_IDENTITY",
+        message:
+          `'${node.id}' sends to '${node.spec.effect.recipient_ref}', and this pursuit has no ` +
+          "identity configured; an executor cannot speak for someone the graph cannot name",
+      };
+    }
+
     const awaiting = awaitingWaits(graph, node);
     if (awaiting.length === 0) {
       correlationDetail = "nothing waits on this send, so a reply has nowhere to route";
@@ -283,7 +292,7 @@ export function buildBrief(
           return neighbour;
         }),
       },
-      identity,
+      identity: identity ?? null,
       correlation,
       effect_key: null,
       preconditions_satisfied: { ok: checks.every((check) => check.ok), checks },

@@ -249,12 +249,23 @@ describe("kona brief", () => {
     expect(h.err[0]).toContain("MISSING_NODE");
   });
 
-  test("refuses outright when the pursuit has no identity", async () => {
+  test("refuses a SEND when the pursuit has no identity", async () => {
     h.cleanup();
     await initWith(null);
     h.reset();
-    expect(await run(["brief", "confirm-roster"], h.io)).toBe(1);
+    expect(await run(["brief", "ask-dana"], h.io)).toBe(1);
     expect(h.err[0]).toContain("NO_IDENTITY");
+  });
+
+  test("but briefs a PURE node without one, and prints no `as` line to invent", async () => {
+    h.cleanup();
+    await initWith(null);
+    h.reset();
+    expect(await run(["brief", "confirm-roster"], h.io)).toBe(0);
+    const out = h.out.join("\n");
+    expect(out).toContain("confirm-roster");
+    expect(out).not.toContain("  as  ");
+    expect(out).not.toContain("authority");
   });
 
   test("an unconfigured budget blocks a send — an unknown cap is not an unlimited one", async () => {
@@ -277,7 +288,7 @@ describe("kona brief", () => {
 describe("kona init --config", () => {
   test("writes the config onto the genesis record, where it is versioned", async () => {
     const { brief } = await briefJson("confirm-roster");
-    expect(brief.identity.display_name).toBe("Ilya Vorobiev");
+    expect(brief.identity?.display_name).toBe("Ilya Vorobiev");
   });
 
   test("refuses an unreadable config rather than starting without one", async () => {

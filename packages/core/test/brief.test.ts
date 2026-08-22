@@ -207,10 +207,33 @@ describe("brief refuses rather than guessing (§6.9)", () => {
     expect(!result.ok && result.reason).toBe("UNKNOWN_NODE");
   });
 
-  test("a pursuit with no identity — an executor cannot speak for someone unnamed", () => {
-    const result = buildBrief(seeded([task("A")]), "a", {});
+  test("a SENDING node with no identity — an executor cannot speak for someone unnamed", () => {
+    const graph = rostered(["dana"], [
+      task("Ask Dana", {
+        effect_class: "pivot",
+        effect: { channel: "email", recipient_ref: "roster#dana" },
+      }),
+    ]);
+    const result = buildBrief(graph, "ask-dana", {});
     expect(result.ok).toBe(false);
     expect(!result.ok && result.reason).toBe("NO_IDENTITY");
+    // The refusal names the recipient, so the reader knows which send it is standing in front of.
+    expect(!result.ok && result.message).toContain("roster#dana");
+  });
+
+  test("a PURE node needs none — there is nobody to speak for", () => {
+    // Refusing this made effect-free pursuits unusable without inventing a mailbox nobody
+    // reads, and §6.2 makes `effect_class: "pure"` first-class rather than degenerate. The
+    // correlation check already says the true thing in words.
+    const result = buildBrief(seeded([task("A")]), "a", {});
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.brief.identity).toBeNull();
+    expect(result.brief.preconditions_satisfied.ok).toBe(true);
+    expect(
+      result.brief.preconditions_satisfied.checks.find((c) => c.name === "correlation_expanded")
+        ?.detail,
+    ).toBe("node sends nothing, so it needs no reply address");
   });
 });
 

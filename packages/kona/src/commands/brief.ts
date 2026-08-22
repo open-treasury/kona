@@ -43,8 +43,12 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
   io.out(`${resolved.node.type} ${resolved.node.id} — ${resolved.node.label}`);
   io.out("");
   io.out(`  instruction  ${resolved.node.spec.instruction}`);
-  io.out(`  as           ${resolved.identity.display_name} <${resolved.identity.mailbox}>`);
-  io.out(`  authority    ${resolved.identity.authority}`);
+  // Absent on a pure node, and printed as nothing rather than as a blank field: there is no
+  // counterparty to sign to, so an empty `as` line would invite an executor to invent one.
+  if (resolved.identity !== null) {
+    io.out(`  as           ${resolved.identity.display_name} <${resolved.identity.mailbox}>`);
+    io.out(`  authority    ${resolved.identity.authority}`);
+  }
   if (resolved.correlation !== null) {
     io.out(`  reply-to     ${resolved.correlation.reply_to}`);
     io.out(`  subject tag  ${resolved.correlation.subject_tag}`);
