@@ -2,7 +2,7 @@
  * The Mailpit implementation of `MailboxProvider` — plan T7.1.
  *
  * Spec §6.11 names Mailpit as the offline fallback behind this port, and
- * `docs/research/13` picked it over MailHog on evidence: MailHog's last commit to `master`
+ * Picked over MailHog on evidence: MailHog's last commit to `master`
  * was 2022-08-02 with 255 issues open, while Mailpit shipped v1.30.7 thirteen days before
  * that research. Everything below was verified against a live **v1.31.0**; the shapes are
  * transcribed from what that instance actually returned, not from memory.

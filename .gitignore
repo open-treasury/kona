@@ -25,3 +25,11 @@ reports/
 # Per-epic working notes from the parallel windows. Local scratch, not a deliverable —
 # whatever they settled that still matters is in the spec, the tests or a beads issue.
 plans/
+
+# The evidence base stays private. Both directories quote heavily from primary sources —
+# vendor docs, papers, issue threads — and the probe transcripts carry raw model output from
+# runs that were never written to be read by anyone but us. The CONCLUSIONS are public: every
+# claim they support is stated, with its measurement, in prd.md / spec.md / plan.md and in the
+# code comments at the decisions they justify.
+docs/probes/
+docs/research/

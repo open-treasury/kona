@@ -213,7 +213,7 @@ E1 whole · E2 minus T2.9 · **all 9 enforced invariants** — #8 recipient-evid
 
 ## 10. Review corrections (2026-08-21)
 
-A multi-lens review with adversarial verification (`probes/spec-review.md`, 62 raised / 34 survived) changed two things here:
+A multi-lens review with adversarial verification (62 raised / 34 survived) changed two things here:
 
 - **T7.1 now depends on `T1.1`, not `T3.2`.** §6.11 defines `MailboxProvider` as `provision / send / poll-thread` — no correlation logic — so a Mailpit port needs the toolchain, not correlation derivation. As written, E7's chain ran to 360 min and **the demo rig, not the CLI spine, gated T8.1**: the real endpoint was 405 min to T8.1 and 435 min to E8, and *every one of the §8 cuts was off the longest path*, so the Friday cut freed zero critical-path minutes. With this one-cell change, W4 starts at ~20 min instead of idling ~4 hours, and the stated 6.1 h spine becomes literally true.
 - **T8.1's dependencies are now task-level, not epic-level.** Epic-granularity deps in a task-granularity table silently pulled in cut-listed T7.2.

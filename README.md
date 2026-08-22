@@ -12,7 +12,13 @@ breaks. Every change carries its rationale. Any fresh session reads the file and
 > All judgment lives in the Claude Code plugin.
 
 Design: [`docs/prd.md`](docs/prd.md) · [`docs/spec.md`](docs/spec.md) · [`docs/plan.md`](docs/plan.md)
-Evidence: [`docs/probes/`](docs/probes/) (six empirical runs) · [`docs/research/`](docs/research/) (200 technologies)
+
+Those three rest on an evidence base that is **not published**: six empirical probe runs and a
+200-technology prior-art review. Both quote heavily from primary sources, and the probe
+transcripts are raw model output from runs never written to be read by anyone else. What they
+concluded is public — every claim they support is stated with its measurement, either in the
+documents above or in a comment at the decision it justifies. Where you see a number in this
+repo, it was measured; `n=60` and `2 of 4` and `0 of 8 -> 10 of 10` are the receipts.
 
 ---
 

@@ -16,7 +16,7 @@
  *
  * ## Why the port exists at all
  *
- * `docs/research/13-mailboxes-and-the-demo-rig.md` prices this category four different ways
+ * The prior-art review prices this category four different ways
  * — per-inbox metered, per-identity, per-volume, and free — and concludes that "a thin
  * `MailboxProvider` port (provision / send / poll-thread) keeps this a config value rather
  * than a schema decision". Mailpit is the offline path (T7.1); Gmail plus-addressing drops
@@ -271,7 +271,7 @@ export interface ProviderOptions {
  * An OPTIONAL capability, not a fourth method on the port.
  *
  * Priya's beat is a hard `550` at send time, and a catch-all sink physically cannot produce
- * one — `docs/research/13` quotes the sharpest criticism of this whole category, that such
+ * one, and the sharpest criticism of this whole category is that such
  * tools "confirm 'an email was sent' but don't validate the protocol". Mailpit accepts every
  * address there is; the in-process provider can be told not to.
  *

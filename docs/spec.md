@@ -1,9 +1,9 @@
 # SPEC — Kona
 
 **Status: Approved** (Ilya, 2026-08-21) · **Owner:** Ilya Vorobiev
-**PRD:** [`prd.md`](./prd.md) · **Plan:** [`plan.md`](./plan.md) · **Evidence:** [`probes/`](./probes/) · **Prior art:** [`research/`](./research/)
+**PRD:** [`prd.md`](./prd.md) · **Plan:** [`plan.md`](./plan.md)
 
-> This says what Kona *is*. How it got here — four simplification passes, six probe runs, an eight-lens review — lives in `probes/` and git. Decisions carry a one-clause reason only where re-introducing the mistake is likely.
+> This says what Kona *is*. How it got here — four simplification passes, six probe runs, an eight-lens review — lives in git and in an evidence base that is **not published** (see §11). Decisions carry a one-clause reason only where re-introducing the mistake is likely, and every measurement they rest on is quoted here rather than merely cited.
 
 ---
 
@@ -460,7 +460,7 @@ stranger is a memory rather than a definition.
 - [x] Only the orchestrator mutates topology; a subagent attempting it is refused — and invariant 2 EXEMPTS a subagent from the satisfiability check, because an actor that cannot author the repair must not be blocked for failing to include one
 - [x] Viewer holds zero authoritative state; dagre memoized on a **topology signature** (see §6.10 rule 2 — the original wording named `graph_version`, which re-layouts on the status ticks the same rule forbids); zero outbound calls
 - [x] Startup refuses on a network filesystem — path heuristic for Dropbox / iCloud / OneDrive / Google Drive / UNC, with `--force`
-- [ ] Repo public before the demo **with `probes/` and `research/`** — the concessions ledger is the receipts
+- [ ] Repo public before the demo. **`probes/` and `research/` are withheld** — reversed from the original "with `probes/` and `research/`", which read the receipts as the deliverable. They are not: the findings are, and those are in §11, in the three design documents, and in a comment at every decision they justify. The concessions ledger in §11 is public, which is the part that names what this owes to prior art
 
 ---
 
@@ -495,8 +495,17 @@ stranger is a memory rather than a definition.
 
 ## 11. References
 
-`probes/` — six runs: mutator v1/v2/v3, authoring+briefing, brief-v2, the eight-lens review.
-`research/` — 200 technologies, 14 categories, and `00-design-lessons.md`.
+**The evidence base is not published, and citations to it will not resolve.** `probes/` is six
+runs — mutator v1/v2/v3, authoring+briefing, brief-v2, the eight-lens review — and `research/`
+is 200 technologies across 14 categories plus `00-design-lessons.md`. Both quote primary
+sources at length, and the probe transcripts are raw model output from runs written for us and
+nobody else.
+
+What that costs a reader is the transcript, not the finding. Every claim either directory
+supports is stated here with its measurement — the n=60 mutator inventing counterparties, the
+2-of-4 briefs referencing entities that do not exist, the 0-of-8 to 10-of-10 swing from
+pairing inputs with outputs, the 19 loud rejections that became 19 silent commits. A citation
+you cannot open is still a claim you can check against the code that enforces it.
 
 **Concessions ledger:** Reichert & Dadam, *ADEPTflex* (1998) / *ADEPT2* (ICDE 2005) · Schonenberg et al., *Taxonomy of Process Flexibility* (CAiSE'08) · Ellis, Keddara & Rozenberg (1995), the dynamic change bug · Adams et al., YAWL worklets & exlets · Reijers, *Workflow Flexibility: The Forlorn Promise* (2006) · Zhang et al., *AFlow* (ICLR 2025) · Wu et al., *StateFlow* (COLM 2024) · Garcia-Molina & Salem, *Sagas* (1987).
 

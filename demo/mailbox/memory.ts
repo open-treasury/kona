@@ -9,7 +9,8 @@
  *
  * ## It is a capture sink, because that is what Mailpit is
  *
- * `docs/research/13`: Mailpit and its kind "bind an SMTP listener on localhost, accept and
+ * The prior-art review of this category (not published) found that Mailpit and its kind
+ * "bind an SMTP listener on localhost, accept and
  * never relay, expose the captured mail over HTTP". So `send` here **captures** — the
  * message becomes readable through `pollThread` immediately, whoever sent it. That is why
  * the persona simulator needs no back door: a persona replying is an ordinary `send` from
@@ -22,7 +23,7 @@
  *
  * ## The one thing a sink cannot do
  *
- * Produce a real bounce. `docs/research/13` quotes the sharpest criticism of this whole
+ * Produce a real bounce. The sharpest criticism of this whole
  * category — such tools "confirm 'an email was sent' but don't validate the protocol" — so
  * Priya's `550` is scripted through `rejectRecipient()`. It fires at send time, in the same
  * place a real rejection would, and `send` throws `SEND_REJECTED` exactly as Gmail's would.
