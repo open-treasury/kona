@@ -22,6 +22,7 @@ import type { Point } from "./graph/useTween.ts";
 import { Timeline } from "./panels/Timeline.tsx";
 import { Inspector } from "./panels/Inspector.tsx";
 import { cn } from "./lib/cn.ts";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip.tsx";
 
 /**
@@ -43,6 +44,11 @@ export function App(): React.ReactElement {
   const now = useNow();
   const [selected, setSelected] = useState<string | null>(null);
   const [viewing, setViewing] = useState<number | null>(null);
+  // §6.10 rule 5 calls this panel the differentiator, so defaulting it CLOSED is a real
+  // trade: the canvas gets the whole window, and the reason the graph looks like this is one
+  // click away rather than in front of you. The header button is worded rather than a bare
+  // icon so that the click is at least advertised.
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   // Structure is memoized on the log text and the view on the clock, separately. Re-folding a
   // whole log once a second to move a countdown would be this viewer's own version of Burr
@@ -89,14 +95,23 @@ export function App(): React.ReactElement {
 
   return (
     <TooltipProvider>
-      <div className="grid h-full grid-cols-[minmax(0,1fr)_380px] grid-rows-[44px_minmax(0,1fr)]">
+      <div
+        className={cn(
+          "grid h-full grid-rows-[44px_minmax(0,1fr)]",
+          timelineOpen ? "grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-[minmax(0,1fr)]",
+        )}
+      >
         <header className="col-span-full flex items-center gap-4 border-b border-border bg-background px-4 shadow-nav">
           <span className="text-[15px] font-semibold tracking-tight">Kona</span>
           <span className="text-ui-xs text-carbon-40 uppercase">Workflow graph</span>
           <span className="flex-1" />
-          <span className="font-mono text-[11px] text-muted-foreground">
-            v<b className="font-semibold text-foreground">{shown.graph.version}</b>
-          </span>
+
+          {/*
+            Left to right: is the picture still following the file, what version is it, and the
+            way to the reasons behind it. Widest fact to narrowest, and the only control last —
+            so the eye lands on the one thing that can be WRONG (a dead feed) before it lands
+            on anything it can click.
+          */}
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="inline-flex cursor-help items-center gap-1.5 text-ui-xs text-muted-foreground uppercase">
@@ -111,9 +126,53 @@ export function App(): React.ReactElement {
               viewer&apos;s only source. While it is live, every append reaches this canvas.
             </TooltipContent>
           </Tooltip>
+
+          <span className="font-mono text-[11px] text-muted-foreground">
+            v<b className="font-semibold text-foreground">{shown.graph.version}</b>
+          </span>
+
+          {/*
+            Worded, not a bare icon. §6.10 rule 5 calls this panel "the differentiator", and a
+            closed panel behind an unlabelled chevron is a differentiator nobody finds — so the
+            header says what is behind it, and the tooltip says why it is worth opening.
+          */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-expanded={timelineOpen}
+                onClick={() => {
+                  setTimelineOpen((open) => !open);
+                }}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-sm border px-2 py-1",
+                  "text-ui-xs uppercase transition-colors duration-[--transition-fast]",
+                  timelineOpen
+                    ? "border-transparent bg-accent text-foreground"
+                    : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {timelineOpen ? (
+                  <PanelRightClose aria-hidden className="size-3.5" />
+                ) : (
+                  <PanelRightOpen aria-hidden className="size-3.5" />
+                )}
+                timeline
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              the mutation timeline — every commit&apos;s rationale, newest first. §6.3 makes
+              omitting one impossible, so there is a `why` behind every shape on this canvas.
+            </TooltipContent>
+          </Tooltip>
         </header>
 
-        <main className="relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] border-r border-border">
+        <main
+          className={cn(
+            "relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]",
+            timelineOpen && "border-r border-border",
+          )}
+        >
           {damaged.length > 0 && (
             <p className={cn(NOTICE, "bg-error-bg text-status-failed-ink")}>
               {damaged.length} damaged record(s): {damaged[0]?.reason} at line {damaged[0]?.line}
@@ -166,16 +225,24 @@ export function App(): React.ReactElement {
           )}
         </main>
 
-        <aside className="grid min-h-0 grid-rows-[minmax(0,1fr)] bg-background">
-          <Timeline
-            entries={head.timeline}
-            headVersion={head.graph.version}
-            viewing={shown.graph.version}
-            onView={(version) => {
-              setViewing(version === head.graph.version ? null : version);
-            }}
-          />
-        </aside>
+        {/*
+          Unmounted, not hidden. The panel is a pure function of `head.timeline`, so there is
+          nothing in it to preserve across a close — and leaving it mounted would keep a
+          scrolled position and a `rationale detail` toggle alive behind a panel nobody can
+          see, which is state the viewer is not supposed to have.
+        */}
+        {timelineOpen && (
+          <aside className="grid min-h-0 grid-rows-[minmax(0,1fr)] bg-background">
+            <Timeline
+              entries={head.timeline}
+              headVersion={head.graph.version}
+              viewing={shown.graph.version}
+              onView={(version) => {
+                setViewing(version === head.graph.version ? null : version);
+              }}
+            />
+          </aside>
+        )}
       </div>
     </TooltipProvider>
   );

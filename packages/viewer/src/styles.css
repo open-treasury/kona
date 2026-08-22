@@ -38,6 +38,7 @@
     --color-card: #ffffff;
     --color-muted-foreground: var(--color-carbon-60);
     --color-border: var(--color-carbon-8);
+    --color-accent: var(--color-carbon-8);
     --color-primary: #1634ef;
     --color-cobalt-bold: #152d80;
     --color-ochre-bold: #995e05;
@@ -65,6 +66,7 @@
     --color-edge: var(--color-carbon-40);
     --color-dots: rgb(2 13 35 / 10%);
     --shadow-subtle: 0 0 8px rgb(2 13 35 / 8%), 0 0 20px rgb(2 13 35 / 2%);
+    --transition-fast: 0.15s ease;
     --transition-medium: 0.35s ease;
     --animate-flash: flash 1500ms ease-out;
     --animate-breathe: breathe 2.4s ease-in-out infinite;
@@ -925,6 +927,9 @@
   .grid-cols-\[132px_minmax\(0\,1fr\)\] {
     grid-template-columns: 132px minmax(0,1fr);
   }
+  .grid-cols-\[minmax\(0\,1fr\)\] {
+    grid-template-columns: minmax(0,1fr);
+  }
   .grid-cols-\[minmax\(0\,1fr\)_380px\] {
     grid-template-columns: minmax(0,1fr) 380px;
   }
@@ -1048,6 +1053,9 @@
   .border-success {
     border-color: var(--color-success);
   }
+  .border-transparent {
+    border-color: transparent;
+  }
   .border-t-transparent {
     border-top-color: transparent;
   }
@@ -1071,6 +1079,9 @@
   }
   .border-l-transparent {
     border-left-color: transparent;
+  }
+  .bg-accent {
+    background-color: var(--color-accent);
   }
   .bg-background {
     background-color: var(--color-background);
@@ -1152,6 +1163,9 @@
   }
   .py-0\.5 {
     padding-block: calc(var(--spacing) * 0.5);
+  }
+  .py-1 {
+    padding-block: var(--spacing);
   }
   .py-1\.5 {
     padding-block: calc(var(--spacing) * 1.5);
@@ -1355,6 +1369,10 @@
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
+  .duration-\[--transition-fast\] {
+    --tw-duration: --transition-fast;
+    transition-duration: --transition-fast;
+  }
   .duration-\[--transition-medium\] {
     --tw-duration: --transition-medium;
     transition-duration: --transition-medium;
@@ -1371,6 +1389,9 @@
     rotate: 90deg;
   }
   @media (hover: hover) {
+    .hover\:bg-accent:hover {
+      background-color: var(--color-accent);
+    }
     .hover\:bg-carbon-4:hover {
       background-color: var(--color-carbon-4);
     }
