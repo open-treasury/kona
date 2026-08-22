@@ -29,19 +29,40 @@ export function isTerminal(status: Status): status is TerminalStatus {
 }
 
 /**
- * §6.4 / §6.5 — what a counterparty decided.
- * `late` is the §6.5 verdict for a reply that arrives after its wait already resolved:
- * it is recorded and never reopens the wait.
+ * §6.4 / §6.5 / §6.2 — what was decided. One vocabulary, two families.
+ *
+ * §6.4 lists the five a counterparty's reply can carry, §6.5 adds `late`, and §6.2 says of
+ * a `wait{kind:"human"}` that "the four kinds are `outcome.verdict` values" — which makes
+ * `accept | edit | respond | ignore` verdicts too. They are listed together here because
+ * they are read the same way: a predicate counts them, and an edge condition projects them.
  */
-export const VERDICTS = [
+export const REPLY_VERDICTS = [
   "confirmed",
   "declined",
   "tentative",
   "timed_out",
   "bounced",
+  /** §6.5 — a reply that arrived after its wait resolved. Recorded; never reopens it. */
   "late",
 ] as const;
+
+/** §6.2 — the four decisions a human wait can return. */
+export const DECISION_VERDICTS = ["accept", "edit", "respond", "ignore"] as const;
+
+export const VERDICTS = [...REPLY_VERDICTS, ...DECISION_VERDICTS] as const;
 export type Verdict = (typeof VERDICTS)[number];
+
+/**
+ * The verdicts that CLOSE a wait. The other two are the states §6.5 says the contract must
+ * name, because a retry loop never converges on them: `tentative` records without
+ * resolving, and `late` is by definition after the fact. Neither may become the resolving
+ * outcome, or a "maybe" would fire a downstream pivot.
+ */
+export const NON_RESOLVING_VERDICTS = ["tentative", "late"] as const;
+
+export function isResolvingVerdict(verdict: Verdict): boolean {
+  return !(NON_RESOLVING_VERDICTS as readonly string[]).includes(verdict);
+}
 
 /** §6.2 — the resolutions an edge condition can fire on. */
 export const EDGE_CONDITIONS = [

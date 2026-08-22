@@ -10,7 +10,7 @@
 
 import type { MutationRecord, ParsedNodeSpec } from "./schema.ts";
 import type { EdgeCondition, NodeType, Status, Verdict } from "./vocab.ts";
-import { TERMINAL_SUCCESS_STATUS, isTerminal } from "./vocab.ts";
+import { TERMINAL_SUCCESS_STATUS, isResolvingVerdict, isTerminal } from "./vocab.ts";
 
 export interface EffectRecord {
   effect_key: string;
@@ -18,6 +18,15 @@ export interface EffectRecord {
   attempted_at: string;
   completed_at: string | null;
   message_id: string | null;
+}
+
+/** One recorded decision. §6.7: judgment-bearing fields are append-only. */
+export interface OutcomeRecord {
+  verdict: Verdict;
+  evidence_ref: string;
+  attrs?: Record<string, unknown>;
+  /** The version that recorded it, so the history is orderable without a timestamp. */
+  at_version: number;
 }
 
 export interface NodeCondition {
@@ -37,8 +46,21 @@ export type NodeSpec = ParsedNodeSpec;
 export interface NodeStatus {
   /** WHERE we are. Written by `set_status`. */
   state: Status;
-  /** WHAT was decided. Written by `record_outcome`. */
-  outcome: { verdict: Verdict; evidence_ref: string; attrs?: Record<string, unknown> } | null;
+  /**
+   * WHAT was decided, in full. Append-only (§6.7): `record_outcome` never overwrites.
+   *
+   * The alternative loses data outright. §6.5 requires that a reply arriving after its
+   * wait resolved be recorded as `verdict:"late"` and **never reopen** it — under
+   * overwrite semantics that late reply silently replaces the verdict the graph actually
+   * acted on, and the evidence for a sent email disappears behind a straggler.
+   */
+  outcomes: OutcomeRecord[];
+  /**
+   * The one that CLOSED it — a projection of `outcomes`, materialised so consumers do not
+   * each re-derive it. The first entry with a resolving verdict wins: `tentative` records
+   * without resolving and `late` is after the fact, so neither can become this.
+   */
+  outcome: OutcomeRecord | null;
   /** WHAT was produced. Written by `record_output`, keyed by declared output name. */
   output: Record<string, unknown> | null;
   conditions: NodeCondition[];
@@ -104,6 +126,71 @@ export function isNodeTerminal(node: Node): boolean {
  */
 export function satisfiesBlockingEdge(node: Node): boolean {
   return node.status.state === TERMINAL_SUCCESS_STATUS;
+}
+
+/** §6.5 — the first resolving outcome, or null while the node is still open. */
+export function resolvingOutcome(outcomes: readonly OutcomeRecord[]): OutcomeRecord | null {
+  return outcomes.find((entry) => isResolvingVerdict(entry.verdict)) ?? null;
+}
+
+/**
+ * §6.2 — "the store fires the out-edge whose condition matches the resolution".
+ *
+ * The resolution is DERIVED, never stored, which is what keeps readiness computed rather
+ * than materialised (§6.8). The seven edge conditions are exactly two families: the four
+ * decisions a human wait returns, which are verdicts already, and the three ways any wait
+ * can close.
+ *
+ * `declined` maps to `satisfied` on purpose: the wait *was* satisfied — somebody answered.
+ * What they said is the verdict, and that is what a predicate counts. Conflating the two
+ * would make a refusal indistinguishable from silence.
+ */
+export function resolutionOf(node: Node): EdgeCondition | null {
+  const outcome = node.status.outcome;
+  if (outcome === null) return null;
+  switch (outcome.verdict) {
+    case "accept":
+    case "edit":
+    case "respond":
+    case "ignore":
+      return outcome.verdict;
+    case "timed_out":
+      return "timeout";
+    case "bounced":
+      return "bounced";
+    case "confirmed":
+    case "declined":
+      return "satisfied";
+    default:
+      return null;
+  }
+}
+
+/**
+ * §6.4 — "Readiness fails safe." A node is ready iff it is not dropped and every blocking
+ * in-edge has a terminal-SUCCESS source whose condition is true.
+ *
+ * It deliberately does NOT inherit the merge exclusion that drops give: a dropped source
+ * never satisfies readiness. Otherwise the second node on an untaken branch has no
+ * blocker, lands on the frontier, and gets dispatched — pivot send included.
+ */
+export function isEdgeSatisfied(graph: Graph, edge: Edge): boolean {
+  const source = graph.nodes.get(edge.from);
+  if (source === undefined) return false;
+  if (!satisfiesBlockingEdge(source)) return false;
+  if (edge.condition === undefined) return true;
+  return resolutionOf(source) === edge.condition.on;
+}
+
+export function isReady(graph: Graph, node: Node): boolean {
+  if (node.status.state !== "active") return false;
+  if (node.provenance.superseded_by !== null) return false;
+  return inEdges(graph, node.id).every((edge) => isEdgeSatisfied(graph, edge));
+}
+
+/** §6.8 — the ready frontier. Computed, never stored. */
+export function readyFrontier(graph: Graph): Node[] {
+  return [...graph.nodes.values()].filter((node) => isReady(graph, node));
 }
 
 /**

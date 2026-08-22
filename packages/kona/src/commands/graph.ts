@@ -4,10 +4,9 @@
  * wrapped it: a verb wrapping a verb is a shell alias.
  */
 
-import { foldLog, projectGraph } from "@kona/core";
-import { findPursuitRoot, konaPaths } from "../paths.ts";
-import { readLogText } from "../store.ts";
+import { projectGraph } from "@kona/core";
 import { EXIT_OK, EXIT_REFUSED } from "../exit.ts";
+import { openPursuit, reportDamage } from "../pursuit.ts";
 import type { Io } from "../io.ts";
 
 export interface GraphOptions {
@@ -17,17 +16,12 @@ export interface GraphOptions {
 }
 
 export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
-  const root = findPursuitRoot(io.cwd);
-  if (root === null) {
-    io.err(`REFUSED NO_PURSUIT no .kona/ found at or above ${io.cwd}`);
-    return EXIT_REFUSED;
-  }
-
-  const paths = konaPaths(root);
-  const folded = foldLog(
-    await readLogText(paths),
+  const opened = await openPursuit(
+    io,
     options.version === undefined ? {} : { upToVersion: options.version },
   );
+  if (!opened.ok) return EXIT_REFUSED;
+  const folded = opened.folded;
   const projection = projectGraph(folded.graph);
 
   if (options.json) {
@@ -51,11 +45,6 @@ export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
     }
   }
 
-  if (folded.damaged.length > 0) {
-    for (const entry of folded.damaged) {
-      io.err(`REFUSED ${entry.reason} line=${entry.line} ${entry.detail}`);
-    }
-    return EXIT_REFUSED;
-  }
+  if (reportDamage(io, folded)) return EXIT_REFUSED;
   return EXIT_OK;
 }

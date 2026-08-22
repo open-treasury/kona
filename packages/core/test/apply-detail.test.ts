@@ -100,7 +100,11 @@ describe("optional fields are absent, not present-and-undefined", () => {
     const graph = applies(PAIR, [
       { op: "record_outcome", node: "a", verdict: "confirmed", evidence_ref: "e" },
     ]);
-    expect(Object.keys(graph.nodes.get("a")?.status.outcome ?? {})).toEqual(["verdict", "evidence_ref"]);
+    expect(Object.keys(graph.nodes.get("a")?.status.outcome ?? {})).toEqual([
+      "verdict",
+      "evidence_ref",
+      "at_version",
+    ]);
   });
 
   test("a node with no scope has no group key", () => {

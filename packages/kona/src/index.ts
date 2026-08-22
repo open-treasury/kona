@@ -9,5 +9,7 @@ export * from "./exit.ts";
 export * from "./io.ts";
 export * from "./cli.ts";
 export * from "./commands/init.ts";
+export * from "./pursuit.ts";
 export * from "./commands/graph.ts";
+export * from "./commands/next.ts";
 export * from "./commands/mutate.ts";

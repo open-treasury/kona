@@ -12,6 +12,7 @@ import type { Io } from "./io.ts";
 import { EXIT_OK, EXIT_REFUSED } from "./exit.ts";
 import { runInit } from "./commands/init.ts";
 import { runGraph } from "./commands/graph.ts";
+import { runNext } from "./commands/next.ts";
 import { runMutate } from "./commands/mutate.ts";
 
 /**
@@ -23,7 +24,7 @@ const VERBS: { name: string; summary: string; built: boolean }[] = [
   { name: "init", summary: "create .kona/, refuse on a network filesystem", built: true },
   { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync", built: true },
   { name: "graph", summary: "the only read contract", built: true },
-  { name: "next", summary: "the ready frontier, computed never stored", built: false },
+  { name: "next", summary: "the ready frontier, computed never stored", built: true },
   { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", built: false },
   { name: "poll", summary: "scan each armed wait's cursor", built: false },
   { name: "resume", summary: "reconcile-then-repair", built: false },
@@ -106,6 +107,7 @@ const VERB_OPTIONS: Record<string, Options> = {
     "actor-id": { type: "string", default: "operator" },
   },
   graph: { ...COMMON, version: { type: "string" } },
+  next: { ...COMMON },
   mutate: {
     ...COMMON,
     ops: { type: "string" },
@@ -158,6 +160,10 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
       actorId: String(values["actor-id"]),
       json,
     });
+  }
+
+  if (verb === "next") {
+    return await runNext(io, { json });
   }
 
   if (verb === "graph") {

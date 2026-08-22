@@ -113,7 +113,9 @@ describe("the three observed fields answer three different questions", () => {
       verdict: "declined",
       evidence_ref: "m-101",
       attrs: { role: "goalie" },
+      at_version: 2,
     });
+    expect(node?.status.outcomes).toHaveLength(1);
     expect(node?.status.state).toBe("active");
   });
 

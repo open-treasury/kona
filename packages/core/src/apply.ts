@@ -7,8 +7,8 @@
  */
 
 import type { CommittedOp } from "./schema.ts";
-import type { Edge, Graph, Node, NodeSpec } from "./graph.ts";
-import { isNodeTerminal } from "./graph.ts";
+import type { Edge, Graph, Node, NodeSpec, OutcomeRecord } from "./graph.ts";
+import { isNodeTerminal, resolvingOutcome } from "./graph.ts";
 import { type Result, ok, refuse } from "./result.ts";
 
 /**
@@ -50,6 +50,7 @@ function cloneNode(node: Node): Node {
     status: {
       ...node.status,
       conditions: [...node.status.conditions],
+      outcomes: node.status.outcomes.map((entry) => ({ ...entry })),
       effect_log: node.status.effect_log.map((entry) => ({ ...entry })),
     },
     provenance: { ...node.provenance },
@@ -80,6 +81,7 @@ function makeNode(
     spec,
     status: {
       state: "active",
+      outcomes: [],
       outcome: null,
       output: null,
       conditions: [],
@@ -178,11 +180,16 @@ function applyOne(
           ...at,
         });
       }
-      node.status.outcome = {
+      // Append, never overwrite (§6.7). A `late` reply must not be able to replace the
+      // verdict the graph already acted on.
+      const recorded: OutcomeRecord = {
         verdict: op.verdict,
         evidence_ref: op.evidence_ref,
         ...(op.attrs === undefined ? {} : { attrs: op.attrs }),
+        at_version: version,
       };
+      node.status.outcomes.push(recorded);
+      node.status.outcome = resolvingOutcome(node.status.outcomes);
       node.status.observed_at_version = version;
       return ok(null);
     }
