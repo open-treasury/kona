@@ -17,6 +17,7 @@ import {
   isDroppable,
   isEdgeDead,
   isReady,
+  parseEffectEvidence,
   projectGraph,
   readyFrontier,
   resolveBranches,
@@ -148,6 +149,7 @@ describe("isDroppable — what the store may rewrite", () => {
       payload_hash: "h1",
       attempted_at: "2026-08-21T10:00:00.000Z",
       completed_at: "2026-08-21T10:00:01.000Z",
+      outcome: "sent",
       message_id: "<m-1>",
     });
     expect(isDroppable(nodeOf(graph, "ignored"))).toBe(false);
@@ -394,7 +396,6 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
           inputs: [],
           outputs: [],
           effect_class: "pure",
-          max_reattempts: 3,
         },
       },
       { op: "add_edge", from: "gate", to: "late", condition: { on: "ignore" } },
@@ -460,6 +461,20 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
     );
     expect(causes["j"]).toBe(`${DERIVED_EVIDENCE_PREFIX}:b1`);
     expect(causes["b1"]).toBe(`${DERIVED_EVIDENCE_PREFIX}:gate`);
+  });
+
+  /**
+   * `set_status.evidence_ref` is now a shared channel: the outbox encodes reserve/record
+   * transitions through it (§6.6, "there is no seventh op"), and branch resolution stamps
+   * its cause through it too. They must not collide — a derived drop that parsed as an
+   * outbox transition would materialise a phantom reservation on a node nobody sent to.
+   */
+  test("a derived drop's evidence_ref is not mistaken for an outbox transition", () => {
+    const { derived, graph } = run(gated(), [outcome("gate", "accept"), close("gate")]);
+    const ref = derived[0]?.op === "set_status" ? derived[0].evidence_ref : "";
+    expect(ref.startsWith(DERIVED_EVIDENCE_PREFIX)).toBe(true);
+    expect(parseEffectEvidence(ref)).toBeNull();
+    expect(nodeOf(graph, "ignored").status.effect_log).toEqual([]);
   });
 
   test("isDroppable gates emission and is read per node", () => {
