@@ -322,6 +322,33 @@ const TriggerSchema = z.strictObject({
 });
 export type Trigger = z.infer<typeof TriggerSchema>;
 
+/**
+ * §6.9 — who the executor is speaking as. The graph cannot know this, and an executor
+ * handed a node without it signs as nobody and commits to anything.
+ */
+const IdentitySchema = z.strictObject({
+  mailbox: z.string().min(3),
+  display_name: z.string().min(1),
+  signature: z.string().min(1),
+  authority: z.string().min(1, "state plainly what the executor may NOT commit to"),
+});
+export type Identity = z.infer<typeof IdentitySchema>;
+
+/**
+ * Pursuit-wide configuration, carried on the GENESIS RECORD rather than in a second file.
+ *
+ * §6.1 allows `.kona/` exactly two files and no snapshot, and §6.7 requires the pursuit to
+ * be reconstructible from the log alone. A `config.json` would satisfy neither: it would
+ * be a second system of record, unversioned, and silently editable after the human
+ * approved a plan that depended on it. On v0 it is durable, diffable and resurrectable.
+ */
+export const PursuitConfigSchema = z.strictObject({
+  identity: IdentitySchema.optional(),
+  /** Invariant 3(a): the cumulative cap on irreversible sends. */
+  effect_budget: z.number().int().min(0).optional(),
+});
+export type PursuitConfig = z.infer<typeof PursuitConfigSchema>;
+
 export const MutationRecordSchema = z.strictObject({
   v: z.number().int().min(0),
   schema_version: z.number().int().min(1),
@@ -331,6 +358,8 @@ export const MutationRecordSchema = z.strictObject({
   actor: ActorSchema,
   trigger: TriggerSchema.optional(),
   ops: z.array(CommittedOpSchema),
+  /** Present on v0 only; every later record leaves it absent. */
+  config: PursuitConfigSchema.optional(),
   rationale: RationaleSchema,
   /**
    * Starts null and is written later, on evidence. Rationale without outcome is a

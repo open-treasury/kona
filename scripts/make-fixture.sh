@@ -13,7 +13,18 @@ cd "${WORK}"
 ops() { cat > ops.json; }
 commit() { ${KONA} mutate --ops ops.json --base-version "$1" --why "$2" --reason-code "$3" "${@:4}" >/dev/null; }
 
-${KONA} init --actor-id ilya >/dev/null
+cat > config.json <<'EOF'
+{
+  "identity": {
+    "mailbox": "ilya@example.com",
+    "display_name": "Ilya Vorobiev",
+    "signature": "— Ilya",
+    "authority": "You may confirm or decline a slot in Thursday's game. You may NOT commit funds, promise a different date, change the venue, or contact anyone not named in this brief."
+  },
+  "effect_budget": 12
+}
+EOF
+${KONA} init --actor-id ilya --config config.json >/dev/null
 
 # v1 — the approved plan: find a goalie. Every wait routes its timeout somewhere real.
 ops <<'EOF'

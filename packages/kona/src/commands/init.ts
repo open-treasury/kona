@@ -2,7 +2,8 @@
 
 import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { SCHEMA_VERSION, type MutationRecord } from "@kona/core";
+import { PursuitConfigSchema, SCHEMA_VERSION, type MutationRecord, type PursuitConfig } from "@kona/core";
+import { readFile } from "node:fs/promises";
 import { konaPaths } from "../paths.ts";
 import { detectNetworkFilesystem } from "../netfs.ts";
 import { appendRecord } from "../store.ts";
@@ -13,6 +14,8 @@ export interface InitOptions {
   /** Escape hatch for the §6.1 path heuristic, which is deliberately approximate. */
   force: boolean;
   actorId: string;
+  /** Pursuit-wide config — identity and effect budget — written onto the genesis record. */
+  configFile?: string;
   json: boolean;
 }
 
@@ -23,7 +26,11 @@ export interface InitOptions {
  * case, `--base-version 0` is a true statement about head rather than a magic number, and
  * `schema_version` lives on line 1 as §6.1 requires without inventing a second record type.
  */
-export function genesisRecord(now: string, actorId: string): MutationRecord {
+export function genesisRecord(
+  now: string,
+  actorId: string,
+  config?: PursuitConfig,
+): MutationRecord {
   return {
     v: 0,
     schema_version: SCHEMA_VERSION,
@@ -31,6 +38,7 @@ export function genesisRecord(now: string, actorId: string): MutationRecord {
     occurred_at: now,
     actor: { kind: "human", id: actorId },
     ops: [],
+    ...(config === undefined ? {} : { config }),
     rationale: {
       why: "pursuit initialised",
       alternatives_rejected: [],
@@ -59,8 +67,29 @@ export async function runInit(io: Io, options: InitOptions): Promise<number> {
     return EXIT_REFUSED;
   }
 
+  let config: PursuitConfig | undefined;
+  if (options.configFile !== undefined) {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await readFile(options.configFile, "utf8"));
+    } catch (cause) {
+      io.err(
+        `REFUSED UNREADABLE_CONFIG ${options.configFile}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+      return EXIT_REFUSED;
+    }
+    const parsed = PursuitConfigSchema.safeParse(raw);
+    if (!parsed.success) {
+      io.err(
+        `REFUSED MALFORMED_CONFIG ${parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}`,
+      );
+      return EXIT_REFUSED;
+    }
+    config = parsed.data;
+  }
+
   await mkdir(paths.dir, { recursive: true });
-  await appendRecord(paths, genesisRecord(io.now(), options.actorId));
+  await appendRecord(paths, genesisRecord(io.now(), options.actorId, config));
 
   io.out(
     options.json

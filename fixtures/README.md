@@ -30,6 +30,8 @@ the wait engine or the outbox.
   unknown, `completed_at: null`. This is §6.6's whole reason for existing, and it is the
   state a viewer most needs to render distinctly: `sending` does **not** mean "in progress",
   it means *the real world's answer is unknown*.
+- **A configured identity and effect budget** on the genesis record, so `kona brief` works
+  against it out of the box — including the fully-expanded `Reply-To` per node.
 - **Nine versions with real rationale** — every one carries a `why` and a `reason_code`,
   which is what the timeline panel renders. That panel, not the canvas, is the differentiator.
 

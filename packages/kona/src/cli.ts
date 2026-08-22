@@ -19,6 +19,7 @@ import { EXIT_OK, EXIT_REFUSED } from "./exit.ts";
 import { runInit } from "./commands/init.ts";
 import { runGraph } from "./commands/graph.ts";
 import { runNext } from "./commands/next.ts";
+import { runBrief } from "./commands/brief.ts";
 import { runMutate } from "./commands/mutate.ts";
 import { runRecord, runReserve } from "./commands/effect.ts";
 
@@ -32,7 +33,7 @@ const VERBS: { name: string; summary: string; built: boolean }[] = [
   { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync", built: true },
   { name: "graph", summary: "the only read contract", built: true },
   { name: "next", summary: "the ready frontier, computed never stored", built: true },
-  { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", built: false },
+  { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", built: true },
   { name: "poll", summary: "scan each armed wait's cursor", built: false },
   { name: "resume", summary: "reconcile-then-repair", built: false },
   { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", built: true },
@@ -112,9 +113,11 @@ const VERB_OPTIONS: Record<string, Options> = {
     ...COMMON,
     force: { type: "boolean", default: false },
     "actor-id": { type: "string", default: "operator" },
+    config: { type: "string" },
   },
   graph: { ...COMMON, version: { type: "string" } },
   next: { ...COMMON },
+  brief: { ...COMMON },
   effect: {
     ...COMMON,
     "payload-hash": { type: "string" },
@@ -211,7 +214,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
       args: [...rest],
       options: VERB_OPTIONS[verb],
       // Only `effect` takes positionals — its subcommand and its node.
-      allowPositionals: verb === "effect",
+      allowPositionals: verb === "effect" || verb === "brief",
       strict: true,
     }));
   } catch (cause) {
@@ -222,11 +225,22 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   const json = values["json"] === true;
 
   if (verb === "init") {
+    const configFile = values["config"];
     return await runInit(io, {
       force: values["force"] === true,
       actorId: String(values["actor-id"]),
+      ...(typeof configFile === "string" ? { configFile } : {}),
       json,
     });
+  }
+
+  if (verb === "brief") {
+    const [node] = positionals;
+    if (node === undefined || node.length === 0) {
+      io.err("REFUSED MISSING_NODE kona brief needs a node id");
+      return EXIT_REFUSED;
+    }
+    return await runBrief(io, { node, json });
   }
 
   if (verb === "effect") {
