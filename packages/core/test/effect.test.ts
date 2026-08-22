@@ -17,7 +17,7 @@ import {
   openEffect,
   parseEffectEvidence,
 } from "../src/index.ts";
-import { commit, seeded, task } from "./fixtures.ts";
+import { commit, rostered, task } from "./fixtures.ts";
 
 const KEY = "ek_b4668bc35579b3eb";
 
@@ -124,7 +124,7 @@ describe("evidence round-trips", () => {
 });
 
 describe("fold materialises the ledger from the log", () => {
-  const reserved = commit(seeded([pivot("Ask Dana")]), [
+  const reserved = commit(rostered(["dana"], [pivot("Ask Dana")]), [
     {
       op: "set_status",
       node: "ask-dana",
@@ -188,7 +188,7 @@ describe("fold materialises the ledger from the log", () => {
   test("recording against a key that was never reserved is refused", () => {
     // A log claiming an outcome for a slot nobody reserved is corrupt, not merely odd.
     expect(() =>
-      commit(seeded([pivot("Ask Dana")]), [
+      commit(rostered(["dana"], [pivot("Ask Dana")]), [
         {
           op: "set_status",
           node: "ask-dana",
@@ -200,7 +200,7 @@ describe("fold materialises the ledger from the log", () => {
   });
 
   test("ordinary evidence leaves the ledger alone", () => {
-    const plain = commit(seeded([pivot("Ask Dana")]), [
+    const plain = commit(rostered(["dana"], [pivot("Ask Dana")]), [
       { op: "set_status", node: "ask-dana", status: "done", evidence_ref: "<m-101@mail>" },
     ]);
     expect(nodeOf(plain, "ask-dana").status.effect_log).toEqual([]);
@@ -213,7 +213,7 @@ describe("fold materialises the ledger from the log", () => {
 
   test("a node that has moved no bytes may still be superseded", () => {
     // Invariant 1 only demands a compensation once the effect_log is non-empty.
-    expect(attemptCount(nodeOf(seeded([pivot("Ask Dana")]), "ask-dana"))).toBe(0);
-    expect(hasSentEffect(nodeOf(seeded([pivot("Ask Dana")]), "ask-dana"))).toBe(false);
+    expect(attemptCount(nodeOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(0);
+    expect(hasSentEffect(nodeOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(false);
   });
 });

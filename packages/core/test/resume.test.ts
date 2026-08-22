@@ -19,7 +19,7 @@ import {
   settledAt,
   waitStatus,
 } from "../src/index.ts";
-import { commit, record, seeded, task, wait } from "./fixtures.ts";
+import { commit, record, rostered, seeded, task, wait } from "./fixtures.ts";
 
 const T0 = "2026-08-21T12:00:00.000Z";
 const LATER = "2026-08-25T12:00:00.000Z";
@@ -241,7 +241,7 @@ describe("the resume plan", () => {
 
 describe("resume NEVER repairs an open reservation", () => {
   const reserved = commit(
-    seeded([
+    rostered(["dana"], [
       task("Ask Dana", {
         effect_class: "pivot",
         effect: { channel: "email", recipient_ref: "roster#dana" },

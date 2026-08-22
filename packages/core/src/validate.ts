@@ -40,6 +40,7 @@ import {
 import { applyOps } from "./apply.ts";
 import { normalizeBatch } from "./normalize.ts";
 import { resolveBranches } from "./branch.ts";
+import { evidencedKeys, isEvidencedRecipient } from "./evidence.ts";
 import { MAX_NODE_ID_LENGTH, NODE_ID_PATTERN } from "./ids.ts";
 import { type Verdict, VERDICTS, isResolvingVerdict } from "./vocab.ts";
 import { type Result, ok, refuse, violate } from "./result.ts";
@@ -250,11 +251,32 @@ export function parseRecipientRef(raw: string): RecipientRef | null {
   return { scope, key };
 }
 
-function checkRecipientRefs(ops: readonly CommittedOp[]): Result<null> {
+function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
+  // Built once, lazily: most batches add no effect node at all, and walking every node's
+  // outputs and outcomes to prove nothing is the wrong price for the common case.
+  let evidenced: Set<string> | null = null;
+
   for (const [index, op] of ops.entries()) {
     if (op.op !== "add_node" || op.spec.effect === undefined) continue;
     const raw = op.spec.effect.recipient_ref;
-    if (parseRecipientRef(raw) !== null) continue;
+    const ref = parseRecipientRef(raw);
+    if (ref !== null) {
+      evidenced ??= evidencedKeys(pre);
+      if (isEvidencedRecipient(ref, evidenced)) continue;
+      // §6.9's ONE human gate, and it gets a token of its own. The plugin keys on this
+      // alone to decide "route this to a human", so it must never share a reason with
+      // "the model wrote a bad string".
+      return refuse(
+        "UNEVIDENCED_RECIPIENT",
+        `nothing in the graph attests to '${ref.key}' (recipient_ref '${raw}'). ` +
+          `A recipient must already be named by a recorded output that cited its source, or ` +
+          `by an outcome's attrs — evidence that existed BEFORE this batch. At n=60 a mutator ` +
+          `that could not satisfy a constraint invented counterparties and queued real email ` +
+          `to them, passing every other check. Record where '${ref.key}' came from first, or ` +
+          `ask a human.`,
+        { node: op.id, op_index: index },
+      );
+    }
     // A literal address gets its own reason. It is the one malformed shape that would
     // otherwise *work*, so telling the author "that is not a ref" beats "that is not valid".
     if (raw.includes("@")) {
@@ -604,7 +626,7 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
   const conditioned = checkWaitEdgeConditions(input.graph, normalized.value);
   if (!conditioned.ok) return conditioned;
 
-  const recipients = checkRecipientRefs(normalized.value);
+  const recipients = checkRecipientRefs(input.graph, normalized.value);
   if (!recipients.ok) return recipients;
 
   const predicates = checkPredicateGrammar(normalized.value);

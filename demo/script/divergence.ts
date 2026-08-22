@@ -158,7 +158,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   // ── v1 ── the approved plan. Dana is the only goalie on the roster.
   await kona.mutate(cwd, {
     baseVersion: 0,
-    why: "Dana is the only goalie on the roster; ask her first.",
+    why: "Read the roster before contacting anyone on it.",
     reasonCode: "MISSING_STEP",
     ops: [
       node("Confirm roster availability", "task", "setup", {
@@ -171,34 +171,30 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         outputs: [{ name: "escalated", type: "boolean" }],
         effect_class: "pure",
       }),
-      askNode("Dana", "dana", { inputs: [{ ref: "confirm-roster-availability.availability" }] }),
-      waitNode("Wait for Dana", "Await Dana's reply.", "$2", "$1"),
-      { op: "add_edge", from: "$0", to: "$2" },
-      { op: "add_edge", from: "$2", to: "$3" },
-    ],
-  });
-  say("v1  the approved plan: confirm the roster, ask Dana, wait");
-  const v1 = asGraph(await kona.graph(cwd));
-
-  // ── v2 ── the roster came back with four names. Fan out, converge on a predicate.
-  await kona.mutate(cwd, {
-    baseVersion: 1,
-    why: "Roster returned four names; ask all three goalies in parallel rather than serially.",
-    reasonCode: "NEW_CONSTRAINT",
-    ops: [
+      // The roster lands HERE, in its own commit, and that is invariant 3(b) shaping the
+      // plan rather than merely policing it: §6.7 rejects "a recipient existing only in the
+      // proposing batch", so no node may email Dana until a COMMITTED record names her.
+      // This run used to decide to read the roster and email Dana in one breath.
       {
         op: "record_output",
-        node: "confirm-roster-availability",
+        node: "$0",
         output_name: "availability",
         value: firstPassRoster(),
         evidence_ref: "roster.csv#v3",
       },
-      {
-        op: "set_status",
-        node: "confirm-roster-availability",
-        status: "done",
-        evidence_ref: "roster.csv#v3",
-      },
+      { op: "set_status", node: "$0", status: "done", evidence_ref: "roster.csv#v3" },
+    ],
+  });
+  say("v1  read the roster: four names, from the club sheet");
+
+  // ── v2 ── the roster came back with four names. Fan out, converge on a predicate.
+  await kona.mutate(cwd, {
+    baseVersion: 1,
+    why: "The roster named four; ask all three goalies in parallel rather than serially.",
+    reasonCode: "NEW_CONSTRAINT",
+    ops: [
+      askNode("Dana", "dana", { inputs: [{ ref: "confirm-roster-availability.availability" }] }),
+      waitNode("Wait for Dana", "Await Dana's reply.", "$0"),
       askNode("Sam", "sam"),
       waitNode("Wait for Sam", "Await Sam's reply.", "$2"),
       askNode("Priya", "priya"),
@@ -229,14 +225,19 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
           },
         },
       },
+      { op: "add_edge", from: "confirm-roster-availability", to: "$0" },
+      { op: "add_edge", from: "$0", to: "$1" },
       { op: "add_edge", from: "$2", to: "$3" },
       { op: "add_edge", from: "$4", to: "$5" },
-      { op: "add_edge", from: "wait-for-dana", to: "$6", condition: { on: "satisfied" } },
+      { op: "add_edge", from: "$1", to: "$6", condition: { on: "satisfied" } },
       { op: "add_edge", from: "$3", to: "$6", condition: { on: "satisfied" } },
       { op: "add_edge", from: "$5", to: "$6", condition: { on: "satisfied" } },
     ],
   });
-  say("v2  roster returns four names; fan out to Sam and Priya, converge on a predicate");
+  say("v2  the approved plan: ask all three goalies, converge on a predicate");
+  // The baseline the divergence assertions measure against: every arm identical, and every
+  // recipient already named by the roster committed at v1.
+  const v1 = asGraph(await kona.graph(cwd));
 
   // ── v3 ── the sends go out. Priya's is reserved but not yet dispatched (§6.6's outbox
   //          order: reserve and fsync BEFORE handing bytes to the world).

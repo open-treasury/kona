@@ -110,19 +110,22 @@ describe("op details — the wording is the product", () => {
   test("v1: an edge reads as what the TARGET requires", () => {
     // `{from: confirm-roster-availability, to: ask-dana-to-play-in-goal}` means the ask
     // requires the roster check. The row hangs off the ask, and names the roster check.
+    // v1 reads the roster and addresses nobody: invariant 3(b) rejects "a recipient
+    // existing only in the proposing batch", so the record naming these people has to be
+    // committed before any node may email one of them.
     expect(opRows(1)).toEqual([
       ["add_node", "confirm-roster-availability", "added task"],
       ["add_node", "escalate-no-goalie-found", "added task"],
-      ["add_node", "ask-dana-to-play-in-goal", "added task"],
-      ["add_node", "wait-for-dana", "added wait"],
-      ["add_edge", "ask-dana-to-play-in-goal", "requires confirm-roster-availability"],
-      ["add_edge", "wait-for-dana", "requires ask-dana-to-play-in-goal"],
+      ["record_output", "confirm-roster-availability", "output availability"],
+      ["set_status", "confirm-roster-availability", "-> done"],
     ]);
   });
 
   test("a conditional edge names the resolution it fires on", () => {
     const converging = opRows(2).filter(([kind]) => kind === "add_edge");
     expect(converging).toEqual([
+      ["add_edge", "ask-dana-to-play-in-goal", "requires confirm-roster-availability"],
+      ["add_edge", "wait-for-dana", "requires ask-dana-to-play-in-goal"],
       ["add_edge", "wait-for-sam", "requires ask-sam-to-play-in-goal"],
       ["add_edge", "wait-for-priya", "requires ask-priya-to-play-in-goal"],
       ["add_edge", "goalie-confirmed", "requires wait-for-dana on satisfied"],
@@ -131,10 +134,11 @@ describe("op details — the wording is the product", () => {
     ]);
   });
 
-  test("v2: an output names what was produced, never the value", () => {
-    expect(opRows(2).slice(0, 2)).toEqual([
+  test("an output names what was produced, never the value", () => {
+    // The roster is a list of real people; the timeline says one was produced and leaves
+    // the reading of it to somebody who opened the node.
+    expect(opRows(1).filter(([kind]) => kind === "record_output")).toEqual([
       ["record_output", "confirm-roster-availability", "output availability"],
-      ["set_status", "confirm-roster-availability", "-> done"],
     ]);
   });
 

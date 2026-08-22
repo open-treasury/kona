@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Brief } from "@kona/core";
 import { run } from "../src/cli.ts";
-import { harness, type Harness } from "./harness.ts";
+import { harness, seedRoster, type Harness } from "./harness.ts";
 
 let h: Harness;
 
@@ -61,9 +61,10 @@ async function initWith(config: unknown): Promise<void> {
     writeFileSync(path, JSON.stringify(config));
     expect(await run(["init", "--config", path], h.io)).toBe(0);
   }
+  await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PLAN);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
+    await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
   ).toBe(0);
   h.reset();
 }
@@ -81,7 +82,7 @@ async function briefJson(node: string): Promise<{ code: number; brief: Brief }> 
 
 /**
  * Corrupt a line that is NOT the last one. A torn FINAL line is the expected shape of a
- * crash and is not damage (§6.1) — only a mangled record in the middle is.
+ * crash and is not damage (6.1) — only a mangled record in the middle is.
  */
 function corruptMidLog(): void {
   const log = join(h.dir, ".kona", "mutations.jsonl");
@@ -92,7 +93,7 @@ function corruptMidLog(): void {
 describe("kona next", () => {
   test("reports only what is ready, and says which version it read", async () => {
     expect(await run(["next"], h.io)).toBe(0);
-    expect(h.out[0]).toBe("version 1 · 1 ready");
+    expect(h.out[0]).toBe("version 3 · 1 ready");
     expect(h.out.join("\n")).toContain("confirm-roster");
     expect(h.out.join("\n")).not.toContain("ask-dana");
   });
@@ -103,7 +104,7 @@ describe("kona next", () => {
       { op: "set_status", node: "confirm-roster", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "read", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "read", "--reason-code", "OTHER"], h.io),
     ).toBe(0);
     h.reset();
     expect(await run(["next"], h.io)).toBe(0);
@@ -115,18 +116,18 @@ describe("kona next", () => {
       { op: "set_status", node: "confirm-roster", status: "dropped", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
     ).toBe(0);
     h.reset();
     expect(await run(["next"], h.io)).toBe(0);
-    expect(h.out[0]).toBe("version 2 · nothing ready");
+    expect(h.out[0]).toBe("version 4 · nothing ready");
   });
 
   test("--json carries the whole node, not just an id", async () => {
     h.reset();
     expect(await run(["next", "--json"], h.io)).toBe(0);
     const payload = JSON.parse(h.out[0] ?? "{}") as { version: number; nodes: { id: string }[] };
-    expect(payload.version).toBe(1);
+    expect(payload.version).toBe(3);
     expect(payload.nodes.map((n) => n.id)).toEqual(["confirm-roster"]);
   });
 

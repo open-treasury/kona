@@ -1,7 +1,7 @@
 /**
  * What actually lands on the line.
  *
- * §6.3 calls the mutation record the differentiator, and §8 makes a commit without a
+ * 6.3 calls the mutation record the differentiator, and 8 makes a commit without a
  * rationale impossible. Both claims are about bytes in the file, so these assert the bytes
  * — not that the command exited zero.
  */
@@ -11,13 +11,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MutationRecord } from "@kona/core";
 import { run } from "../src/cli.ts";
-import { ASK_DANA, harness, type Harness } from "./harness.ts";
+import { ASK_DANA, harness, seedRoster, type Harness } from "./harness.ts";
 
 let h: Harness;
 beforeEach(async () => {
   h = harness();
   expect(await run(["init"], h.io)).toBe(0);
-  h.reset();
+  // ASK_DANA emails Dana, so the graph must already attest to her. Head lands at v2.
+  await seedRoster(h, ["dana"]);
 });
 afterEach(() => h.cleanup());
 
@@ -33,7 +34,7 @@ function records(): MutationRecord[] {
 async function mutate(...extra: string[]): Promise<number> {
   const ops = h.writeOps("ops.json", ASK_DANA);
   return await run(
-    ["mutate", "--ops", ops, "--base-version", "0", "--why", "Dana is the only goalie", "--reason-code", "MISSING_STEP", ...extra],
+    ["mutate", "--ops", ops, "--base-version", "2", "--why", "Dana is the only goalie", "--reason-code", "MISSING_STEP", ...extra],
     h.io,
   );
 }
@@ -41,19 +42,19 @@ async function mutate(...extra: string[]): Promise<number> {
 describe("the rationale is carried through verbatim", () => {
   test("why and reason_code land on the record", async () => {
     expect(await mutate()).toBe(0);
-    const rationale = records()[1]?.rationale;
+    const rationale = records().at(-1)?.rationale;
     expect(rationale?.why).toBe("Dana is the only goalie");
     expect(rationale?.reason_code).toBe("MISSING_STEP");
   });
 
   test("--expected-effect is recorded when given", async () => {
     expect(await mutate("--expected-effect", "quorum(goalie) satisfiable by Fri")).toBe(0);
-    expect(records()[1]?.rationale.expected_effect).toBe("quorum(goalie) satisfiable by Fri");
+    expect(records().at(-1)?.rationale.expected_effect).toBe("quorum(goalie) satisfiable by Fri");
   });
 
   test("and the key is absent — not null, not empty — when it is not", async () => {
     expect(await mutate()).toBe(0);
-    expect(Object.keys(records()[1]?.rationale ?? {})).toEqual([
+    expect(Object.keys(records().at(-1)?.rationale ?? {})).toEqual([
       "why",
       "alternatives_rejected",
       "reason_code",
@@ -62,12 +63,12 @@ describe("the rationale is carried through verbatim", () => {
 
   test("--alternative may be repeated, and order is preserved", async () => {
     expect(await mutate("--alternative", "cancel the game", "--alternative", "play short")).toBe(0);
-    expect(records()[1]?.rationale.alternatives_rejected).toEqual(["cancel the game", "play short"]);
+    expect(records().at(-1)?.rationale.alternatives_rejected).toEqual(["cancel the game", "play short"]);
   });
 
   test("with no alternatives it is an empty list, so the field always exists", async () => {
     expect(await mutate()).toBe(0);
-    expect(records()[1]?.rationale.alternatives_rejected).toEqual([]);
+    expect(records().at(-1)?.rationale.alternatives_rejected).toEqual([]);
   });
 });
 
@@ -81,17 +82,17 @@ describe("engine-stamped fields", () => {
 
   test("outcome starts null — it is written later, on evidence", async () => {
     expect(await mutate()).toBe(0);
-    expect(records()[1]?.outcome).toBeNull();
+    expect(records().at(-1)?.outcome).toBeNull();
   });
 
   test("the actor is recorded, defaulting to the orchestrator", async () => {
     expect(await mutate()).toBe(0);
-    expect(records()[1]?.actor).toEqual({ kind: "orchestrator", id: "orchestrator" });
+    expect(records().at(-1)?.actor).toEqual({ kind: "orchestrator", id: "orchestrator" });
   });
 
   test("a named actor is carried through", async () => {
     expect(await mutate("--actor-id", "run-7")).toBe(0);
-    expect(records()[1]?.actor).toEqual({ kind: "orchestrator", id: "run-7" });
+    expect(records().at(-1)?.actor).toEqual({ kind: "orchestrator", id: "run-7" });
   });
 
   test("versions increment by exactly one", async () => {
@@ -100,9 +101,9 @@ describe("engine-stamped fields", () => {
       { op: "set_status", node: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "sent", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
     ).toBe(0);
-    expect(records().map((r) => r.v)).toEqual([0, 1, 2]);
+    expect(records().map((r) => r.v)).toEqual([0, 1, 2, 3, 4]);
   });
 });
 
@@ -111,7 +112,7 @@ describe("what mutate reports", () => {
     expect(await mutate("--json")).toBe(0);
     expect(JSON.parse(h.out[0] ?? "{}")).toEqual({
       ok: true,
-      version: 1,
+      version: 3,
       minted_ids: ["ask-dana-to-play-thursday", "wait-for-dana"],
       ops: 3,
     });
@@ -124,15 +125,15 @@ describe("what mutate reports", () => {
       { op: "set_status", node: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "sent", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
     ).toBe(0);
-    expect(h.out[0]).toBe("committed v2 · 1 ops");
+    expect(h.out[0]).toBe("committed v4 · 1 ops");
   });
 
   test("the human line names the version, the count and the ids", async () => {
     expect(await mutate()).toBe(0);
     expect(h.out[0]).toBe(
-      "committed v1 · 3 ops · minted ask-dana-to-play-thursday, wait-for-dana",
+      "committed v3 · 3 ops · minted ask-dana-to-play-thursday, wait-for-dana",
     );
   });
 
@@ -143,7 +144,7 @@ describe("what mutate reports", () => {
       { op: "set_status", node: "wait-for-dana", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "x", "--reason-code", "OTHER", "--json"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER", "--json"], h.io),
     ).toBe(0);
     expect(JSON.parse(h.out[0] ?? "{}").minted_ids).toEqual([]);
   });
@@ -155,7 +156,7 @@ describe("refusals say enough to act on", () => {
     h.reset();
     expect(await mutate()).toBe(3);
     expect(h.err[0]).toBe(
-      "STALE_BASE_VERSION head=1 base=0 re-read the graph and re-decide; a blind merge is never correct here",
+      "STALE_BASE_VERSION head=3 base=2 re-read the graph and re-decide; a blind merge is never correct here",
     );
   });
 
@@ -166,7 +167,7 @@ describe("refusals say enough to act on", () => {
     await Bun.write(log, `${lines[0]}\n{"v":1,"broken":true}\n${lines[1]}\n`);
     h.reset();
     const ops = h.writeOps("more.json", ASK_DANA);
-    expect(await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "x", "--reason-code", "OTHER"], h.io)).toBe(1);
+    expect(await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER"], h.io)).toBe(1);
     expect(h.err[0]).toStartWith("REFUSED CORRUPT_LOG line=2 UNPARSEABLE_RECORD ");
     expect(h.err[0]).toContain("schema_version");
   });

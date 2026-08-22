@@ -26,7 +26,9 @@ cat > config.json <<'EOF'
 EOF
 ${KONA} init --actor-id ilya --config config.json >/dev/null
 
-# v1 — the approved plan: find a goalie. Every wait routes its timeout somewhere real.
+# v1 — READ THE ROSTER, and nothing else. Invariant 3(b) rejects "a recipient existing only
+# in the proposing batch", so nothing may email Dana until a COMMITTED record names her.
+# This pursuit used to decide to read the roster and email Dana in the same breath.
 ops <<'EOF'
 [
  {"op":"add_node","label":"Confirm roster availability","type":"task","scope":"setup",
@@ -35,6 +37,16 @@ ops <<'EOF'
  {"op":"add_node","label":"Escalate: no goalie found","type":"task","scope":"setup",
   "spec":{"instruction":"Tell Ilya no goalie was found and the game needs a decision.",
           "outputs":[{"name":"escalated","type":"boolean"}],"effect_class":"pure"}},
+ {"op":"record_output","node":"$0","output_name":"availability",
+  "value":["dana","sam","priya","pat"],"evidence_ref":"roster.csv#v3"},
+ {"op":"set_status","node":"$0","status":"done","evidence_ref":"roster.csv#v3"}
+]
+EOF
+commit 0 "Read the roster before contacting anyone on it." MISSING_STEP
+
+# v2 — the approved plan: everyone the roster named, asked at once, merging on a predicate.
+ops <<'EOF'
+[
  {"op":"add_node","label":"Ask Dana to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
           "inputs":[{"ref":"confirm-roster-availability.availability"}],
@@ -43,21 +55,9 @@ ops <<'EOF'
           "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
  {"op":"add_node","label":"Wait for Dana","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Dana's reply.","effect_class":"pure",
-          "deadline":{"after":"$2","duration":"48h"},"on_timeout":"$1",
+          "deadline":{"after":"$0","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_edge","from":"$0","to":"$2"},
- {"op":"add_edge","from":"$2","to":"$3"}
-]
-EOF
-commit 0 "Dana is the only goalie on the roster; ask her first." MISSING_STEP
-
-# v2 — the roster came back. Fan out to two more, each its own arm, merging on a predicate.
-ops <<'EOF'
-[
- {"op":"record_output","node":"confirm-roster-availability","output_name":"availability",
-  "value":["dana","sam","priya","pat"],"evidence_ref":"roster.csv#v3"},
- {"op":"set_status","node":"confirm-roster-availability","status":"done","evidence_ref":"roster.csv#v3"},
  {"op":"add_node","label":"Ask Sam to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Sam asking if he can play in goal Thursday.",
           "outputs":[{"name":"sent_message_id","type":"string"}],"effect_class":"pivot",
@@ -81,14 +81,16 @@ ops <<'EOF'
           "deadline":{"at":"2026-08-21T17:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"predicate","conditions":[{"kind":"predicate","on":"satisfied",
             "predicate":{"count":{"verdict":"confirmed","attrs":{"role":"goalie"}},"op":">=","n":1}}]}}},
+ {"op":"add_edge","from":"confirm-roster-availability","to":"$0"},
+ {"op":"add_edge","from":"$0","to":"$1"},
  {"op":"add_edge","from":"$2","to":"$3"},
  {"op":"add_edge","from":"$4","to":"$5"},
- {"op":"add_edge","from":"wait-for-dana","to":"$6","condition":{"on":"satisfied"}},
+ {"op":"add_edge","from":"$1","to":"$6","condition":{"on":"satisfied"}},
  {"op":"add_edge","from":"$3","to":"$6","condition":{"on":"satisfied"}},
  {"op":"add_edge","from":"$5","to":"$6","condition":{"on":"satisfied"}}
 ]
 EOF
-commit 1 "Roster returned four names; ask all three goalies in parallel rather than serially." NEW_CONSTRAINT
+commit 1 "The roster named four; ask all three goalies in parallel rather than serially." NEW_CONSTRAINT
 
 # v3 — the sends go out. One is mid-flight when we look.
 ops <<'EOF'

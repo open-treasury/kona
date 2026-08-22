@@ -1,5 +1,5 @@
 /**
- * Kill and resume (§7's integration table, §8's Definition of Done).
+ * Kill and resume (7's integration table, 8's Definition of Done).
  *
  * A process cannot kill itself mid-syscall inside a test, so what is simulated here is the
  * exact *state a crash leaves behind* — which is the thing that actually has to be
@@ -10,7 +10,7 @@
  *   - a `sending` node    crash between reserve and record
  *
  * Every assertion is made through a FRESH `Io` against the same directory: no session
- * state, nothing carried in memory, exactly what "a fresh terminal" means in §8.
+ * state, nothing carried in memory, exactly what "a fresh terminal" means in 8.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -19,7 +19,7 @@ import { join } from "node:path";
 import type { GraphProjection } from "@kona/core";
 import { run } from "../src/cli.ts";
 import { effectKey } from "../src/hash.ts";
-import { harness, type Harness } from "./harness.ts";
+import { harness, seedRoster, type Harness } from "./harness.ts";
 
 let h: Harness;
 
@@ -69,7 +69,8 @@ const PLAN = [
   { op: "add_edge", from: "$1", to: "$2" },
 ];
 
-const KEY = effectKey("ask-dana", 1);
+/** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
+const KEY = effectKey("ask-dana", 3);
 
 /** A brand-new process, same directory. No session state crosses this boundary. */
 function freshTerminal(now = T0): Harness {
@@ -96,9 +97,10 @@ beforeEach(async () => {
   const config = join(h.dir, "config.json");
   writeFileSync(config, JSON.stringify(CONFIG));
   expect(await run(["init", "--config", config], h.io)).toBe(0);
+  await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PLAN);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
+    await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
   ).toBe(0);
   h.reset();
 });
@@ -109,21 +111,21 @@ describe("crash between append and fsync — a torn final line", () => {
     appendFileSync(logPath(), '{"v":2,"schema_ver');
     const term = freshTerminal();
     expect(await run(["resume"], term.io)).toBe(0);
-    expect(term.out.join("\n")).toContain("version 1");
+    expect(term.out.join("\n")).toContain("version 3");
     // And the next write lands at the version the torn record never reached.
     const ops = h.writeOps("more.json", [
       { op: "set_status", node: "escalate", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "done", "--reason-code", "OTHER"], term.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "done", "--reason-code", "OTHER"], term.io),
     ).toBe(0);
-    expect(JSON.parse(logLines().at(-1) ?? "").v).toBe(2);
+    expect(JSON.parse(logLines().at(-1) ?? "").v).toBe(4);
   });
 
   test("the torn bytes are neither folded nor silently kept", async () => {
     appendFileSync(logPath(), '{"v":2,"schema_ver');
     const graph = await graphOf(freshTerminal());
-    expect(graph.version).toBe(1);
+    expect(graph.version).toBe(3);
     expect((graph as unknown as { torn_tail: boolean }).torn_tail).toBe(true);
     expect((graph as unknown as { damaged: unknown[] }).damaged).toEqual([]);
   });
@@ -139,7 +141,7 @@ describe("crash while holding the write lock", () => {
       { op: "set_status", node: "escalate", status: "done", evidence_ref: "e" },
     ]);
     return await run(
-      ["mutate", "--ops", ops, "--base-version", "1", "--why", "after crash", "--reason-code", "OTHER"],
+      ["mutate", "--ops", ops, "--base-version", "3", "--why", "after crash", "--reason-code", "OTHER"],
       term.io,
     );
   }
@@ -160,7 +162,7 @@ describe("crash while holding the write lock", () => {
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await tryWrite(term)).toBe(1);
     expect(term.err[0]).toContain("STALE_LOCK");
-    expect(logLines()).toHaveLength(2);
+    expect(logLines()).toHaveLength(4);
   });
 
   test("the refusal tells the operator what to check and what to do", async () => {
@@ -179,7 +181,7 @@ describe("crash while holding the write lock", () => {
     rmSync(join(h.dir, ".kona", "lock"));
     term.reset();
     expect(await tryWrite(term)).toBe(0);
-    expect(JSON.parse(logLines().at(-1) ?? "").v).toBe(2);
+    expect(JSON.parse(logLines().at(-1) ?? "").v).toBe(4);
   });
 
   test("a lock held right now is a different message — a slow peer is not a dead one", async () => {
@@ -258,7 +260,7 @@ describe("resume fires overdue deadlines, and says why", () => {
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await run(["resume"], term.io)).toBe(0);
     expect(term.out.join("\n")).toContain("OVERDUE");
-    expect(term.out.join("\n")).toContain("repaired at v2");
+    expect(term.out.join("\n")).toContain("repaired at v4");
 
     const graph = await graphOf(term);
     const gate = graph.nodes.find((n) => n.id === "wait-for-dana");
@@ -313,7 +315,7 @@ describe("a done node is never re-executed", () => {
       { op: "set_status", node: "escalate", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "did it", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "did it", "--reason-code", "OTHER"], h.io),
     ).toBe(0);
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await run(["resume"], term.io)).toBe(0);

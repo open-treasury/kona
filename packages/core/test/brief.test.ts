@@ -18,7 +18,7 @@ import {
   nodeIdFromCorrelation,
   pursuitConfig,
 } from "../src/index.ts";
-import { commit, record, seeded, task } from "./fixtures.ts";
+import { commit, record, rostered, seeded, task } from "./fixtures.ts";
 
 const IDENTITY: Identity = {
   mailbox: "ilya@example.com",
@@ -181,7 +181,7 @@ describe("preconditions FAIL CLOSED", () => {
   test("a node that has already sent fails the slot check", () => {
     const key = "ek_1";
     const sent = commit(
-      commit(seeded([pivot("Ask Dana")]), [
+      commit(rostered(["dana"], [pivot("Ask Dana")]), [
         { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
@@ -194,7 +194,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
   test("an unconfigured budget blocks an effect node", () => {
     // An unknown cap is not an unlimited one. This is the only thing standing between a
     // mutator and two hundred emails, now that max_reattempts is gone.
-    const check = checkNamed(seeded([pivot("Ask Dana")]), "ask-dana", "budget_remaining", {
+    const check = checkNamed(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana", "budget_remaining", {
       identity: IDENTITY,
     });
     expect(check.ok).toBe(false);
@@ -208,7 +208,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
   test("counts sends across the whole pursuit, not just this node", () => {
     const key = "ek_1";
     const graph = commit(
-      commit(seeded([pivot("Ask Dana"), pivot("Ask Sam")]), [
+      commit(rostered(["dana", "sam"], [pivot("Ask Dana"), pivot("Ask Sam")]), [
         { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
@@ -220,7 +220,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
   test("a spent budget blocks the next send", () => {
     const key = "ek_1";
     const graph = commit(
-      commit(seeded([pivot("Ask Dana"), pivot("Ask Sam")]), [
+      commit(rostered(["dana", "sam"], [pivot("Ask Dana"), pivot("Ask Sam")]), [
         { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
@@ -230,7 +230,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
 
   test("a budget of zero forbids the first send", () => {
     expect(
-      checkNamed(seeded([pivot("Ask Dana")]), "ask-dana", "budget_remaining", {
+      checkNamed(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana", "budget_remaining", {
         identity: IDENTITY,
         effect_budget: 0,
       }).ok,
@@ -239,7 +239,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
 });
 
 describe("what the brief carries", () => {
-  const graph = commit(seeded([task("Roster"), pivot("Ask Dana")]), [
+  const graph = commit(rostered(["dana"], [task("Roster"), pivot("Ask Dana")]), [
     { op: "add_edge", from: "roster", to: "ask-dana", condition: { on: "satisfied" } },
   ]);
 
@@ -346,7 +346,7 @@ describe("each check says what it looked at, not just whether it passed", () => 
   test("a sent node says so plainly", () => {
     const key = "ek_1";
     const sent = commit(
-      commit(seeded([pivot("Ask Dana")]), [
+      commit(rostered(["dana"], [pivot("Ask Dana")]), [
         { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
@@ -357,7 +357,7 @@ describe("each check says what it looked at, not just whether it passed", () => 
   });
 
   test("an effect node names the address replies will correlate to", () => {
-    expect(checkNamed(seeded([pivot("Ask Dana")]), "ask-dana", "correlation_expanded").detail).toBe(
+    expect(checkNamed(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana", "correlation_expanded").detail).toBe(
       "replies correlate to ilya+kona-ask-dana@example.com",
     );
   });

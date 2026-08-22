@@ -1,5 +1,5 @@
 /**
- * `kona effect reserve|record` through the real verb, against a real log (§6.6, §7).
+ * `kona effect reserve|record` through the real verb, against a real log (6.6, 7).
  *
  * The spec's crash table has three rows, and two of them leave IDENTICAL bytes on disk —
  * a `sending` node with `completed_at: null`. Nothing in the log distinguishes "fsynced
@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { GraphProjection, Node } from "@kona/core";
 import { run } from "../src/cli.ts";
 import { effectKey } from "../src/hash.ts";
-import { harness, type Harness } from "./harness.ts";
+import { harness, seedRoster, type Harness } from "./harness.ts";
 
 let h: Harness;
 
@@ -39,14 +39,16 @@ const PIVOT = [
 ];
 
 /** The key for `ask-dana`, created at v1. Computed the same way the CLI computes it. */
-const KEY = effectKey("ask-dana", 1);
+/** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
+const KEY = effectKey("ask-dana", 3);
 
 beforeEach(async () => {
   h = harness();
   expect(await run(["init"], h.io)).toBe(0);
+  await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PIVOT);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "ask", "--reason-code", "MISSING_STEP"], h.io),
+    await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "ask", "--reason-code", "MISSING_STEP"], h.io),
   ).toBe(0);
   h.reset();
 });
@@ -95,7 +97,7 @@ describe("reserve", () => {
   test("the key is payload-independent — the same slot for a different body", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     const first = (await nodeOf("ask-dana")).status.effect_log[0]?.effect_key;
-    expect(first).toBe(effectKey("ask-dana", 1));
+    expect(first).toBe(effectKey("ask-dana", 3));
     // Nothing about the payload participates: the key is a function of node and version.
     expect(first).not.toContain("aaa");
   });
@@ -125,7 +127,7 @@ describe("reserve", () => {
   test("the reservation is a real mutation carrying a real rationale", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     const lines = readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n");
-    const reservation = JSON.parse(lines[2] ?? "");
+    const reservation = JSON.parse(lines.at(-1) ?? "");
     expect(reservation.rationale.why).toBe("sending the invite");
     expect(reservation.actor.kind).toBe("subagent");
     expect(reservation.outcome).toBeNull();
@@ -135,7 +137,7 @@ describe("reserve", () => {
   });
 });
 
-describe("the three crash windows (§6.6)", () => {
+describe("the three crash windows (6.6)", () => {
   test("window 1 — crash between append and fsync: nothing happened", async () => {
     // Nothing is written until fsync returns, so the node is still dispatchable.
     expect((await nodeOf("ask-dana")).status.state).toBe("active");
@@ -306,7 +308,7 @@ describe("--json says exactly what happened", () => {
       effect_key: KEY,
       reserved: true,
       idempotent: false,
-      version: 2,
+      version: 4,
     });
   });
 
@@ -336,13 +338,13 @@ describe("--json says exactly what happened", () => {
       effect_key: KEY,
       outcome: "sent",
       message_id: "<m-1>",
-      version: 3,
+      version: 5,
     });
   });
 
   test("the human line names the slot and the version", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(h.out[0]).toBe(`reserved ${KEY} at v2 — fsynced, safe to send`);
+    expect(h.out[0]).toBe(`reserved ${KEY} at v4 — fsynced, safe to send`);
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(h.out[0]).toBe(`already reserved ${KEY} for this payload — send it, do not re-reserve`);
   });
@@ -350,7 +352,7 @@ describe("--json says exactly what happened", () => {
   test("recording says which slot closed and how", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY, "sent", "<m-1>")).toBe(0);
-    expect(h.out[0]).toBe(`recorded ${KEY} as sent at v3`);
+    expect(h.out[0]).toBe(`recorded ${KEY} as sent at v5`);
   });
 });
 

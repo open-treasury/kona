@@ -11,7 +11,7 @@ import type { DamagedLine, GraphProjection } from "@kona/core";
 import { run } from "../src/cli.ts";
 import { acquireLock } from "../src/lock.ts";
 import { fixedClock } from "../src/clock.ts";
-import { ASK_DANA, harness, type Harness } from "./harness.ts";
+import { ASK_DANA, harness, seedRoster, type Harness } from "./harness.ts";
 
 let h: Harness;
 beforeEach(() => {
@@ -28,12 +28,14 @@ function logLines(dir = h.dir): string[] {
 
 async function init(): Promise<void> {
   expect(await run(["init"], h.io)).toBe(0);
-  h.reset();
+  // ASK_DANA carries a pivot addressed to `roster.contacts#dana`, and invariant 3(b) wants
+  // the graph to have heard of her BEFORE the batch that emails her. Head lands at v2.
+  await seedRoster(h, ["dana"]);
 }
 
 async function commitAskDana(): Promise<number> {
   const ops = h.writeOps("ops.json", ASK_DANA);
-  return await run(["mutate", "--ops", ops, "--base-version", "0", ...WHY], h.io);
+  return await run(["mutate", "--ops", ops, "--base-version", "2", ...WHY], h.io);
 }
 
 describe("dispatch", () => {
@@ -111,11 +113,14 @@ describe("kona mutate — the only write path", () => {
   test("commits, mints ids from labels, and reports them", async () => {
     await init();
     expect(await commitAskDana()).toBe(0);
-    expect(h.out[0]).toContain("committed v1");
+    expect(h.out[0]).toContain("committed v3");
     expect(h.out[0]).toContain("minted ask-dana-to-play-thursday, wait-for-dana");
     const graph = await runGraphJson();
-    expect(graph.version).toBe(1);
+    expect(graph.version).toBe(3);
+    // `roster-on-file` is the seed that attests to Dana; §6.7 wants her named before the
+    // batch that emails her.
     expect(graph.nodes.map((n) => n.id)).toEqual([
+      "roster-on-file",
       "ask-dana-to-play-thursday",
       "wait-for-dana",
     ]);
@@ -124,7 +129,7 @@ describe("kona mutate — the only write path", () => {
   test("writes the COMMITTED form: refs resolved, ids present, no $N survives", async () => {
     await init();
     await commitAskDana();
-    const line = logLines()[1] ?? "";
+    const line = logLines().at(-1) ?? "";
     expect(line).not.toContain("$0");
     const ops = JSON.parse(line).ops;
     expect(ops[0].id).toBe("ask-dana-to-play-thursday");
@@ -139,20 +144,20 @@ describe("kona mutate — the only write path", () => {
     await init();
     const ops = h.writeOps("ops.json", ASK_DANA);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "0", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "2", "--reason-code", "OTHER"], h.io),
     ).toBe(1);
     expect(h.err[0]).toContain("MISSING_FLAG");
     expect(h.err[0]).toContain("--why");
-    expect(logLines()).toHaveLength(1);
+    expect(logLines()).toHaveLength(3);
   });
 
   test("--reason-code is required and closed", async () => {
     await init();
     const ops = h.writeOps("ops.json", ASK_DANA);
-    expect(await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "x"], h.io)).toBe(1);
+    expect(await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "x"], h.io)).toBe(1);
     h.reset();
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "x", "--reason-code", "BECAUSE"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "x", "--reason-code", "BECAUSE"], h.io),
     ).toBe(1);
     expect(h.err[0]).toContain("BAD_FLAG");
   });
@@ -162,8 +167,8 @@ describe("kona mutate — the only write path", () => {
     await commitAskDana();
     h.reset();
     expect(await commitAskDana()).toBe(3);
-    expect(h.err[0]).toStartWith("STALE_BASE_VERSION head=1 base=0");
-    expect(logLines()).toHaveLength(2);
+    expect(h.err[0]).toStartWith("STALE_BASE_VERSION head=3 base=2");
+    expect(logLines()).toHaveLength(4);
   });
 
   test("an invariant violation exits 4 and names the node", async () => {
@@ -174,14 +179,14 @@ describe("kona mutate — the only write path", () => {
       { op: "set_status", node: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "sent", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
     ).toBe(0);
     h.reset();
     const again = h.writeOps("again.json", [
       { op: "set_status", node: "ask-dana-to-play-thursday", status: "active", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", again, "--base-version", "2", "--why", "reopen", "--reason-code", "OTHER"], h.io),
+      await run(["mutate", "--ops", again, "--base-version", "4", "--why", "reopen", "--reason-code", "OTHER"], h.io),
     ).toBe(4);
     expect(h.err[0]).toStartWith("TERMINAL_NODE_PROTECTED");
     expect(h.err[0]).toContain("node=ask-dana-to-play-thursday");
@@ -192,26 +197,26 @@ describe("kona mutate — the only write path", () => {
     const ops = h.writeOps("ops.json", ASK_DANA);
     expect(
       await run(
-        ["mutate", "--ops", ops, "--base-version", "0", ...WHY, "--actor-kind", "subagent", "--actor-id", "exec-3"],
+        ["mutate", "--ops", ops, "--base-version", "2", ...WHY, "--actor-kind", "subagent", "--actor-id", "exec-3"],
         h.io,
       ),
     ).toBe(1);
     expect(h.err[0]).toContain("UNAUTHORIZED_ACTOR");
-    expect(logLines()).toHaveLength(1);
+    expect(logLines()).toHaveLength(3);
   });
 
   test("a malformed ops file is refused before anything is written", async () => {
     await init();
     const bad = join(h.dir, "bad.json");
     writeFileSync(bad, "{not json");
-    expect(await run(["mutate", "--ops", bad, "--base-version", "0", ...WHY], h.io)).toBe(1);
+    expect(await run(["mutate", "--ops", bad, "--base-version", "2", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("UNREADABLE_OPS");
 
     h.reset();
     const wrong = h.writeOps("wrong.json", [{ op: "add_node", label: "x" }]);
-    expect(await run(["mutate", "--ops", wrong, "--base-version", "0", ...WHY], h.io)).toBe(1);
+    expect(await run(["mutate", "--ops", wrong, "--base-version", "2", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("MALFORMED_OPS");
-    expect(logLines()).toHaveLength(1);
+    expect(logLines()).toHaveLength(3);
   });
 
   test("refuses when another writer holds the lock", async () => {
@@ -220,7 +225,7 @@ describe("kona mutate — the only write path", () => {
     expect(held.ok).toBe(true);
     expect(await commitAskDana()).toBe(1);
     expect(h.err[0]).toContain("LOCK_HELD");
-    expect(logLines()).toHaveLength(1);
+    expect(logLines()).toHaveLength(3);
   });
 
   test("releases the lock after a successful commit", async () => {
@@ -237,7 +242,7 @@ describe("kona mutate — the only write path", () => {
     writeFileSync(log, `${lines[0]}\n{"v":1,"broken":true}\n${lines[1]}\n`);
     h.reset();
     const ops = h.writeOps("more.json", ASK_DANA);
-    expect(await run(["mutate", "--ops", ops, "--base-version", "1", ...WHY], h.io)).toBe(1);
+    expect(await run(["mutate", "--ops", ops, "--base-version", "3", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("CORRUPT_LOG");
     expect(logLines()).toHaveLength(3);
   });
@@ -252,7 +257,7 @@ describe("kona mutate — the only write path", () => {
 
   test("refuses outside a pursuit", async () => {
     const ops = h.writeOps("ops.json", ASK_DANA);
-    expect(await run(["mutate", "--ops", ops, "--base-version", "0", ...WHY], h.io)).toBe(1);
+    expect(await run(["mutate", "--ops", ops, "--base-version", "2", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("NO_PURSUIT");
   });
 });
@@ -274,7 +279,7 @@ describe("kona graph — the only read contract", () => {
     mkdirSync(nested, { recursive: true });
     h.reset();
     expect(await run(["graph", "--json"], { ...h.io, cwd: nested })).toBe(0);
-    expect(JSON.parse(h.out[0] ?? "{}").version).toBe(1);
+    expect(JSON.parse(h.out[0] ?? "{}").version).toBe(3);
   });
 
   test("reports a torn tail as a crash, not as damage", async () => {
@@ -285,7 +290,7 @@ describe("kona graph — the only read contract", () => {
     const graph = await runGraphJson();
     expect(graph.torn_tail).toBe(true);
     expect(graph.damaged).toEqual([]);
-    expect(graph.version).toBe(1);
+    expect(graph.version).toBe(3);
   });
 
   test("a damaged mid-file record is surfaced and exits non-zero", async () => {
@@ -303,7 +308,7 @@ describe("kona graph — the only read contract", () => {
     await init();
     await commitAskDana();
     expect((await runGraphJson(["--version", "0"])).nodes).toEqual([]);
-    expect((await runGraphJson()).version).toBe(1);
+    expect((await runGraphJson()).version).toBe(3);
   });
 
   test("rejects a nonsense --version rather than folding to head", async () => {
@@ -337,7 +342,7 @@ describe("kona graph — the only read contract", () => {
 });
 
 describe("the architecture, asserted", () => {
-  /** §8: folding the log twice yields an identical graph. There is no snapshot to keep coherent. */
+  /** 8: folding the log twice yields an identical graph. There is no snapshot to keep coherent. */
   test("the graph is a fold: two reads of the same log are byte-identical", async () => {
     await init();
     await commitAskDana();
@@ -362,9 +367,10 @@ describe("the architecture, asserted", () => {
     try {
       for (const target of [h, other]) {
         expect(await run(["init"], target.io)).toBe(0);
+        await seedRoster(target, ["dana"]);
         const ops = target.writeOps("ops.json", ASK_DANA);
         expect(
-          await run(["mutate", "--ops", ops, "--base-version", "0", ...WHY], target.io),
+          await run(["mutate", "--ops", ops, "--base-version", "2", ...WHY], target.io),
         ).toBe(0);
       }
       expect(logLines(other.dir)).toEqual(logLines(h.dir));
@@ -374,7 +380,7 @@ describe("the architecture, asserted", () => {
   });
 });
 
-describe("§6.8: every non-zero exit writes one symbolic stderr line", () => {
+describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
   /**
    * The contract a caller depends on. `demo/kona.ts` throws a `KonaError` carrying stderr,
    * and a shell script greps the first token — so a verb that fails SILENTLY leaves both
@@ -396,10 +402,10 @@ describe("§6.8: every non-zero exit writes one symbolic stderr line", () => {
     ["effect with an unknown subcommand", ["effect", "cancel", "n", "--why", "x"]],
     ["effect with no node", ["effect", "reserve", "--why", "x", "--payload-hash", "h"]],
     ["reserve outside a pursuit", ["effect", "reserve", "n", "--why", "x", "--payload-hash", "h"]],
-    ["mutate with no --ops", ["mutate", "--base-version", "0", "--why", "x", "--reason-code", "OTHER"]],
-    ["mutate with no --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "0"]],
-    ["mutate with an empty --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "0", "--why", ""]],
-    ["mutate with a bad --reason-code", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "0", "--why", "x", "--reason-code", "NOPE"]],
+    ["mutate with no --ops", ["mutate", "--base-version", "2", "--why", "x", "--reason-code", "OTHER"]],
+    ["mutate with no --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2"]],
+    ["mutate with an empty --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2", "--why", ""]],
+    ["mutate with a bad --reason-code", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2", "--why", "x", "--reason-code", "NOPE"]],
     ["mutate with a bad --base-version", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "one", "--why", "x", "--reason-code", "OTHER"]],
     ["a bad --version", ["graph", "--version", "abc"]],
     ["a bad --port", ["view", "--port", "abc"]],
@@ -423,7 +429,7 @@ describe("§6.8: every non-zero exit writes one symbolic stderr line", () => {
     expect(h.err).toEqual([]);
   });
 
-  test("the exit code is always one of the four §6.8 defines", async () => {
+  test("the exit code is always one of the four 6.8 defines", async () => {
     for (const [, argv] of REFUSALS) {
       h.reset();
       expect([0, 1, 3, 4]).toContain(await run(argv, h.io));

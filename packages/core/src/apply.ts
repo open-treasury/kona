@@ -85,6 +85,7 @@ function makeNode(
       outcomes: [],
       outcome: null,
       output: null,
+      output_evidence: null,
       conditions: [],
       effect_log: [],
       observed_at_version: version,
@@ -242,6 +243,10 @@ function applyOne(
         );
       }
       node.status.output = { ...node.status.output, [op.output_name]: op.value };
+      node.status.output_evidence = {
+        ...node.status.output_evidence,
+        [op.output_name]: op.evidence_ref,
+      };
       node.status.observed_at_version = version;
       return ok(null);
     }

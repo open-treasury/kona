@@ -73,40 +73,39 @@ describe("the topology table", () => {
 });
 
 describe("versions that change the shape", () => {
-  test("v1 opens the pursuit with four nodes and two edges", () => {
+  test("v1 reads the roster and emails nobody", () => {
+    // Invariant 3(b) shapes this version: §6.7 rejects "a recipient existing only in the
+    // proposing batch", so the roster has to land in a commit of its own before anything
+    // may address the people in it. v1 adds no edges because it wires nothing yet.
     const diff = step(1);
     expect(diff.addedNodes).toEqual([
       "confirm-roster-availability",
       "escalate-no-goalie-found",
-      "ask-dana-to-play-in-goal",
-      "wait-for-dana",
     ]);
-    expect(diff.addedEdges).toEqual([
-      { from: "confirm-roster-availability", to: "ask-dana-to-play-in-goal", on: null },
-      { from: "ask-dana-to-play-in-goal", to: "wait-for-dana", on: null },
-    ]);
+    expect(diff.addedEdges).toEqual([]);
+    // Nothing CHANGED status: the roster node is added and finished inside one version, so
+    // it is an addition, not a transition. There is no earlier state to have moved from.
     expect(diff.statusChanged).toEqual([]);
   });
 
-  test("v2 fans out and converges on the predicate wait", () => {
+  test("v2 is the approved plan: every arm at once, converging on the predicate", () => {
     const diff = step(2);
     expect(diff.addedNodes).toEqual([
+      "ask-dana-to-play-in-goal",
+      "wait-for-dana",
       "ask-sam-to-play-in-goal",
       "wait-for-sam",
       "ask-priya-to-play-in-goal",
       "wait-for-priya",
       "goalie-confirmed",
     ]);
-    // Three of the five new edges are conditional, all on `satisfied`, all into the quorum.
+    // Three of the seven new edges are conditional, all on `satisfied`, all into the quorum.
     expect(diff.addedEdges.filter((key) => key.to === "goalie-confirmed")).toEqual([
       { from: "wait-for-dana", to: "goalie-confirmed", on: "satisfied" },
       { from: "wait-for-sam", to: "goalie-confirmed", on: "satisfied" },
       { from: "wait-for-priya", to: "goalie-confirmed", on: "satisfied" },
     ]);
-    // The roster step finished in the same version that consumed its answer.
-    expect(diff.statusChanged).toEqual([
-      { id: "confirm-roster-availability", from: "active", to: "done" },
-    ]);
+    expect(diff.statusChanged).toEqual([]);
   });
 
   test("v5 grows the Marcus arm off Sam's refusal", () => {

@@ -69,6 +69,17 @@ export interface NodeStatus {
   outcome: OutcomeRecord | null;
   /** WHAT was produced. Written by `record_output`, keyed by declared output name. */
   output: Record<string, unknown> | null;
+  /**
+   * Where each output CAME FROM, keyed the same way.
+   *
+   * `record_output` always carried an `evidence_ref` and `applyOne` discarded it, which
+   * left invariant 3(b) nothing to resolve a `recipient_ref` against — the clause says a
+   * recipient must "resolve to an entity already in the graph carrying an `evidence_ref`",
+   * and the folded graph materialised exactly one of those, on an outcome. Retaining it
+   * here is what makes "evidenced" mean *recorded under an output that cited something*
+   * rather than *spelled correctly*.
+   */
+  output_evidence: Record<string, string> | null;
   conditions: NodeCondition[];
   effect_log: EffectRecord[];
   observed_at_version: number;

@@ -17,7 +17,7 @@ import {
   readyFrontier,
   validate,
 } from "../src/index.ts";
-import { ORCHESTRATOR, SUBAGENT, commit, seeded, task, wait } from "./fixtures.ts";
+import { ORCHESTRATOR, SUBAGENT, commit, rostered, seeded, task, wait } from "./fixtures.ts";
 
 function attempt(graph: Graph, ops: AuthoredOp[], actor = ORCHESTRATOR) {
   return validate({ graph, ops, actor, version: graph.version + 1 });
@@ -406,8 +406,49 @@ describe("invariant 3(b) — recipient refs are refs, not addresses (§6.2)", ()
     expect(r.message).toContain("literal address");
   });
 
-  test("the recipients the repo already commits still pass", () => {
-    expect(attempt(seeded([task("A")]), [pivot("roster.contacts#dana")]).ok).toBe(true);
+  test("a well-formed ref to somebody the graph HAS heard of passes", () => {
+    expect(attempt(rostered(["dana"]), [pivot("roster.contacts#dana")]).ok).toBe(true);
+  });
+
+  test("a well-formed ref to somebody it has NOT is the one human gate", () => {
+    // This test used to assert the opposite, and was right to: only the grammar half had
+    // shipped, so spelling `roster.contacts#dana` correctly was the whole check. The
+    // resolution half is what §6.7 actually writes — "resolves to an entity already in the
+    // graph carrying an evidence_ref" — and it is what stops a mutator that has spelled an
+    // invented person correctly.
+    const r = rejection(attempt(seeded([task("A")]), [pivot("roster.contacts#dana")]));
+    expect(r.reason).toBe("UNEVIDENCED_RECIPIENT");
+    expect(r.message).toContain("nothing in the graph attests to 'dana'");
+  });
+
+  test("the scope is not part of the match — filing is the author's choice", () => {
+    // `roster.contacts#dana` and `players#dana` name one person. Refusing on the scope
+    // would reject a correct recipient for being filed differently.
+    expect(attempt(rostered(["dana"]), [pivot("players#dana")]).ok).toBe(true);
+  });
+
+  test("a counterparty's referral is evidence — that is what makes a chain work", () => {
+    // Sam cannot play and names Marcus, in a message with an id. Marcus becomes contactable
+    // because SAM said so, not because the model thought of him.
+    const referred = commit(rostered(["sam"]), [
+      { op: "record_outcome", node: "confirm-roster", verdict: "declined",
+        evidence_ref: "<m-202@mail>", attrs: { referral: "marcus" } },
+    ]);
+    expect(attempt(referred, [pivot("roster.contacts#marcus")]).ok).toBe(true);
+  });
+
+  test("evidence must predate the batch — a self-vouching commit is refused", () => {
+    // §6.7: "a recipient existing only in the proposing batch is rejected". Resolving
+    // against post-commit state would let the same mutator that invented Marcus also
+    // invent the record that vouches for him.
+    const r = rejection(
+      attempt(seeded([task("Roster", { outputs: [{ name: "list", type: "string[]" }] })]), [
+        { op: "record_output", node: "roster", output_name: "list", value: ["marcus"],
+          evidence_ref: "made-up" },
+        pivot("roster.contacts#marcus"),
+      ]),
+    );
+    expect(r.reason).toBe("UNEVIDENCED_RECIPIENT");
   });
 
   test("a pure node carries no effect and is never checked", () => {

@@ -50,6 +50,31 @@ export function seeded(ops: AuthoredOp[]): Graph {
   return commit(emptyGraph(SCHEMA_VERSION), ops);
 }
 
+/**
+ * A graph whose head ALREADY attests to these people, so a node addressed to one of them is
+ * legal under invariant 3(b).
+ *
+ * Two commits, and it has to be two: "a recipient existing only in the proposing batch is
+ * rejected" (§6.7) is a statement about pre-commit head, so a batch that records a roster
+ * and emails it at once is refused. Which is the rule doing its job — you cannot email
+ * somebody you have not yet looked up.
+ */
+export function rostered(names: readonly string[], ops: AuthoredOp[] = []): Graph {
+  const planned = commit(emptyGraph(SCHEMA_VERSION), [
+    task("Confirm roster", { outputs: [{ name: "availability", type: "string[]" }] }),
+  ]);
+  const evidenced = commit(planned, [
+    {
+      op: "record_output",
+      node: "confirm-roster",
+      output_name: "availability",
+      value: [...names],
+      evidence_ref: "roster.csv#v3",
+    },
+  ]);
+  return ops.length === 0 ? evidenced : commit(evidenced, ops);
+}
+
 export function record(v: number, ops: MutationRecord["ops"]): MutationRecord {
   const stamp = "2026-08-21T12:00:00.000Z";
   return {

@@ -159,18 +159,15 @@ describe("the divergence run", () => {
     expect(ruling?.status.state).toBe("done");
   });
 
-  test("PENDING: the store does not enforce invariant 3(b) yet — remove this when it does", async () => {
-    // A deliberate marker, not a passing feature. `validate.ts` runs `checkInvariant1` and
-    // nothing else, so a `pivot` node addressed to a counterparty the graph has never heard of
-    // commits happily. The demo must therefore narrate the gate as *the plan's shape*, never
-    // as something the binary refused.
-    //
-    // When E2 lands 3(b), this test goes RED. That is the signal: delete it, and the claim
-    // "nobody new enters the world without a human" becomes enforceable rather than narrated.
+  test("the store REFUSES a recipient nobody evidenced — no longer narrated", async () => {
+    // This replaces a PENDING marker that asserted the opposite and said so: "when E2 lands
+    // 3(b), this test goes RED. That is the signal: delete it, and the claim 'nobody new
+    // enters the world without a human' becomes enforceable rather than narrated." It went
+    // red. The demo no longer has to narrate the gate as the plan's shape.
     const cwd = await mkdtemp(join(tmpdir(), "kona-3b-"));
     await kona.init(cwd, "ilya");
 
-    const committed = await kona
+    const outcome = await kona
       .mutate(cwd, {
         baseVersion: 0,
         why: "email a person the graph has never heard of",
@@ -190,10 +187,16 @@ describe("the divergence run", () => {
           },
         ],
       })
-      .then(() => true)
-      .catch(() => false);
+      .then(() => ({ refused: false, reason: "" }))
+      .catch((error: unknown) => ({
+        refused: true,
+        reason: (error as { reason?: string }).reason ?? "",
+      }));
 
-    expect(committed).toBe(true);
+    expect(outcome.refused).toBe(true);
+    // The token §6.9's one human gate keys on, and it must not be shared with "the model
+    // wrote a bad string" — the plugin routes on this alone.
+    expect(outcome.reason).toBe("UNEVIDENCED_RECIPIENT");
   });
 
   test("no mail is sent to Priya — a refused send did not happen", async () => {

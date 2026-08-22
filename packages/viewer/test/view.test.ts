@@ -283,8 +283,9 @@ describe("irreversibility is read off the effect class", () => {
   test("the two versions on a node answer different questions", () => {
     const view = headView();
     const roster = at(view, "confirm-roster-availability");
-    expect(roster.createdAtVersion).toBe(1); // decided on in the approved plan
-    expect(roster.observedAtVersion).toBe(2); // last learned about when the roster came back
+    expect(roster.createdAtVersion).toBe(1); // decided on when the pursuit opened
+    expect(roster.observedAtVersion).toBe(1); // and read in the same version, before anyone
+                                              // could be addressed from it (invariant 3(b))
   });
 });
 
