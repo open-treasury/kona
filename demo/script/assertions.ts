@@ -23,6 +23,10 @@
  * pairwise different, and meaningless: `setup` is not an arm, and `goalies` is four arms
  * fused. So an arm here is derived from the topology: reachability forward from an arm root.
  *
+ * **(d) via groups, again.** `group` is authored metadata, so a check over it is partly a
+ * check on what the author called things — see the note on `checkD`. It is the weakest of the
+ * four and is treated as corroboration rather than as evidence on its own.
+ *
  * ## What an arm is
  *
  * A **root** is a node outside the `setup` group with no in-edge from another non-setup node.
@@ -170,7 +174,7 @@ export function addressedCounterparties(graph: GraphJson): Map<string, string> {
 }
 
 export function assertDivergentArms(head: GraphJson, v1: GraphJson): Assertion[] {
-  return [checkA(head, v1), checkB(head), checkC(head), checkD(head)];
+  return [checkA(head, v1), checkB(head), checkC(head), checkD(head, v1)];
 }
 
 /** (a) a node no v1 node's shape describes. */
@@ -227,28 +231,63 @@ function checkC(head: GraphJson): Assertion {
   };
 }
 
-/** (d) an arm with an edge leaving its own group. */
-function checkD(head: GraphJson): Assertion {
+/**
+ * (d) an arm with an edge leaving its own group.
+ *
+ * **This is the weakest of the four, and it is worth saying so rather than letting the stage
+ * imply otherwise.** `group` is authored metadata — `scope` on `add_node`, stored verbatim by
+ * `apply.ts` — so any check over it is partly a check on what the author called things.
+ * Measured: relabel this run's four `marcus` nodes to `goalies` and (d) flips to FAIL with the
+ * topology completely unchanged.
+ *
+ * Two things keep it from being pure naming.
+ *
+ * First, edges into `setup` are excluded. Every arm reaches the shared merge by construction,
+ * so a merge edge distinguishes nothing — and a uniform fan-out whose join simply carries some
+ * group other than `setup` would otherwise pass on its very first edge. That was demonstrated
+ * against a synthetic `withParam` graph, which passed the naive version.
+ *
+ * Second, **the target's group must not have existed at v1.** That is the property the beat
+ * actually claims: one counterparty's reply grew a sub-flow *elsewhere*, mid-run. A
+ * parameterised fan-out authored up front has all its groups at v1, so it cannot satisfy this
+ * however its arms are labelled.
+ *
+ * A note on what this deliberately does NOT say. An earlier version of this comment claimed
+ * the check was "an edge from one arm into ANOTHER arm". Under `arms()` above that is
+ * unreachable by construction — an edge `u → v` between two non-setup nodes is exactly what
+ * puts `v` inside `u`'s arm — so no such edge can exist and the claim was false. The
+ * discriminating power of this suite lives in (a), (b) and (c), each of which fails on a
+ * uniform fan-out; (d) corroborates.
+ */
+function checkD(head: GraphJson, v1: GraphJson): Assertion {
+  const claim = "an arm with an edge leaving its own group";
   const byId = new Map(head.nodes.map((node) => [node.id, node]));
-  // The strong form: an edge from one arm into ANOTHER arm. An edge into `setup` is the
-  // shared merge every arm has by construction, so it cannot distinguish anything.
+  const v1Groups = new Set(v1.nodes.map((node) => node.provenance.group ?? SETUP_GROUP));
+
   for (const edge of head.edges) {
     const from = byId.get(edge.from);
     const to = byId.get(edge.to);
     if (from === undefined || to === undefined) continue;
     if (isSetup(from) || isSetup(to)) continue;
-    if ((from.provenance.group ?? "") === (to.provenance.group ?? "")) continue;
+    const fromGroup = from.provenance.group ?? SETUP_GROUP;
+    const toGroup = to.provenance.group ?? SETUP_GROUP;
+    if (fromGroup === toGroup) continue;
+    if (v1Groups.has(toGroup)) continue;
     return {
       id: "d",
-      claim: "an arm with an edge leaving its own group",
+      claim,
       passed: true,
-      witness: `${edge.from} (group ${from.provenance.group}) → ${edge.to} (group ${to.provenance.group})`,
+      witness:
+        `${edge.from} (group ${fromGroup}) → ${edge.to} (group ${toGroup}), and group ` +
+        `${toGroup} did not exist at v1 — v1 had only [${[...v1Groups].join(", ")}]`,
     };
   }
   return {
     id: "d",
-    claim: "an arm with an edge leaving its own group",
+    claim,
     passed: false,
-    witness: "no edge runs between two different non-setup groups",
+    witness:
+      "no edge runs from one non-setup group into a different non-setup group that v1 did" +
+      ` not already have — v1 groups were [${[...v1Groups].join(", ")}]`,
   };
 }

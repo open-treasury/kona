@@ -10,35 +10,46 @@
  *
  * The fixture ends at v7 with five arms of exactly two nodes each — `{2,2,2,2,2}`. Spec §7's
  * *Divergent arms* test wants **three arms with pairwise different node counts**, and a
- * multiset with one distinct value cannot supply three. The fixture satisfies (a), (b) and
- * (d) and **fails (c)**; that is a fact about the fixture, not about this script, and it is
- * why the run continues to v11:
+ * multiset with one distinct value cannot supply three.
+ *
+ * Measured against `demo/script/assertions.ts`, the committed fixture at head versus its own
+ * v1 passes **(a) only**, and fails (b), (c) and (d). (b) fails because the fixture stops at
+ * the eligibility ruling and never actually addresses Marcus, so no node is aimed at anyone
+ * off the roster. That is a fact about the fixture, not about this script, and it is why the
+ * run continues past it:
  *
  * | v | | arm sizes after |
  * |---|---|---|
+ * | 5 | Sam's referral is wired, pulling the Marcus nodes into Sam's arm | sam 2 -> 4 |
  * | 8 | Pat's invitation lands; his wait is armed | unchanged |
- * | 9 | a human rules Marcus eligible, and only then may he be emailed | sam's arm 2 → 6 |
- * | 10 | Pat stays silent; the deadline fires and a follow-up sprouts | pat's arm 2 → 3 |
+ * | 9 | a human rules Marcus eligible, and only then may he be emailed | sam 4 -> 6 |
+ * | 10 | Pat stays silent; the deadline fires and a follow-up sprouts | pat 2 -> 3 |
  * | 11 | Marcus confirms; the goalie predicate is satisfiable again | — |
  *
  * Which ends at `dana 2 · priya 2 · pat 3 · sam 6` — three pairwise different, produced
  * because the arms genuinely diverged rather than because anything was padded to make a test
- * pass.
+ * pass. Note the first divergence lands at **v5**, not v8: the referral edge below starts it,
+ * so the fixture's own last version already carries two distinct arm sizes.
  *
  * ## The one edge the fixture is missing
  *
  * The fixture records Sam's referral only as `attrs.referral: "marcus"` and a rationale
  * string; the Marcus nodes sit in the graph as a disconnected root. So this run also wires
  * `wait-for-sam → check-marcus-is-eligible`, which makes the referral *topology* rather than
- * prose — and is what satisfies (d) in its strong form: an edge from one arm into another,
- * not merely into the shared merge every arm reaches by construction.
+ * prose. It is also what satisfies (d): an edge into a group that did not exist at v1.
  *
- * ## The gate
+ * ## The gate, and what it is not
  *
- * Marcus cannot be emailed at v5 when Sam names him, only at v9 after a human rules. That is
- * invariant 3(b) — "a recipient existing only in the proposing batch is rejected" — and §6.9's
- * one gate: "The plan changes freely; the world does not; and nobody new enters the world
- * without a human." The run is shaped so that beat is visible rather than asserted.
+ * Marcus is named at v5 and cannot be emailed until v9, after a human rules. That is the shape
+ * invariant 3(b) demands — "a recipient existing only in the proposing batch is rejected" —
+ * and §6.9's one gate: "The plan changes freely; the world does not; and nobody new enters the
+ * world without a human."
+ *
+ * **The store does not enforce this yet.** `validate.ts` runs `checkInvariant1` and nothing
+ * else, so a node addressed to an unevidenced counterparty commits happily today. There is a
+ * test in `demo/test/divergence.test.ts` pinning that, which will go red when 3(b) lands.
+ * Until then the beat is the plan's shape, and narrating it as something the binary refused
+ * would be a lie.
  */
 
 import { mkdtemp } from "node:fs/promises";
@@ -50,9 +61,9 @@ import { MailboxError, canScriptRejections } from "../mailbox/port.ts";
 import { steppingClock } from "../mailbox/clock.ts";
 import { MemoryMailboxProvider } from "../mailbox/memory.ts";
 import { MailpitProvider } from "../mailbox/mailpit.ts";
-import { KONA_MAILBOX, persona } from "../personas/cast.ts";
+import { KONA_MAILBOX, firstPassRoster, persona } from "../personas/cast.ts";
 import type { Outbound, SimulatedEvent } from "../personas/simulator.ts";
-import { PRIYA_BOUNCE, replyAs, silence } from "../personas/simulator.ts";
+import { PRIYA_BOUNCE, replyAddressOf, replyAs, silence } from "../personas/simulator.ts";
 import { correlationAddress, konaAddress } from "./brief-standin.ts";
 import * as kona from "../kona.ts";
 import type { Assertion, GraphJson } from "./assertions.ts";
@@ -161,7 +172,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         op: "record_output",
         node: "confirm-roster-availability",
         output_name: "availability",
-        value: ["dana", "sam", "priya", "pat"],
+        value: firstPassRoster(),
         evidence_ref: "roster.csv#v3",
       },
       {
@@ -233,7 +244,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   // ── v4 ── Dana declines. The premise breaks: the only goalie is out.
   const danaReply = await replyAs(provider, danaOut, "dana");
   events.push(danaReply);
-  const danaEvidence = evidenceOf(danaReply);
+  const danaEvidence = await evidenceFromMailbox(provider, danaOut, danaReply);
   await kona.mutate(cwd, {
     baseVersion: 3,
     why: "Dana is away that week. Her arm cannot satisfy the quorum.",
@@ -254,7 +265,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   // ── v5 ── Sam declines and names someone the plan never heard of.
   const samReply = await replyAs(provider, samOut, "sam");
   events.push(samReply);
-  const samEvidence = evidenceOf(samReply);
+  const samEvidence = await evidenceFromMailbox(provider, samOut, samReply);
   await kona.mutate(cwd, {
     baseVersion: 4,
     why: "Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human.",
@@ -301,8 +312,9 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       },
       { op: "add_edge", from: "$2", to: "$3" },
       { op: "add_edge", from: "$3", to: "goalie-confirmed", condition: { on: "accept" } },
-      // Beyond the fixture, and the point of the beat: the referral becomes topology. This is
-      // the edge that leaves `goalies` for `marcus` — one arm reaching into another.
+      // Beyond the fixture, and the point of the beat: the referral becomes topology rather
+      // than a string in a rationale. This is the edge that leaves `goalies` for `marcus` — a
+      // group that did not exist at v1, which is what makes it evidence rather than labelling.
       { op: "add_edge", from: "wait-for-sam", to: "$2", condition: { on: "satisfied" } },
     ],
   });
@@ -481,7 +493,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   const marcusOut = await invite("ask-marcus-to-play-in-goal", "marcus");
   const marcusReply = await replyAs(provider, marcusOut, "marcus");
   events.push(marcusReply);
-  const marcusEvidence = evidenceOf(marcusReply);
+  const marcusEvidence = await evidenceFromMailbox(provider, marcusOut, marcusReply);
   await kona.mutate(cwd, {
     baseVersion: 10,
     why: "Marcus confirmed, so the goalie predicate is satisfiable from an arm that did not exist at v1.",
@@ -585,8 +597,46 @@ function dispatched(nodeId: string, receipt: SendReceipt): Record<string, unknow
   ];
 }
 
-function evidenceOf(event: SimulatedEvent): string {
-  return event.kind === "replied" ? event.receipt.message_id : `silence://${event.persona}`;
+/**
+ * Read the reply back OUT of the mailbox, and use what the world holds as the evidence.
+ *
+ * Taking the id off the simulator's own send receipt is the obvious shortcut and it hollows
+ * the whole rig out: `poll-thread` is one of the port's three methods, and if nothing in the
+ * deliverable calls it, a provider whose polling is broken still produces four green
+ * assertions. Measured — a stub provider whose `pollThread` returns nothing at all passed the
+ * entire run. So the run polls, and a broken `pollThread` now stops it here.
+ *
+ * It also asserts the thing §6.11's correlation scheme exists for: the reply came back
+ * addressed to `ilya+kona-<node_id>@…`, the tag that routes it to this node and no other.
+ *
+ * A real consumer persists the cursor on the wait node (§6.5) rather than re-reading from
+ * `null`; the rig re-reads because a version-by-version script has nowhere durable to keep one
+ * until `kona poll` lands.
+ */
+async function evidenceFromMailbox(
+  provider: MailboxProvider,
+  outbound: Outbound,
+  event: SimulatedEvent,
+): Promise<string> {
+  if (event.kind !== "replied") return `silence://${event.persona}`;
+
+  const page = await provider.pollThread({ thread: outbound.receipt.thread, cursor: null });
+  const reply = page.messages.find((message) => message.message_id === event.receipt.message_id);
+  if (reply === undefined) {
+    throw new Error(
+      `${event.persona} replied, but ${provider.name} did not return it on thread ` +
+        `${JSON.stringify(outbound.receipt.thread)} — the correlation round trip is broken`,
+    );
+  }
+
+  const correlation = replyAddressOf(outbound);
+  if (!reply.to.includes(correlation)) {
+    throw new Error(
+      `${event.persona}'s reply came back addressed to [${reply.to.join(", ")}], not to ` +
+        `${correlation} — the tag that routes it to its node did not survive`,
+    );
+  }
+  return reply.message_id;
 }
 
 /**

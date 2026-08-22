@@ -45,7 +45,7 @@ import type {
   ScriptableRejections,
   ThreadRef,
 } from "./port.ts";
-import { MailboxError, threadRootOf } from "./port.ts";
+import { MailboxError, formatMailbox, threadRootOf } from "./port.ts";
 
 const PROVIDER: ProviderName = "memory";
 
@@ -162,7 +162,7 @@ export class MemoryMailboxProvider implements MailboxProvider, ScriptableRejecti
       message_id: receipt.message_id,
       in_reply_to: envelope.in_reply_to ?? null,
       references: envelope.references ?? [],
-      from: formatAddress(envelope.from),
+      from: formatMailbox({ name: envelope.from.display_name, address: envelope.from.address }),
       to: [...envelope.to],
       reply_to: envelope.reply_to === undefined ? [] : [envelope.reply_to],
       subject: envelope.subject,
@@ -182,10 +182,6 @@ function belongs(entry: Captured, thread: ThreadRef): boolean {
   // `delivered_to` compares the whole address as an opaque key. It does not split on `+`,
   // and it must not: the tag means something to `kona` and nothing here.
   return entry.message.to.includes(thread.address);
-}
-
-function formatAddress(mailbox: Mailbox): string {
-  return `${mailbox.display_name} <${mailbox.address}>`;
 }
 
 function isAddress(value: string): boolean {

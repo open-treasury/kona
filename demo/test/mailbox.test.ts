@@ -335,6 +335,144 @@ describe("mailpit provider", () => {
     expect((thrown as MailboxError).reason).toBe("PROVIDER_UNREACHABLE");
   });
 
+  test("pages back to a cursor rather than losing everything behind one window", async () => {
+    // The regression guard on a measured data-loss bug. The first version asked for
+    // `limit=MAX_SCAN` and also stopped the scan at MAX_SCAN, so the window could never reach
+    // back past the cursor: once more than one window's worth of mail arrived between two
+    // polls, the loop fell off the end and the cursor jumped to the NEWEST message. Against a
+    // live v1.31.0, two replies sitting behind 2100 unrelated messages were lost permanently.
+    //
+    // 900 messages here with a 200-message page means at least five pages must be walked.
+    const TOTAL = 900;
+    const store = Array.from({ length: TOTAL }, (_, index) => ({
+      ID: `db-${TOTAL - index}`,
+      MessageID: `msg-${TOTAL - index}@kona.demo`,
+      Subject: "s",
+      Created: "2026-08-22T01:04:47.593Z",
+    })); // newest first, as Mailpit returns them
+
+    let pages = 0;
+    const provider = new MailpitProvider({
+      clock: steppingClock(T0),
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname === "/api/v1/info") return json({ Version: "v1.31.0" });
+        if (url.pathname === "/api/v1/messages") {
+          pages += 1;
+          const start = Number(url.searchParams.get("start") ?? "0");
+          const limit = Number(url.searchParams.get("limit") ?? "50");
+          return json({
+            messages_count: TOTAL,
+            total: TOTAL,
+            start,
+            messages: store.slice(start, start + limit),
+          });
+        }
+        if (url.pathname.endsWith("/headers")) return json({});
+        return json({ ID: "x", MessageID: url.pathname.split("/")[4] ?? "", To: [], From: {} });
+      },
+    });
+
+    // Cursor at db-100 — 800 newer messages sit above it, four windows deep.
+    const page = await provider.pollThread({
+      thread: { kind: "delivered_to", address: "nobody@kona.demo" },
+      cursor: "db-100",
+    });
+    expect(pages).toBeGreaterThan(4);
+    // Nothing matched the address, but the cursor still advanced over everything SCANNED —
+    // and crucially it advanced to the newest scanned message, having actually reached back
+    // to the cursor rather than giving up.
+    expect(page.cursor).toBe("db-900");
+  });
+
+  test("refuses to advance past a gap it cannot see across", async () => {
+    // The other half. If the scan bound is hit while messages remain, the gap is real and
+    // unknown — and silently advancing the cursor over it is exactly the data loss above.
+    const TOTAL = 50_000;
+    const provider = new MailpitProvider({
+      clock: steppingClock(T0),
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname === "/api/v1/info") return json({ Version: "v1.31.0" });
+        const start = Number(url.searchParams.get("start") ?? "0");
+        const limit = Number(url.searchParams.get("limit") ?? "50");
+        return json({
+          messages_count: TOTAL,
+          total: TOTAL,
+          start,
+          messages: Array.from({ length: limit }, (_, index) => ({
+            ID: `db-${start + index}`,
+            MessageID: `msg-${start + index}@kona.demo`,
+            Subject: "s",
+            Created: "2026-08-22T01:04:47.593Z",
+          })),
+        });
+      },
+    });
+
+    let thrown: unknown;
+    try {
+      await provider.pollThread({
+        thread: { kind: "delivered_to", address: "nobody@kona.demo" },
+        // A cursor far beyond the scan bound, as a pruned or long-unpolled one would be.
+        cursor: "db-49999",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(MailboxError);
+    expect((thrown as MailboxError).reason).toBe("CURSOR_LOST");
+  });
+
+  test("both providers render `from` identically for a mailbox with no display name", async () => {
+    // `InboundMessage.from` exists to be normalised, and `ThreadPage` tells callers to filter
+    // on it. Two implementations disagreeing here — `" <anon@x>"` versus `"anon@x"` — would
+    // make that filter classify every message the wrong way round on one of them.
+    const memoryProvider = memory();
+    const anon = await memoryProvider.provision({ address: "anon@kona.demo", display_name: "" });
+    const sent = await memoryProvider.send({
+      from: anon,
+      to: ["someone@kona.demo"],
+      subject: "s",
+      body_text: "b",
+    });
+    const fromMemory = (
+      await memoryProvider.pollThread({ thread: sent.thread, cursor: null })
+    ).messages[0]?.from;
+
+    const mailpitProvider = new MailpitProvider({
+      clock: steppingClock(T0),
+      fetch: (input) => {
+        const url = new URL(input);
+        if (url.pathname === "/api/v1/info") return json({ Version: "v1.31.0" });
+        if (url.pathname === "/api/v1/messages") {
+          return json({
+            messages_count: 1,
+            total: 1,
+            start: 0,
+            messages: [{ ID: "db-1", MessageID: "m-1@kona.demo", Subject: "s", Created: "" }],
+          });
+        }
+        if (url.pathname.endsWith("/headers")) return json({});
+        return json({
+          MessageID: "m-1@kona.demo",
+          From: { Name: "", Address: "anon@kona.demo" },
+          To: [{ Name: "", Address: "someone@kona.demo" }],
+          Text: "b",
+        });
+      },
+    });
+    const fromMailpit = (
+      await mailpitProvider.pollThread({
+        thread: { kind: "delivered_to", address: "someone@kona.demo" },
+        cursor: null,
+      })
+    ).messages[0]?.from;
+
+    expect(fromMemory).toBe("anon@kona.demo");
+    expect(fromMailpit).toBe(fromMemory);
+  });
+
   test("a catch-all cannot be scripted to refuse, and says so", () => {
     const provider = new MailpitProvider({ clock: steppingClock(T0), fetch: stubMailpit([]) });
     // This is why Priya's 550 is narrated as staged on the Mailpit path.

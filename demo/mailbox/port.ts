@@ -172,6 +172,19 @@ export interface PollRequest {
  * with the root first. This is RFC threading, not Kona correlation: it reads headers a mail
  * client writes, and never looks at an address.
  */
+/**
+ * One rendering of an address, shared by every implementation.
+ *
+ * `InboundMessage.from` exists to be NORMALISED across providers, and `ThreadPage` tells
+ * callers to filter on it. Two implementations that disagree here — one emitting
+ * `" <anon@x>"` for a nameless mailbox and the other `"anon@x"` — would make that filter
+ * classify every message the wrong way round on one of them, which is the port failing at the
+ * one job it has.
+ */
+export function formatMailbox(who: { name: string; address: string }): string {
+  return who.name === "" ? who.address : `${who.name} <${who.address}>`;
+}
+
 export function threadRootOf(message: {
   references?: readonly string[] | undefined;
   in_reply_to?: string | null | undefined;
@@ -192,6 +205,14 @@ export const MAILBOX_ERROR_REASONS = [
   "THREAD_NOT_FOUND",
   /** The provider answered, but not in the shape its documented API promises. */
   "PROTOCOL_MISMATCH",
+  /**
+   * The cursor could not be reached, so the provider cannot say what happened in between.
+   *
+   * Loud on purpose. The alternative — return the newest page and advance the cursor over the
+   * gap — loses inbound mail permanently and silently, and under §6.6 a duplicate is
+   * recoverable where a skipped message is not.
+   */
+  "CURSOR_LOST",
 ] as const;
 export type MailboxErrorReason = (typeof MAILBOX_ERROR_REASONS)[number];
 

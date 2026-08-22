@@ -40,6 +40,7 @@
 
 import type { Clock } from "./clock.ts";
 import type {
+  Cursor,
   Envelope,
   InboundMessage,
   Mailbox,
@@ -51,7 +52,7 @@ import type {
   SendReceipt,
   ThreadPage,
 } from "./port.ts";
-import { MailboxError, threadRootOf } from "./port.ts";
+import { MailboxError, formatMailbox, threadRootOf } from "./port.ts";
 
 const PROVIDER: ProviderName = "mailpit";
 
@@ -189,16 +190,7 @@ export class MailpitProvider implements MailboxProvider {
     // `Reply-To` is `ilya+kona-<node_id>@…`, so a search for a correlation address matches the
     // outbound that carried it. Substring semantics over a field set that includes the thing
     // you are searching for is a false positive waiting to happen.
-    const summaries = await this.#list();
-
-    // Mailpit returns newest first. Walk that order looking for the cursor, then flip.
-    const fresh: MessageSummary[] = [];
-    for (const summary of summaries) {
-      if (summary.ID === request.cursor) break;
-      fresh.push(summary);
-      if (fresh.length >= MAX_SCAN) break;
-    }
-    fresh.reverse();
+    const fresh = await this.#scanBackTo(request.cursor);
 
     const messages: InboundMessage[] = [];
     for (const summary of fresh) {
@@ -212,6 +204,7 @@ export class MailpitProvider implements MailboxProvider {
       messages.push(message);
     }
 
+    // `fresh` is oldest-first, so the newest SCANNED message is the last one.
     const last = fresh.at(-1);
     return {
       // The cursor advances over everything SCANNED, not only over what matched the thread —
@@ -238,7 +231,7 @@ export class MailpitProvider implements MailboxProvider {
       in_reply_to: inReplyTo === null ? null : bracket(inReplyTo),
       references:
         references === null ? [] : references.split(/\s+/).filter(Boolean).map(bracket),
-      from: formatAddress(readAddress(full["From"])),
+      from: formatMailbox(readAddress(full["From"])),
       to: readAddressList(full["To"]).map((entry) => entry.address),
       reply_to: readAddressList(full["ReplyTo"]).map((entry) => entry.address),
       subject: typeof full["Subject"] === "string" ? full["Subject"] : summary.Subject,
@@ -247,12 +240,55 @@ export class MailpitProvider implements MailboxProvider {
     };
   }
 
-  async #list(): Promise<MessageSummary[]> {
-    const page = await this.#json<Record<string, unknown>>(
-      "GET",
-      `/api/v1/messages?start=0&limit=${MAX_SCAN}`,
-    );
-    return readSummaries(page);
+  /**
+   * Walk the mailbox newest-first until the cursor is reached, and return what was newer,
+   * OLDEST FIRST.
+   *
+   * The obvious one-shot version — ask for `limit=MAX_SCAN` and stop the scan at MAX_SCAN —
+   * is silently lossy, and it fails in exactly the case a demo hits: if more than one window's
+   * worth of mail arrives between two polls, the window can never reach back past the cursor,
+   * the loop falls off the end, and the cursor then jumps to the newest message. Everything in
+   * the gap is skipped and never scanned again on any later poll. Measured against a live
+   * v1.31.0: two replies sitting behind 2100 unrelated messages were lost permanently.
+   *
+   * So it pages, and it distinguishes the two ways the cursor can go missing. If the whole
+   * mailbox is exhausted without finding it, the message was pruned — re-delivering is the
+   * safe direction, and a duplicate inbound is deduped on provider message-id. If the scan
+   * bound is hit while messages remain, the gap is real and unknown, and it throws.
+   */
+  async #scanBackTo(cursor: Cursor): Promise<MessageSummary[]> {
+    const PAGE = 200;
+    const fresh: MessageSummary[] = [];
+    let start = 0;
+    let total = Number.POSITIVE_INFINITY;
+
+    while (start < total && fresh.length < MAX_SCAN) {
+      const page = await this.#json<Record<string, unknown>>(
+        "GET",
+        `/api/v1/messages?start=${start}&limit=${PAGE}`,
+      );
+      total = readTotal(page);
+      const summaries = readSummaries(page);
+      if (summaries.length === 0) break;
+      for (const summary of summaries) {
+        if (summary.ID === cursor) return fresh.toReversed();
+        fresh.push(summary);
+        if (fresh.length >= MAX_SCAN) break;
+      }
+      // Newest-first paging over a store that only ever prepends: a message arriving mid-scan
+      // shifts the window and can re-show one already seen. Duplicates are the safe direction.
+      start += summaries.length;
+    }
+
+    if (fresh.length >= MAX_SCAN && start < total) {
+      throw new MailboxError(
+        "CURSOR_LOST",
+        PROVIDER,
+        `scanned ${MAX_SCAN} of ${total} messages without reaching cursor ${String(cursor)};` +
+          " run mailpit with --max 0 so nothing is pruned, or poll more often",
+      );
+    }
+    return fresh.toReversed();
   }
 
   async #json<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -318,6 +354,20 @@ interface ParsedAddress {
   address: string;
 }
 
+/**
+ * How many messages the mailbox holds.
+ *
+ * `messages_count` rather than `count`: the live response carries both, and `count` is absent
+ * from the OpenAPI definition — undocumented, so not something to page against.
+ */
+function readTotal(page: Record<string, unknown>): number {
+  const total = page["messages_count"] ?? page["total"];
+  if (typeof total !== "number") {
+    throw new MailboxError("PROTOCOL_MISMATCH", PROVIDER, "listing has no `messages_count`");
+  }
+  return total;
+}
+
 function readSummaries(page: Record<string, unknown>): MessageSummary[] {
   const raw = page["messages"];
   if (!Array.isArray(raw)) {
@@ -354,10 +404,6 @@ function readAddress(value: unknown): ParsedAddress {
 function readAddressList(value: unknown): ParsedAddress[] {
   if (!Array.isArray(value)) return [];
   return value.map(readAddress);
-}
-
-function formatAddress(parsed: ParsedAddress): string {
-  return parsed.name === "" ? parsed.address : `${parsed.name} <${parsed.address}>`;
 }
 
 /**
