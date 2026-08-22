@@ -23,6 +23,7 @@
  * should let you click the link.
  */
 
+import { join } from "node:path";
 import { findPursuitRoot } from "../paths.ts";
 import { EXIT_REFUSED } from "../exit.ts";
 import type { Io } from "../io.ts";
@@ -50,7 +51,45 @@ export type ServeViewer = (config: {
  */
 export type LoadViewer = () => Promise<ServeViewer>;
 
-const loadViewerPackage: LoadViewer = async () => (await import("@kona/viewer")).serveViewer;
+/**
+ * The viewer package's own directory. `import.meta.dir` is `packages/kona/src/commands`.
+ */
+const VIEWER_PACKAGE = join(import.meta.dir, "..", "..", "..", "viewer");
+
+/**
+ * Load the viewer, with the cwd moved to its package first — and left there.
+ *
+ * ## The blank page this exists to stop
+ *
+ * Bun computes the bundled HTML's asset hrefs from `process.cwd()`, on the FIRST request, and
+ * caches them. `kona view` runs from whatever pursuit the operator is standing in, so from
+ * `/tmp/thursday` the page came back asking for
+ * `/../../../../../../../private/tmp/thursday/chunk-50chekzd.js` — seven `..` because
+ * `packages/viewer` is seven segments deep. That escapes the server root, falls through to the
+ * `/*` catch-all, and is answered with the index page as `text/html`. The module script never
+ * executes, `#root` stays empty, and a perfectly healthy `/api/log` sits behind a white screen.
+ *
+ * IT HID BECAUSE OF WHERE EVERYTHING RAN. From any ancestor of `packages/viewer` — the repo
+ * root, where `bun test` and `bun run dev` both live — the `..` segments clamp at `/` and
+ * resolve correctly. **Verify a change to this from a directory that is not an ancestor.**
+ *
+ * ## Why here, and why it is not put back
+ *
+ * The chdir has to precede the import, and a static `import` is hoisted above every statement
+ * in its module — so there is no point inside `@kona/viewer` at which it could run first. This
+ * dynamic import is the seam.
+ *
+ * It is also not restored, because restoring it does not work: the href is computed at the
+ * first REQUEST, so the cwd has to still be right when the browser arrives, not merely when
+ * the server starts. That is a real side effect and it is affordable exactly here — §6.8 makes
+ * this verb user-run and foreground, `findPursuitRoot` has already resolved an absolute root
+ * by the time this runs, and nothing after it reads the working directory. The process now
+ * exists to serve until somebody stops it.
+ */
+const loadViewerPackage: LoadViewer = async () => {
+  process.chdir(VIEWER_PACKAGE);
+  return (await import("@kona/viewer")).serveViewer;
+};
 
 export async function startView(
   io: Io,

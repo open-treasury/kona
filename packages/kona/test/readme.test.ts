@@ -45,7 +45,7 @@ function heredocs(): Map<string, string> {
  * sensitive to. Rewrapping the paragraph must be free; changing what the store says must not.
  */
 function flatten(text: string): string {
-  return text.replace(/\s+/g, " ");
+  return text.replace(/\s+/g, " ").trim();
 }
 
 let h: Harness;
@@ -115,30 +115,28 @@ describe("the README's example is code, not decoration", () => {
     expect(h.err[0]).toContain("STALE_BASE_VERSION");
   });
 
-  test("the refusal the README quotes is the refusal the store gives", async () => {
-    // Run `ask.json` FIRST, as the README says to try, and the store must answer with the
-    // message printed underneath it. Asserted on the parts that carry meaning rather than on
-    // the whole paragraph, so rewording the prose does not fail this — but changing what the
-    // store actually refuses, or why, does.
+  test("the refusal the README quotes is the refusal the store gives, WORD FOR WORD", async () => {
+    // Run `ask.json` FIRST, as the README invites you to, and the store must answer with the
+    // paragraph printed underneath it.
+    //
+    // This compared FRAGMENTS until it let a defect through: the README quoted `op=0` where
+    // the binary prints `op=1` — index 0 is the escalation, index 1 is the node actually
+    // carrying the `recipient_ref` — and every fragment the test knew about still matched.
+    // A quote is not a summary. It is either what the program said or it is wrong, so the
+    // whole paragraph is compared, whitespace-normalised because the README wraps it.
     expect(await run(["init"], h.io)).toBe(0);
     h.reset();
 
-    // Exit 1, not 4. Invariant 3 is parser-class and refuses rather than violating — see
-    // §6.8: the reason token is the API and the number is a coarse class.
     expect(await commit("ask.json", 0, "email a stranger", "OTHER")).toBe(1);
     const refusal = flatten(h.err.join(" "));
-    const quoted = flatten(README);
-    for (const fragment of [
-      "UNEVIDENCED_RECIPIENT",
-      "ask-dana-to-play-thursday",
-      "nothing in the graph attests to 'dana'",
-      "evidence that existed BEFORE this batch",
-      // The measurement that makes the rule worth having, not just a rule.
-      "At n=60 a mutator that could not satisfy a constraint invented counterparties",
-    ]) {
-      expect(refusal).toContain(fragment);
-      // And the README quotes it, so the two cannot drift apart.
-      expect(quoted).toContain(fragment);
-    }
+
+    // The quote is the fenced block that follows "the store will not have it:".
+    const quoted = /the store will not have it:\s*```\n([\s\S]*?)```/.exec(README)?.[1];
+    expect(quoted).toBeDefined();
+    expect(flatten(quoted ?? "")).toBe(refusal);
+
+    // And it is a real refusal, not an empty string matching an empty string.
+    expect(refusal).toContain("UNEVIDENCED_RECIPIENT");
+    expect(refusal.length).toBeGreaterThan(200);
   });
 });
