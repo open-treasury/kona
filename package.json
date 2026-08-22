@@ -1,0 +1,31 @@
+{
+  "name": "kona-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p packages/core && tsc -p packages/kona && bun run typecheck:purity",
+    "typecheck:purity": "tsc -p packages/core/tsconfig.purity.json",
+    "lint": "oxlint --type-aware",
+    "knip": "knip",
+    "test": "bun test",
+    "mutate": "./scripts/mutation.sh",
+    "check": "bun run typecheck && bun run lint && bun run knip && bun run test",
+    "mutate:core": "STRYKER_TIER=core stryker run stryker.conf.mjs",
+    "mutate:durability": "STRYKER_TIER=durability stryker run stryker.conf.mjs",
+    "mutate:rest": "STRYKER_TIER=rest stryker run stryker.conf.mjs"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
+    "@types/bun": "latest",
+    "knip": "6.32.2",
+    "oxlint": "1.79.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "7.0.2"
+  }
+}

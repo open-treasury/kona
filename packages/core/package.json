@@ -1,0 +1,9 @@
+{
+  "name": "@kona/core",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Types, vocabularies, the six ops, invariants, fold. ZERO deps. PURE: no fs, no clock, no model.",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": { "zod": "4.4.3" }
+}

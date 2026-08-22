@@ -14,3 +14,7 @@ docs/Rec2.txt
 node_modules/
 dist/
 *.log
+
+# Stryker sandboxes and reports
+.stryker-tmp/
+reports/

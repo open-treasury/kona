@@ -1,0 +1,16 @@
+{
+  "name": "@kona/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "The only thing that writes. .kona/ layout, lock + CAS, the verbs.",
+  "bin": {
+    "kona": "./src/bin.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@kona/core": "workspace:*"
+  }
+}

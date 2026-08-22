@@ -1,0 +1,15 @@
+{
+  // THE DETERMINISM LAW, ENFORCED BY THE COMPILER.
+  //
+  // §6.12: `core` is PURE — no fs, no clock, no model. TypeScript 7 defaults `types` to
+  // `[]`, and this config leaves it there while every other config opts into `["bun"]`.
+  // With no ambient types loaded, `node:fs` does not resolve, `process` does not exist and
+  // `Bun` is not a name. Writing impure code in `core` therefore fails to COMPILE — it is
+  // not a lint rule someone can disable inline, and not a convention a subagent can forget.
+  //
+  // Tests are excluded on purpose: a test may read the filesystem to check that the source
+  // does not.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "types": [] },
+  "include": ["src/**/*.ts"]
+}

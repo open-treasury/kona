@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "includeEntryExports": true,
+  "exclude": ["types"],
+  "ignoreDependencies": [
+    "@stryker-mutator/command-runner"
+  ],
+  "workspaces": {
+    ".": {
+      "project": ["*.mjs!"]
+    },
+    "packages/core": {
+      "project": ["src/**/*.ts!", "test/**/*.ts"]
+    },
+    "packages/kona": {
+      "project": ["src/**/*.ts!", "test/**/*.ts"]
+    }
+  }
+}
