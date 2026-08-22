@@ -18,8 +18,8 @@ Evidence: [`docs/probes/`](docs/probes/) (six empirical runs) · [`docs/research
 
 ## Status
 
-**All nine verbs of §6.8.** The CLI surface is complete; invariants 2 and 3 and the
-viewer are the remaining work.
+**Complete.** Nine verbs, three invariants, the viewer, the Claude Code plugin, and a demo
+rig that drives all of it as a subprocess. 1,200 tests.
 
 | Verb | |
 |---|---|
@@ -33,8 +33,13 @@ viewer are the remaining work.
 | `kona poll` | which wait each inbound reply belongs to — and nothing about what it says |
 | `kona view` | start the viewer — user-run, never plugin-spawned |
 
-Of the three invariants, **#1 (terminal & effect protection)** is enforced. #2 and #3 land
-with the wait and outbox engines.
+All three invariants are enforced in the store, not advised in a prompt:
+
+| | |
+|---|---|
+| **1 — terminal & effect protection** | a terminal node takes only `supersede_node`, `record_outcome`, `record_output`; superseding a node that has moved bytes needs a compensation in the same batch. Tested as an **op-delta against pre-commit head**, never as a post-state predicate |
+| **2 — predicate-waits stay satisfiable** | a batch may not leave a quorum unreachable. Recording the second of two refusals is refused with `PREDICATE_UNSATISFIABLE` — "add a live member in this batch, or supersede the wait" — which is what makes a recovery *atomic with* the premise break rather than a promise to fix it later |
+| **3 — the effect gate** | (a) the pursuit-wide budget is spent at `effect reserve`, counting **attempts**, because a cap counting only confirmed sends is spendable by crashing; (b) a `recipient_ref` must resolve to somebody the graph already knew — **a recipient existing only in the proposing batch is rejected** |
 
 ## Try it
 
@@ -46,25 +51,65 @@ alias kona="bun $PWD/packages/kona/src/bin.ts"
 
 mkdir /tmp/thursday && cd /tmp/thursday
 kona init
-cat > ops.json <<'EOF'
+```
+
+**v1 — read the roster.** Nothing may be addressed to Dana until something in the graph says
+where she came from. That is invariant 3(b) shaping the plan rather than merely policing it:
+you cannot email somebody you have not looked up.
+
+```bash
+cat > roster.json <<'EOF'
 [
+  {"op":"add_node","label":"Confirm roster availability","type":"task",
+   "spec":{"instruction":"Read the roster and list who has not yet answered.",
+           "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"record_output","node":"$0","output_name":"availability",
+   "value":["dana","sam"],"evidence_ref":"roster.csv#v3"},
+  {"op":"set_status","node":"$0","status":"done","evidence_ref":"roster.csv#v3"}
+]
+EOF
+kona mutate --ops roster.json --base-version 0 \
+  --why "Read the roster before contacting anyone on it." --reason-code MISSING_STEP
+```
+
+**v2 — now she can be asked.** `$N` refers to an earlier op in the same batch, and ids are
+minted from labels.
+
+```bash
+cat > ask.json <<'EOF'
+[
+  {"op":"add_node","label":"Escalate: no goalie found","type":"task",
+   "spec":{"instruction":"Tell Ilya nobody can play.","effect_class":"pure"}},
   {"op":"add_node","label":"Ask Dana to play Thursday","type":"task",
    "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
-           "outputs":[{"name":"reply","type":"string"}],
            "effect_class":"pivot",
            "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
   {"op":"add_node","label":"Wait for Dana","type":"wait",
    "spec":{"instruction":"Await Dana's reply.","effect_class":"pure",
-           "deadline":{"at":"2026-08-22T17:00:00.000Z"},
-           "on_timeout":"$0",
-           "match":{"kind":"event","conditions":[{"kind":"reply","on":"satisfied"}]}}},
-  {"op":"add_edge","from":"$0","to":"$1"}
+           "deadline":{"after":"$1","duration":"48h"},"on_timeout":"$0",
+           "match":{"kind":"event","conditions":[
+             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
+  {"op":"add_edge","from":"$1","to":"$2"}
 ]
 EOF
-kona mutate --ops ops.json --base-version 0 \
-  --why "Dana is the only goalie on the roster" --reason-code MISSING_STEP
+kona mutate --ops ask.json --base-version 1 \
+  --why "The roster names Dana; ask her." --reason-code NEW_CONSTRAINT
+
 kona graph
-kona mutate --ops ops.json --base-version 0 --why "again" --reason-code OTHER; echo $?  # 3
+kona next     # the ready frontier — computed, never stored
+kona mutate --ops ask.json --base-version 1 --why "again" --reason-code OTHER; echo $?  # 3
+```
+
+**And the refusal, which is the product.** Run `ask.json` as your *first* commit against a
+fresh pursuit and the store will not have it:
+
+```
+UNEVIDENCED_RECIPIENT node=ask-dana-to-play-thursday op=0 nothing in the graph attests to
+'dana' (recipient_ref 'roster.contacts#dana'). A recipient must already be named by a
+recorded output that cited its source, or by an outcome's attrs — evidence that existed
+BEFORE this batch. At n=60 a mutator that could not satisfy a constraint invented
+counterparties and queued real email to them, passing every other check. Record where
+'dana' came from first, or ask a human.
 ```
 
 `--why` and `--reason-code` are **required**. A commit without a rationale is impossible,
@@ -82,6 +127,11 @@ packages/core/    types, vocabularies, the 6 ops, invariants, fold.
 packages/kona/    .kona/ layout, lock + CAS, the verbs. The only thing that writes.
 packages/viewer/  React Flow + dagre over the log. Depends on core ONLY — it cannot
                   reach the store, because it does not depend on the package that is one.
+plugin/           the Claude Code plugin: two skills, one executor agent, a SessionStart
+                  hook. Where ALL the judgment lives.
+demo/             the rig. A directory, NOT a package, so nothing here is importable by
+                  core, kona or viewer — it drives the binary as a subprocess, the way a
+                  human on stage does.
 ```
 
 The dependency graph enforces what prose can only assert: `core` has no `node:fs` import
@@ -110,6 +160,53 @@ and `kona view` runs from the operator's pursuit directory, where there is no `b
 the plugin would silently not be found and the viewer would render unstyled. A test recompiles
 and compares, so the committed file cannot drift.
 
+## The plugin
+
+```bash
+claude plugin validate plugin        # manifest, skills and agent, checked by the real tooling
+```
+
+Two skills and one agent, and the split between them is the law again: `/kona:plan` authors a
+graph and `/kona:run` executes one, and neither can send anything the binary has not already
+agreed to. `skills/run` sets `disable-model-invocation: true` — the loop that moves bytes is
+started by a person, never picked up because it looked relevant.
+
+The §6.2 op catalogue ships into the plan prompt **verbatim**, because a paraphrase produced
+four stuck-gate defects in the probes. "Verbatim" cannot mean copying the spec's shorthand,
+which is not parseable JSON — so every JSON example in every skill file is extracted by
+`packages/kona/test/plugin-catalogue.test.ts` and run through the real `parseBatch`. If the
+schema changes and the prompt does not, that test fails. So do the vocabularies: the statuses,
+verdicts and reason codes quoted in the prompt are compared against `core`'s frozen tuples.
+
+The SessionStart hook runs `kona resume --dry-run` and **nothing else** — reporting, never
+repairing, because firing timeouts unprompted at every session start is a commit nobody asked
+for. It never touches `.kona/` directly either; a test greps for it, because a second thing
+that knows the layout is how a format ends up with two readers.
+
+## The demo rig
+
+```bash
+bun demo/script/divergence.ts     # the graph diverges in ways a parameterised fan-out cannot
+bun demo/script/pursuit.ts        # a whole pursuit, driven by `kona next`, run to done
+bun demo/script/kill-resume.ts    # kill -9 eleven times, and recover from each
+```
+
+Three runs, and none subsumes another. A **replay** proves things about structure that a loop
+cannot make happen on cue. A **loop** proves termination, which a replay assumes: it asks
+`kona next` what is ready, reads head rather than predicting it, and stops when the frontier is
+empty. And only a **real signal** proves that the state a crash leaves is the state the
+in-process tests simulate — a detached process group, `SIGKILL`, and then a genuinely fresh
+process that has to say what is going on.
+
+Each of the last two found a bug the others could not see. `kona brief` was handing executors
+the sender's reply address while `kona poll` watched for the wait's, so every reply in a real
+run would have correlated to nothing — both halves had passing unit tests. And a `kill -9`
+mid-write left the next command saying "another writer holds it (pid N)" for thirty seconds,
+naming a corpse in exactly the window a crash gets discovered in.
+
+`kona resume` answers a fresh terminal in **135ms**, against §8's 60-second budget. What makes
+it that is having no snapshot to rebuild.
+
 ## The purity gate
 
 `core` being pure is a spec-level law, so it is checked by a machine — in three places,
@@ -137,8 +234,8 @@ bun run typecheck:purity   # TS2591: Cannot find name 'process'
 | `bun run typecheck` | TypeScript 7.0.2, four projects including the purity gate |
 | `bun run lint` | oxlint 1.79 with type-aware rules |
 | `bun run knip` | unused files, exports, dependencies |
-| `bun test` | 570 tests |
-| `bun run mutate` | StrykerJS 10, three tiers with per-area floors |
+| `bun test` | 1,200 tests |
+| `bun run mutate` | StrykerJS 10, four tiers with per-area floors — `core` 95 / `outbox` 100 / `durability` 95 / `rest` 90 |
 
 ## Toolchain notes — TypeScript 7 breaks things, and here is how
 
@@ -156,6 +253,11 @@ verified empirically, not read off a changelog.
 | **Config keys now removed** | `baseUrl` (use `paths`), `target: es5`, `moduleResolution: node`, `module: amd\|umd\|system`, and — surprisingly — `esModuleInterop: false` and `allowSyntheticDefaultImports: false`, which are now permanently on |
 | **`types` defaults to `[]`** | Which is inconvenient everywhere else and exactly what makes the purity gate free |
 
-`knip --production` is deliberately **not** a gate: it flags every export whose only
-consumer is a test, and this package's real consumers — the viewer and the plugin — are
-later epics. `exclude: ["types"]` is set for the same reason.
+`knip --production` is deliberately **not** a gate: it flags every export whose only consumer
+is a test. `exclude: ["types"]` is set for the same reason.
+
+Each mutation tier runs only the suites that could kill its mutants. `packages/viewer` imports
+`@kona/core` and never `@kona/cli` — a test enforces both directions — so viewer tests can kill
+a `core` mutant and can never kill a `kona` one. That is not a micro-optimisation: the viewer's
+`fs.watch` test has to spend five real seconds asleep, and the command runner pays it per
+mutant. Scoping the kona-only tiers took `durability` from about ten minutes to one.

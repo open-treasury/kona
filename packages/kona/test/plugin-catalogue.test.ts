@@ -213,6 +213,50 @@ describe("the rules the probes paid for are still in the prompt", () => {
   });
 });
 
+describe("the real tooling accepts it", () => {
+  /**
+   * Everything else in this file checks the plugin against OUR reading of the format. This
+   * checks it against Claude Code's, which is the only reading that decides whether it loads
+   * on stage — and the failure mode it rules out is the expensive one: a manifest that is
+   * perfectly self-consistent, passes every test here, and is rejected at the moment somebody
+   * types `/kona:plan` in front of an audience.
+   *
+   * **Skipped, not failed**, when the CLI is absent: a checkout without it is a checkout that
+   * cannot answer the question, which is different from one where the answer is no.
+   */
+  const cli = Bun.spawnSync({ cmd: ["claude", "--version"], stdout: "pipe", stderr: "pipe" });
+  const available = cli.success;
+
+  function validate(...parts: string[]): { ok: boolean; output: string } {
+    const result = Bun.spawnSync({
+      cmd: ["claude", "plugin", "validate", join(PLUGIN, ...parts)],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return {
+      ok: result.success,
+      output: `${result.stdout.toString()}${result.stderr.toString()}`,
+    };
+  }
+
+  test.skipIf(!available)("`claude plugin validate` accepts the manifest", () => {
+    const result = validate();
+    expect(`${String(result.ok)}: ${result.output.trim()}`).toContain("true");
+  });
+
+  test.skipIf(!available)("and the skills, whose frontmatter it parses itself", () => {
+    // `disable-model-invocation` and the description that decides when a skill loads both
+    // live in frontmatter that nothing in this repo parses. This is what reads it.
+    const result = validate("skills");
+    expect(`${String(result.ok)}: ${result.output.trim()}`).toContain("true");
+  });
+
+  test.skipIf(!available)("and the executor agent", () => {
+    const result = validate("agents");
+    expect(`${String(result.ok)}: ${result.output.trim()}`).toContain("true");
+  });
+});
+
 describe("the plugin is additive and trivially removable (§6.9)", () => {
   test("it declares no git hooks and no daemon", () => {
     const hooks = JSON.parse(read("hooks", "hooks.json")) as {
