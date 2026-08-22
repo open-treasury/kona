@@ -110,7 +110,7 @@ export function App(): React.ReactElement {
               screen reader should read what is on the sign. Caps want the tracking opened up —
               `tracking-tight` is for lowercase, where the letters already sit close. */}
           <span className="text-[15px] font-semibold tracking-wide">KONA</span>
-          <span className="text-ui-xs text-carbon-40 uppercase">Workflow graph</span>
+          <span className="text-ui-xs text-carbon-40 uppercase">Workflow Viewer</span>
           <span className="flex-1" />
 
           {/*
