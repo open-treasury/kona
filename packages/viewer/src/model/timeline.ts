@@ -22,6 +22,7 @@
 
 import type { Actor, CommittedOp, Graph, MutationRecord, Trigger } from "@kona/core";
 import { SCHEMA_VERSION, applyOps, emptyGraph } from "@kona/core";
+import { statusInWords } from "../format.ts";
 import { diffGraphs } from "./diff.ts";
 import type { TimelineEntry, TimelineOp } from "./types.ts";
 
@@ -87,7 +88,8 @@ function detailOf(op: CommittedOp): string {
         ? `requires ${op.from}`
         : `requires ${op.from} on ${op.condition.on}`;
     case "set_status":
-      return `-> ${op.status}`;
+      // The timeline is a sentence, so the status arrives as a word — see `statusInWords`.
+      return `-> ${statusInWords(op.status)}`;
     case "record_outcome":
       // The verdict, then the attrs, because the attrs are what a predicate counts on
       // (`role=goalie`) and a reader tracking a quorum is looking for exactly them.

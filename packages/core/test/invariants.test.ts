@@ -222,7 +222,7 @@ describe("countPredicate — the three counts (§6.7)", () => {
   });
 
   test("sending is live — the world's answer is unknown, not absent", () => {
-    const graph = commit(quorum(), [close("dana", "sending")]);
+    const graph = commit(quorum(), [close("dana", "in_flight")]);
     expect(counted(graph).still_live).toBe(1);
   });
 

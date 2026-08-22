@@ -189,10 +189,10 @@ describe("the reason a node is blocked, in words", () => {
     expect(isReady(graph, goalie.node)).toBe(false);
   });
 
-  test("a wait behind a node that is still sending is blocked, not ready", () => {
+  test("a wait behind a node that is still in flight is blocked, not ready", () => {
     const blocked = at(view, "wait-for-pat").blocked;
     expect(blocked?.causes).toHaveLength(1);
-    expect(blocked?.summary).toBe("Ask Pat to play in goal is still sending");
+    expect(blocked?.summary).toBe("Ask Pat to play in goal is still in flight");
     expect(blocked?.unreachable).toBe(false);
   });
 });
@@ -225,7 +225,7 @@ describe("waits carry their own clock", () => {
     expect(wait?.deadlineAt).toBeNull();
     expect(wait?.remainingMs).toBeNull();
     expect(wait?.deadlineLabel).toBe("48h after ask-pat-to-play-in-goal");
-    expect(wait?.unresolvedReason).toContain("still sending");
+    expect(wait?.unresolvedReason).toContain("still in flight");
   });
 
   test("a relative deadline arms off the log, not off the graph", () => {

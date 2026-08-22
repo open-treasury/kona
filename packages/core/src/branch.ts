@@ -35,7 +35,7 @@ export const DERIVED_EVIDENCE_PREFIX = "derived:branch-resolution";
 export function isDroppable(node: Node): boolean {
   // §6.6 — `sending` means the real world's answer is UNKNOWN, and `kona resume` reports
   // `sending` unknowns to a human. Dropping erases the marker resume needs.
-  if (node.status.state === "sending") return false;
+  if (node.status.state === "in_flight") return false;
   // §6.6 — a non-empty effect_log means bytes already moved. Cancelling the plan does not
   // un-send the email; that needs a compensation, which only an author can write.
   return node.status.effect_log.length === 0;

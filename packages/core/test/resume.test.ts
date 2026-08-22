@@ -71,7 +71,7 @@ describe("settledAt reads the time from the log, not the graph", () => {
 
   test("a non-terminal status does not count as settling", () => {
     const records = [
-      stampedRecord(1, [{ op: "set_status", node: "a", status: "sending", evidence_ref: "e" }], LATER),
+      stampedRecord(1, [{ op: "set_status", node: "a", status: "in_flight", evidence_ref: "e" }], LATER),
     ];
     expect(settledAt(records, "a")).toBeNull();
   });
@@ -165,7 +165,7 @@ describe("armed waits are live waits only", () => {
     expect(armedWaits(graph).map((n) => n.id)).toEqual(["gate"]);
   });
 
-  test.each(["done", "failed", "dropped", "sending"])("a '%s' wait is not armed", (state) => {
+  test.each(["done", "failed", "dropped", "in_flight"])("a '%s' wait is not armed", (state) => {
     const resolved = commit(graph, [
       { op: "set_status", node: "gate", status: state, evidence_ref: "e" },
     ]);
@@ -239,6 +239,38 @@ describe("the resume plan", () => {
   });
 });
 
+describe("a claimed PURE node is returned to the frontier", () => {
+  // The other half of `in_flight`. An agent claims a pure node, dies, and nothing left the
+  // machine — so unlike an open reservation there is nothing for a human to adjudicate, and
+  // leaving it claimed would strand work no `kona next` would ever offer again.
+  const claimed = commit(seeded([task("Read the schemas", { effect_class: "pure" })]), [
+    {
+      op: "set_status",
+      node: "read-the-schemas",
+      status: "in_flight",
+      evidence_ref: "claim:agent-1",
+    },
+  ]);
+
+  test("it is repaired to active, and is NOT reported as an unknown send", () => {
+    const plan = planResume([], claimed, LATER);
+    expect(plan.repairs).toEqual([
+      {
+        op: "set_status",
+        node: "read-the-schemas",
+        status: "active",
+        evidence_ref: "resume:stale-claim",
+      },
+    ]);
+    expect(plan.report.unknown_sends).toEqual([]);
+    expect(plan.rationale).toContain("claimed and never finished");
+  });
+
+  test("the node is off the frontier while claimed — that is the point of claiming it", () => {
+    expect(planResume([], claimed, LATER).report.frontier).toEqual([]);
+  });
+});
+
 describe("resume NEVER repairs an open reservation", () => {
   const reserved = commit(
     rostered(["dana"], [
@@ -251,7 +283,7 @@ describe("resume NEVER repairs an open reservation", () => {
       {
         op: "set_status",
         node: "ask-dana",
-        status: "sending",
+        status: "in_flight",
         evidence_ref: encodeReserveEvidence("ek_1", "sha256:aaa"),
       },
     ],

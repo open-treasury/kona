@@ -128,7 +128,7 @@ describe("fold materialises the ledger from the log", () => {
     {
       op: "set_status",
       node: "ask-dana",
-      status: "sending",
+      status: "in_flight",
       evidence_ref: encodeReserveEvidence(KEY, "sha256:aaa"),
     },
   ]);

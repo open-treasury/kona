@@ -84,7 +84,7 @@ one. Write a JSON **array** of them.
 | | |
 |---|---|
 | `type` | `task` · `wait` |
-| `status` | `active` · `sending` · `done` · `failed` · `dropped` |
+| `status` | `active` · `in_flight` · `done` · `failed` · `dropped` |
 | `verdict` | `confirmed` · `declined` · `tentative` · `timed_out` · `bounced` · `late` · `accept` · `edit` · `respond` · `ignore` |
 | `condition.on` | `accept` · `edit` · `respond` · `ignore` · `timeout` · `bounced` · `satisfied` |
 | `effect_class` | `pure` · `reversible` · `compensatable` · `pivot` |

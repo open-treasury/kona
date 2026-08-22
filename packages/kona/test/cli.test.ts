@@ -76,7 +76,7 @@ describe("kona init", () => {
     expect(await run(["init", "--json"], h.io)).toBe(0);
     const genesis = JSON.parse(logLines()[0] ?? "");
     expect(genesis.v).toBe(0);
-    expect(genesis.schema_version).toBe(1);
+    expect(genesis.schema_version).toBe(2);
     expect(genesis.ops).toEqual([]);
     expect(genesis.rationale.why).toBe("pursuit initialised");
     expect(genesis.observed_at).toBe(T0);

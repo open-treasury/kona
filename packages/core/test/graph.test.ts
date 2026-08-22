@@ -24,7 +24,7 @@ describe("status vocabulary", () => {
   test("terminal means done, failed or dropped — and sending is not terminal", () => {
     // `sending` means the real world's answer is unknown, not that the node resolved.
     expect(STATUSES.filter(isTerminal).toSorted()).toEqual(TERMINAL_STATUSES.toSorted());
-    expect(isTerminal("sending")).toBe(false);
+    expect(isTerminal("in_flight")).toBe(false);
     expect(isTerminal("active")).toBe(false);
   });
 

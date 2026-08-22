@@ -148,7 +148,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
    * that "a template variable that reaches a counterparty can never correlate".
    *
    * The reservation is what makes the ordering literal: `kona effect reserve` appends the
-   * intent and fsyncs it, so a crash after this point leaves a `sending` node with an open
+   * intent and fsyncs it, so a crash after this point leaves an `in_flight` node with an open
    * reservation — a thing a human can be shown — rather than a graph that says nothing while
    * an email is in flight.
    */
@@ -330,7 +330,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   // ── v3..v7 ── the sends go out, each one three commits: reserve, bytes, record.
   //
   // Priya stops after the reservation. That is not a shortcut — it is CRASH WINDOW 2, held
-  // open on purpose for four versions: a node in `sending` with an open slot, no message id,
+  // open on purpose for four versions: a node in `in_flight` with an open slot, no message id,
   // and nothing on disk able to say whether the bytes moved. `kona resume` surfaces exactly
   // this for a human rather than guessing, and the run comes back to it at v11.
   const danaOut = await invite("ask-dana-to-play-in-goal", "dana");
@@ -505,7 +505,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
 
   // ── v13, v14 ── ONLY NOW may Pat be emailed. The node has to exist before anything is sent
   // for it, and `kona effect reserve` is what makes §6.6's order literal: append, fsync, THEN
-  // the side effect. The reservation moves the node to `sending` with a key the store issued;
+  // the side effect. The reservation moves the node to `in_flight` with a key the store issued;
   // the hand-written `ek_pat_v7` this replaced was a slot the outbox had never heard of.
   const patOut = await invite("ask-pat-to-play-in-goal", "pat");
   say("v13-v14  Pat is asked; his wait is armed and the deadline is now the plan");

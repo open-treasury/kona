@@ -95,10 +95,10 @@ describe("add_edge", () => {
 describe("the three observed fields answer three different questions", () => {
   test("set_status writes only where we are", () => {
     const graph = commit(seeded([task("A")]), [
-      { op: "set_status", node: "a", status: "sending", evidence_ref: "ev-1" },
+      { op: "set_status", node: "a", status: "in_flight", evidence_ref: "ev-1" },
     ]);
     const node = graph.nodes.get("a");
-    expect(node?.status.state).toBe("sending");
+    expect(node?.status.state).toBe("in_flight");
     expect(node?.status.outcome).toBeNull();
     expect(node?.status.output).toBeNull();
     expect(node?.status.observed_at_version).toBe(2);

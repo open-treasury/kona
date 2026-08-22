@@ -182,7 +182,7 @@ export function App(): React.ReactElement {
             </p>
           )}
           {shown.tornTail && (
-            <p className={cn(NOTICE, "bg-warning-bg text-status-sending-ink")}>
+            <p className={cn(NOTICE, "bg-warning-bg text-status-in-flight-ink")}>
               torn final line — the expected shape of a crash, not damage. Folded without it.
             </p>
           )}

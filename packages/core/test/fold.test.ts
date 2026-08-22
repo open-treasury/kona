@@ -49,7 +49,7 @@ describe("fold is deterministic", () => {
   });
 
   test("the fold stamps the schema version it was asked for", () => {
-    expect(foldLog(LOG).graph.schema_version).toBe(1);
+    expect(foldLog(LOG).graph.schema_version).toBe(2);
     expect(foldLog(LOG, { schemaVersion: 4 }).graph.schema_version).toBe(4);
   });
 

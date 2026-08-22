@@ -106,7 +106,7 @@ describe("readinessOf", () => {
   test("sending is running, not settled — the world's answer is unknown", () => {
     const graph = graphAt();
     const node = nodeOf(graph, "ask-pat-to-play-in-goal");
-    expect(node.status.state).toBe("sending");
+    expect(node.status.state).toBe("in_flight");
     expect(readinessOf(graph, node)).toBe("running");
     expect(blockedReason(graph, node)).toBeNull();
   });
@@ -156,10 +156,10 @@ describe("blockedReason", () => {
       wants: null,
       fired: null,
       kind: "not-finished",
-      text: "Ask Pat to play in goal is still sending",
+      text: "Ask Pat to play in goal is still in flight",
     });
     // One cause, so the card line is the cause itself.
-    expect(reason.summary).toBe("Ask Pat to play in goal is still sending");
+    expect(reason.summary).toBe("Ask Pat to play in goal is still in flight");
     // Pat may yet reply. Nothing here is over.
     expect(reason.unreachable).toBe(false);
   });

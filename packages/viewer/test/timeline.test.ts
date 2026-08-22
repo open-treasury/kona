@@ -162,12 +162,12 @@ describe("op details — the wording is the product", () => {
     // The whole of §6.6, as two timeline rows. Nobody watching a pursuit has to be told what
     // the outbox is; they can see the node sit in `sending` and then move.
     expect(opRows(V.danaReserved)).toEqual([
-      ["set_status", "ask-dana-to-play-in-goal", "-> sending"],
+      ["set_status", "ask-dana-to-play-in-goal", "-> in flight"],
     ]);
     expect(opRows(V.danaSent)).toEqual([["set_status", "ask-dana-to-play-in-goal", "-> done"]]);
     // And the one that never got its second row until four versions later.
     expect(opRows(V.priyaReserved)).toEqual([
-      ["set_status", "ask-priya-to-play-in-goal", "-> sending"],
+      ["set_status", "ask-priya-to-play-in-goal", "-> in flight"],
     ]);
     expect(opRows(V.priyaFailed)).toEqual([
       ["set_status", "ask-priya-to-play-in-goal", "-> failed"],
@@ -211,7 +211,7 @@ describe("op details — the wording is the product", () => {
     // Pat's reservation is a version of its own, after the plan that created his node. It
     // has to be: `kona effect reserve` is the only thing that issues a slot, and it appends.
     expect(opRows(V.patReserved)).toEqual([
-      ["set_status", "ask-pat-to-play-in-goal", "-> sending"],
+      ["set_status", "ask-pat-to-play-in-goal", "-> in flight"],
     ]);
   });
 

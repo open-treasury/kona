@@ -25,7 +25,7 @@
 
 import type { Graph, Node } from "@kona/core";
 import { isTerminal, satisfiesBlockingEdge } from "@kona/core";
-import { formatInstant } from "../format.ts";
+import { formatInstant, statusInWords } from "../format.ts";
 import { predicateCount, predicateMatchLabel } from "./predicate.ts";
 import type { Instant, WaitPhase, WaitState } from "./types.ts";
 
@@ -70,7 +70,7 @@ interface ResolvedDeadline {
 function noClockYet(id: string, anchor: Node): string {
   if (!isTerminal(anchor.status.state)) {
     return (
-      `anchored to '${id}', which is still ${anchor.status.state} — ` +
+      `anchored to '${id}', which is still ${statusInWords(anchor.status.state)} — ` +
       "the clock starts when it finishes"
     );
   }

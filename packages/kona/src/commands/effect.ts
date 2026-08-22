@@ -144,7 +144,7 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
           {
             op: "set_status",
             node: node.id,
-            status: "sending",
+            status: "in_flight",
             evidence_ref: encodeReserveEvidence(key, options.payloadHash),
           },
         ],

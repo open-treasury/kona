@@ -157,7 +157,7 @@ describe("readiness fails safe (§6.4)", () => {
       ["done", true],
       ["failed", false],
       ["dropped", false],
-      ["sending", false],
+      ["in_flight", false],
       ["active", false],
     ] as [string, boolean][]) {
       const graph = commit(chain(), [

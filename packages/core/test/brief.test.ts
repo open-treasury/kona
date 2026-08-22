@@ -227,7 +227,7 @@ describe("preconditions FAIL CLOSED", () => {
   });
 
   test.each([
-    ["sending", false],
+    ["in_flight", false],
     ["done", false],
     ["failed", false],
     ["dropped", false],
@@ -278,7 +278,7 @@ describe("preconditions FAIL CLOSED", () => {
     const key = "ek_1";
     const sent = commit(
       commit(rostered(["dana"], [pivot("Ask Dana")]), [
-        { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
+        { op: "set_status", node: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
     );
@@ -305,7 +305,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
     const key = "ek_1";
     const graph = commit(
       commit(rostered(["dana", "sam"], [pivot("Ask Dana"), pivot("Ask Sam")]), [
-        { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
+        { op: "set_status", node: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
     );
@@ -317,7 +317,7 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
     const key = "ek_1";
     const graph = commit(
       commit(rostered(["dana", "sam"], [pivot("Ask Dana"), pivot("Ask Sam")]), [
-        { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
+        { op: "set_status", node: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
     );
@@ -514,7 +514,7 @@ describe("each check says what it looked at, not just whether it passed", () => 
     const key = "ek_1";
     const sent = commit(
       commit(rostered(["dana"], [pivot("Ask Dana")]), [
-        { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
+        { op: "set_status", node: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
       ]),
       [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
     );

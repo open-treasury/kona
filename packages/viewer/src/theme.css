@@ -121,8 +121,8 @@
    */
   --color-status-active-fill: var(--color-tag-cobalt-bg);
   --color-status-active-ink: var(--color-cobalt-bold);
-  --color-status-sending-fill: var(--color-tag-ochre-bg);
-  --color-status-sending-ink: var(--color-ochre-bold);
+  --color-status-in-flight-fill: var(--color-tag-ochre-bg);
+  --color-status-in-flight-ink: var(--color-ochre-bold);
   --color-status-done-fill: var(--color-success-bg);
   --color-status-done-ink: var(--color-success);
   --color-status-failed-fill: var(--color-error-bg);

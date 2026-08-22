@@ -406,4 +406,13 @@ export const MutationRecordSchema = z.strictObject({
 });
 export type MutationRecord = z.infer<typeof MutationRecordSchema>;
 
-export const SCHEMA_VERSION = 1;
+/**
+ * 2 — `sending` became `in_flight` (§6.2).
+ *
+ * The status is DATA in `mutations.jsonl`, not just an identifier, so the rename is a
+ * breaking change to the log format rather than a cosmetic one. A v1 log is refused at
+ * fold rather than read with an alias: the graph is a fold over the log, and a store that
+ * silently accepts two spellings of one state has two spellings to keep true forever.
+ * Prototype-stage call — nothing durable is running on v1.
+ */
+export const SCHEMA_VERSION = 2;

@@ -81,7 +81,7 @@ describe("the topology table", () => {
     const diff = diffGraphs(before, after);
     expect(diff.topologyStable).toBe(true);
     expect(diff.statusChanged).toEqual([
-      { id: "ask-dana-to-play-in-goal", from: "sending", to: "done" },
+      { id: "ask-dana-to-play-in-goal", from: "in_flight", to: "done" },
     ]);
   });
 
@@ -166,7 +166,7 @@ describe("versions that change the shape", () => {
     const diff = step(V.priyaFailed);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.statusChanged).toEqual([
-      { id: "ask-priya-to-play-in-goal", from: "sending", to: "failed" },
+      { id: "ask-priya-to-play-in-goal", from: "in_flight", to: "failed" },
     ]);
     expect(diff.topologyStable).toBe(true);
   });
@@ -266,7 +266,7 @@ describe("status ticks", () => {
     // `sending` is not terminal: the intent is fsynced and nobody knows the answer yet.
     // Priya's stays exactly here for four versions, which is what makes it renderable.
     expect(diff.statusChanged).toEqual([
-      { id: "ask-priya-to-play-in-goal", from: "active", to: "sending" },
+      { id: "ask-priya-to-play-in-goal", from: "active", to: "in_flight" },
     ]);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);

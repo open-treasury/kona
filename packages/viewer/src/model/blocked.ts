@@ -35,7 +35,7 @@ import type { BlockedCause, BlockedReason, Readiness } from "./types.ts";
 export function readinessOf(graph: Graph, node: Node): Readiness {
   if (node.provenance.superseded_by !== null) return "superseded";
   if (isTerminal(node.status.state)) return "settled";
-  if (node.status.state === "sending") return "running";
+  if (node.status.state === "in_flight") return "running";
   if (isReady(graph, node)) return "ready";
   return "blocked";
 }
@@ -118,7 +118,7 @@ function causeFor(graph: Graph, edge: Edge): BlockedCause {
 
 /** What "not finished" means depends on what the node is doing, and a reader can tell. */
 function pending(source: Node): string {
-  if (source.status.state === "sending") return "is still sending";
+  if (source.status.state === "in_flight") return "is still in flight";
   return source.type === "wait" ? "has not answered yet" : "has not finished yet";
 }
 

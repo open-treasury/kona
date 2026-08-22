@@ -252,12 +252,12 @@ describe("waitStateOf", () => {
     const state = wait("wait-for-pat");
 
     test("no clock yet, and the reason says which node we are waiting on", () => {
-      expect(node("ask-pat-to-play-in-goal").status.state).toBe("sending");
+      expect(node("ask-pat-to-play-in-goal").status.state).toBe("in_flight");
       expect(state.phase).toBe("unarmed");
       expect(state.deadlineAt).toBeNull();
       expect(state.remainingMs).toBeNull();
       expect(state.unresolvedReason).toContain("ask-pat-to-play-in-goal");
-      expect(state.unresolvedReason).toContain("sending");
+      expect(state.unresolvedReason).toContain("in flight");
       expect(state.deadlineLabel).toBe("48h after ask-pat-to-play-in-goal");
     });
 

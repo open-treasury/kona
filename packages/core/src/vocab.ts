@@ -11,7 +11,7 @@ export const NODE_TYPES = ["task", "wait"] as const;
 export type NodeType = (typeof NODE_TYPES)[number];
 
 /** §6.2 — five statuses. */
-export const STATUSES = ["active", "sending", "done", "failed", "dropped"] as const;
+export const STATUSES = ["active", "in_flight", "done", "failed", "dropped"] as const;
 export type Status = (typeof STATUSES)[number];
 
 /**

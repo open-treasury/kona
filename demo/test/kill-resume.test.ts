@@ -97,7 +97,7 @@ describe("killed with a slot reserved and nothing sent (§6.6 window 2)", () => 
   });
 
   test("resume repairs NOTHING about it — the log cannot tell sent from unsent", () => {
-    // Windows 2 and 3 leave identical bytes: a `sending` node with `completed_at: null`.
+    // Windows 2 and 3 leave identical bytes: an `in_flight` node with `completed_at: null`.
     // Nothing on disk distinguishes "fsynced but never sent" from "sent but never recorded",
     // so guessing sends a second email at exactly the moment nobody is watching.
     //

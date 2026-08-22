@@ -100,7 +100,7 @@ describe("reserve", () => {
   test("appends the intent, moves the node to sending, and fsyncs before anything is sent", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     const node = await nodeOf("ask-dana");
-    expect(node.status.state).toBe("sending");
+    expect(node.status.state).toBe("in_flight");
     expect(node.status.effect_log).toHaveLength(1);
     expect(node.status.effect_log[0]?.effect_key).toBe(KEY);
     expect(node.status.effect_log[0]?.payload_hash).toBe("sha256:aaa");
@@ -177,7 +177,7 @@ describe("the three crash windows (6.6)", () => {
     const node = await nodeOf("ask-dana");
     // This is genuinely indistinguishable from window 2 in the log. `sending` means the
     // world's answer is unknown — not that nothing happened.
-    expect(node.status.state).toBe("sending");
+    expect(node.status.state).toBe("in_flight");
     expect(node.status.effect_log[0]?.completed_at).toBeNull();
     expect(node.status.effect_log[0]?.outcome).toBeNull();
   });

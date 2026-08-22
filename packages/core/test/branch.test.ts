@@ -155,7 +155,7 @@ describe("isDroppable — what the store may rewrite", () => {
   });
 
   test("a SENDING node is not — §6.6, the world's answer is unknown", () => {
-    const graph = commit(gated(), [close("ignored", "sending")]);
+    const graph = commit(gated(), [close("ignored", "in_flight")]);
     expect(isDroppable(nodeOf(graph, "ignored"))).toBe(false);
   });
 
@@ -277,11 +277,11 @@ describe("the cascade is transitive, and it stops where the spec says", () => {
   });
 
   test("a SENDING node is withheld rather than dropped — and its successors still drop", () => {
-    const sending = commit(twoDeep(), [close("b1", "sending")]);
+    const sending = commit(twoDeep(), [close("b1", "in_flight")]);
     const { derived, withheld, graph } = run(sending, [outcome("gate", "accept"), close("gate")]);
     expect(withheld).toEqual(["b1"]);
     expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["b2"]);
-    expect(nodeOf(graph, "b1").status.state).toBe("sending");
+    expect(nodeOf(graph, "b1").status.state).toBe("in_flight");
   });
 
   test("a node the same batch set done is not dropped", () => {
@@ -600,7 +600,7 @@ describe("arm-death (§6.4, read side)", () => {
    * batch makes no edge newly dead, so nothing re-seeds.
    */
   test("nor does a SENDING node that later completes", () => {
-    const sending = commit(shared("any"), [close("b1", "sending")]);
+    const sending = commit(shared("any"), [close("b1", "in_flight")]);
     const resolved = run(sending, [outcome("gate", "accept"), close("gate")]);
     expect(resolved.withheld).toEqual(["b1"]);
 

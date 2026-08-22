@@ -56,7 +56,7 @@ export interface CardData extends Record<string, unknown> {
  */
 const STATUS_GLYPH: Record<Status, { icon: LucideIcon; tone: string; spin: boolean }> = {
   active: { icon: Circle, tone: "text-status-active-ink", spin: false },
-  sending: { icon: LoaderCircle, tone: "text-status-sending-ink", spin: true },
+  in_flight: { icon: LoaderCircle, tone: "text-status-in-flight-ink", spin: true },
   done: { icon: CircleCheck, tone: "text-status-done-ink", spin: false },
   failed: { icon: CircleX, tone: "text-status-failed-ink", spin: false },
   dropped: { icon: CircleSlash, tone: "text-status-dropped-ink", spin: false },

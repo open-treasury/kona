@@ -40,9 +40,9 @@ describe("the pursuit finishes", () => {
     expect(RESULT.iterations.at(-1)?.ready).toEqual([]);
   });
 
-  test("every node reached a terminal state — none left active or sending", () => {
+  test("every node reached a terminal state — none left active or in flight", () => {
     const open = RESULT.head.nodes.filter(
-      (node) => node.status.state === "active" || node.status.state === "sending",
+      (node) => node.status.state === "active" || node.status.state === "in_flight",
     );
     expect(open.map((node) => `${node.id}:${node.status.state}`)).toEqual([]);
   });

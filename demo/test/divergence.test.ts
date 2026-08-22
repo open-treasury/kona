@@ -146,7 +146,7 @@ describe("the divergence run", () => {
     for (const version of [7, 8, 9, 10]) {
       const graph = asGraph(await kona.graph(result.cwd, version));
       const priya = graph.nodes.find((node) => node.id === "ask-priya-to-play-in-goal");
-      expect(`v${version}:${priya?.status.state ?? "?"}`).toBe(`v${version}:sending`);
+      expect(`v${version}:${priya?.status.state ?? "?"}`).toBe(`v${version}:in_flight`);
       const open = priya?.status.effect_log?.[0];
       expect(open?.completed_at).toBeNull();
       expect(open?.outcome).toBeNull();

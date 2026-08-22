@@ -50,7 +50,18 @@ kona brief <node-id>
 ```
 
 `kona next` is the **only** source of work. `brief` exits non-zero when a node is not
-dispatchable; that is a refusal, not advice. Do the node's work with your normal tools.
+dispatchable; that is a refusal, not advice.
+
+**Claim it before you start**, so the plan says what is being worked and not merely what is
+ready — and so `kona next` stops offering it to you:
+
+```bash
+printf '[{"op":"set_status","node":"<node-id>","status":"in_flight","evidence_ref":"claim"}]' > /tmp/claim.json
+kona mutate --ops /tmp/claim.json --base-version <head> --why "Starting this node." --reason-code OTHER
+```
+
+Then do the node's work with your normal tools. If you never come back, `kona resume` puts it
+back on the frontier — nothing was sent, so nothing needs a human.
 
 ## 3. Record what happened
 

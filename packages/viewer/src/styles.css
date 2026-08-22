@@ -50,7 +50,7 @@
     --color-tag-cobalt-bg: lch(92 30 265);
     --color-tag-ochre-bg: lch(92 28 75);
     --color-status-active-ink: var(--color-cobalt-bold);
-    --color-status-sending-ink: var(--color-ochre-bold);
+    --color-status-in-flight-ink: var(--color-ochre-bold);
     --color-status-done-ink: var(--color-success);
     --color-status-failed-ink: var(--color-error);
     --color-status-dropped-ink: var(--color-carbon-60);
@@ -1265,8 +1265,8 @@
   .text-status-failed-ink {
     color: var(--color-status-failed-ink);
   }
-  .text-status-sending-ink {
-    color: var(--color-status-sending-ink);
+  .text-status-in-flight-ink {
+    color: var(--color-status-in-flight-ink);
   }
   .text-success {
     color: var(--color-success);

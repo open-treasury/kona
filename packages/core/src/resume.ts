@@ -63,6 +63,26 @@ function countByState(graph: Graph): Record<string, number> {
   return counts;
 }
 
+/**
+ * A claim nobody is holding any more.
+ *
+ * `in_flight` covers two different facts, and the difference is the whole reason resume can
+ * repair one and must not touch the other. A node with an OPEN EFFECT is an unknown send:
+ * bytes may have left, the log cannot say, and a human decides — that is `unknownSends`.
+ * A node in `in_flight` with NO open effect is a *pure* node an agent claimed and never came
+ * back to, and nothing left the machine, so the honest repair is to put it back on the
+ * frontier for whoever picks the pursuit up next.
+ *
+ * Keyed on the open effect rather than on `effect_class`, because the reservation is the fact
+ * that matters: a `pure` node cannot have one, and a node that *declares* an effect but never
+ * reserved it never moved a byte either.
+ */
+function staleClaims(graph: Graph): Node[] {
+  return [...graph.nodes.values()].filter(
+    (node) => node.status.state === "in_flight" && openEffect(node) === null,
+  );
+}
+
 function unknownSends(graph: Graph): UnknownSend[] {
   return [...graph.nodes.values()].flatMap((node) => {
     const open = openEffect(node);
@@ -118,9 +138,18 @@ export function planResume(
   damaged = 0,
 ): ResumePlan {
   const overdue = overdueWaits(records, graph, now);
-  const repairs = overdue.flatMap(({ node, deadline }) =>
-    timeoutRepair(graph, node, deadline.at ?? now),
-  );
+  const stale = staleClaims(graph);
+  const repairs = [
+    ...overdue.flatMap(({ node, deadline }) => timeoutRepair(graph, node, deadline.at ?? now)),
+    ...stale.map(
+      (node): AuthoredOp => ({
+        op: "set_status",
+        node: node.id,
+        status: "active",
+        evidence_ref: "resume:stale-claim",
+      }),
+    ),
+  ];
 
   const waits: ResumeReport["waits"] = armedWaits(graph)
     .map((node) => waitStatus(records, node, now))
@@ -133,10 +162,21 @@ export function planResume(
     }));
 
   const names = overdue.map(({ node }) => node.id);
-  const rationale =
+  const claimed = stale.map((node) => node.id);
+  const timeoutText =
     names.length === 1
       ? `deadline passed on '${names[0]}'; resolving it as timed out so its escape route can run`
       : `deadlines passed on ${names.length} waits (${names.join(", ")}); resolving them as timed out`;
+  const claimText =
+    claimed.length === 1
+      ? `'${claimed[0]}' was claimed and never finished; returning it to the frontier`
+      : `${claimed.length} claimed nodes (${claimed.join(", ")}) never finished; returning them to the frontier`;
+  const rationale =
+    names.length > 0 && claimed.length > 0
+      ? `${timeoutText}. Also: ${claimText}`
+      : claimed.length > 0
+        ? claimText
+        : timeoutText;
 
   return {
     report: {

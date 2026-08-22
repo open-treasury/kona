@@ -71,3 +71,14 @@ export function formatIso(iso: string): string {
 export function pretty(value: unknown): string {
   return JSON.stringify(value, null, 2) ?? "null";
 }
+
+/**
+ * A status as a reader's word rather than the wire value.
+ *
+ * `in_flight` is the only status whose identifier is not already English, and the viewer
+ * puts statuses inside sentences — "which is still in_flight" reads as a leaked enum. One
+ * place does the translation so the two call sites cannot drift apart.
+ */
+export function statusInWords(state: string): string {
+  return state === "in_flight" ? "in flight" : state;
+}
