@@ -16,6 +16,7 @@
  */
 
 import { watch, type FSWatcher } from "node:fs";
+import { stat } from "node:fs/promises";
 import { foldLog, projectGraph } from "@kona/core";
 import { type KonaPaths, findPursuitRoot, konaPaths } from "../paths.ts";
 import { readLogText } from "../store.ts";
@@ -33,6 +34,17 @@ export const DEFAULT_VIEW_PORT = 7373;
  * nobody watching a graph will notice.
  */
 const WATCH_DEBOUNCE_MS = 30;
+
+/**
+ * The same principle §6.5 applies to mailboxes: **reconciliation is truth, and the
+ * notification is a latency optimisation.**
+ *
+ * `fs.watch` is documented as unreliable across platforms, and it demonstrably drops
+ * events under load — which on stage means the graph simply stops moving while the demo
+ * claims to be live. Polling one file's size and mtime costs nothing and makes the feed a
+ * guarantee rather than a hope; the watcher just makes it feel instant.
+ */
+const POLL_INTERVAL_MS = 400;
 
 export interface ViewOptions {
   port: number;
@@ -152,25 +164,41 @@ export async function startView(io: Io, options: ViewOptions): Promise<RunningVi
     return null;
   }
 
-  // File-watch, per rule 10. The log only ever grows, so any change is a new version.
+  // File-watch plus poll, per rule 10. The log only ever grows, so any change is a new
+  // version — `size:mtime` is enough to notice one.
+  let signature = "";
   let pending: ReturnType<typeof setTimeout> | null = null;
-  watcher = watch(paths.log, () => {
+
+  const check = (): void => {
     if (pending !== null) clearTimeout(pending);
     pending = setTimeout(() => {
       pending = null;
       void (async () => {
+        let next: string;
+        try {
+          const info = await stat(paths.log);
+          next = `${info.size}:${info.mtimeMs}`;
+          if (next === signature) return;
+        } catch {
+          return;
+        }
         let state: string;
         try {
           state = await readState(paths);
         } catch {
-          // A read that races an append simply misses this tick; the next write pushes
-          // again, and a client can always re-fetch /graph.
+          // A read that raced an append; the next tick picks it up.
           return;
         }
+        signature = next;
         for (const send of listeners) send(state);
       })();
     }, WATCH_DEBOUNCE_MS);
-  });
+  };
+
+  watcher = watch(paths.log, check);
+  const poller = setInterval(check, POLL_INTERVAL_MS);
+  // Never hold a process open just to poll.
+  poller.unref?.();
 
   const url = `http://127.0.0.1:${server.port}`;
   io.out(
@@ -183,6 +211,7 @@ export async function startView(io: Io, options: ViewOptions): Promise<RunningVi
     url,
     stop: async () => {
       if (pending !== null) clearTimeout(pending);
+      clearInterval(poller);
       watcher?.close();
       listeners.clear();
       await server.stop(true);

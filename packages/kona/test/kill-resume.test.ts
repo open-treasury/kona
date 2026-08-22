@@ -14,7 +14,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GraphProjection } from "@kona/core";
 import { run } from "../src/cli.ts";
@@ -130,29 +130,64 @@ describe("crash between append and fsync — a torn final line", () => {
 });
 
 describe("crash while holding the write lock", () => {
-  test("a stale lock is reclaimed, so one crash does not wedge the pursuit forever", async () => {
+  function leaveStaleLock(): void {
     writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: 999, started_at: T0 }));
-    // Much later: the holder is plainly gone.
-    const term = freshTerminal(AFTER_DEADLINE);
+  }
+
+  async function tryWrite(term: Harness): Promise<number> {
     const ops = h.writeOps("more.json", [
       { op: "set_status", node: "escalate", status: "done", evidence_ref: "e" },
     ]);
-    expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "after crash", "--reason-code", "OTHER"], term.io),
-    ).toBe(0);
-    expect(existsSync(join(h.dir, ".kona", "lock"))).toBe(false);
+    return await run(
+      ["mutate", "--ops", ops, "--base-version", "1", "--why", "after crash", "--reason-code", "OTHER"],
+      term.io,
+    );
+  }
+
+  test("reading still works — a stale lock blocks writes, never reads", async () => {
+    leaveStaleLock();
+    const term = freshTerminal(AFTER_DEADLINE);
+    expect(await run(["graph", "--json"], term.io)).toBe(0);
+    term.reset();
+    expect(await run(["next"], term.io)).toBe(0);
   });
 
-  test("but a lock held right now still blocks — a slow peer is not a dead one", async () => {
+  test("a write is refused, and NOT by silently taking the lock", async () => {
+    // Reclaiming automatically cannot be made safe: the check that judges a lock stale
+    // and the removal that takes it are two operations, so a second writer can move a
+    // FRESH lock aside and both end up appending to one log.
+    leaveStaleLock();
+    const term = freshTerminal(AFTER_DEADLINE);
+    expect(await tryWrite(term)).toBe(1);
+    expect(term.err[0]).toContain("STALE_LOCK");
+    expect(logLines()).toHaveLength(2);
+  });
+
+  test("the refusal tells the operator what to check and what to do", async () => {
+    leaveStaleLock();
+    const term = freshTerminal(AFTER_DEADLINE);
+    await tryWrite(term);
+    expect(term.err[0]).toContain("no longer running");
+    expect(term.err[0]).toContain("delete the file");
+    expect(term.err[0]).toContain("999");
+  });
+
+  test("and once it is cleared, the pursuit continues exactly where it was", async () => {
+    leaveStaleLock();
+    const term = freshTerminal(AFTER_DEADLINE);
+    expect(await tryWrite(term)).toBe(1);
+    rmSync(join(h.dir, ".kona", "lock"));
+    term.reset();
+    expect(await tryWrite(term)).toBe(0);
+    expect(JSON.parse(logLines().at(-1) ?? "").v).toBe(2);
+  });
+
+  test("a lock held right now is a different message — a slow peer is not a dead one", async () => {
     writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: 999, started_at: T0 }));
     const term = freshTerminal(T0);
-    const ops = h.writeOps("more.json", [
-      { op: "set_status", node: "escalate", status: "done", evidence_ref: "e" },
-    ]);
-    expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "x", "--reason-code", "OTHER"], term.io),
-    ).toBe(1);
+    expect(await tryWrite(term)).toBe(1);
     expect(term.err[0]).toContain("LOCK_HELD");
+    expect(term.err[0]).not.toContain("delete the file");
   });
 });
 

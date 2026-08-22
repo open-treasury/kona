@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { STALE_LOCK_MS, acquireLock, withLock } from "../src/lock.ts";
 import { fixedClock } from "../src/clock.ts";
@@ -51,40 +51,66 @@ describe("O_EXCL, not flock (§1) — portable to all three platforms", () => {
   });
 });
 
-describe("a stale lock is a crash, not a slow peer", () => {
-  test("is reclaimed once it is older than the longest legal write", async () => {
+describe("a stale lock is reported, never reclaimed", () => {
+  /**
+   * Reversal of an earlier design, and the reason is a real race rather than taste.
+   * Unlinking or renaming a stale lock cannot be made atomic with the check that judged it
+   * stale: B reads the holder, A completes its whole reclaim, then B moves A's FRESH lock
+   * aside and takes the lock too — two writers, one log, interleaved lines. §6.7 gives
+   * write authority to the orchestrator alone, so reclaiming was solving a problem this
+   * design does not have, at the cost of one it would.
+   */
+  test("an old lock is refused with STALE_LOCK, distinctly from a busy one", async () => {
     await acquireLock(lockPath, fixedClock(T0), 99);
     const later = new Date(Date.parse(T0) + STALE_LOCK_MS).toISOString();
     const outcome = await acquireLock(lockPath, fixedClock(later), 100);
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) throw new Error("unreachable");
-    expect(outcome.lock.reclaimed).toBe(true);
-    expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(100);
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.reason).toBe("STALE_LOCK");
+    expect(outcome.holder?.pid).toBe(99);
   });
 
-  test("is NOT reclaimed one millisecond early", async () => {
+  test("and the message tells the operator exactly what to do", async () => {
+    await acquireLock(lockPath, fixedClock(T0), 99);
+    const later = new Date(Date.parse(T0) + STALE_LOCK_MS).toISOString();
+    const outcome = await acquireLock(lockPath, fixedClock(later), 100);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.message).toContain("no longer running");
+    expect(outcome.message).toContain("delete the file");
+    expect(outcome.message).toContain(lockPath);
+  });
+
+  test("the lock file is left exactly where it was", async () => {
+    await acquireLock(lockPath, fixedClock(T0), 99);
+    const later = new Date(Date.parse(T0) + STALE_LOCK_MS).toISOString();
+    await acquireLock(lockPath, fixedClock(later), 100);
+    expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(99);
+  });
+
+  test("a lock one millisecond short of stale is merely LOCK_HELD", async () => {
     await acquireLock(lockPath, fixedClock(T0), 99);
     const early = new Date(Date.parse(T0) + STALE_LOCK_MS - 1).toISOString();
-    expect((await acquireLock(lockPath, fixedClock(early), 100)).ok).toBe(false);
+    const outcome = await acquireLock(lockPath, fixedClock(early), 100);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.reason).toBe("LOCK_HELD");
   });
 
-  test("an unreadable lockfile is itself evidence of a crash mid-write", async () => {
-    writeFileSync(lockPath, "{not json");
+  test.each([
+    ["unreadable", "{not json"],
+    ["missing started_at", JSON.stringify({ pid: 99 })],
+    ["missing pid", JSON.stringify({ started_at: T0 })],
+    ["wrongly typed", JSON.stringify({ pid: "99", started_at: 1 })],
+  ])("a %s lockfile is itself evidence of a crash, so it reports STALE_LOCK", async (_n, body) => {
+    writeFileSync(lockPath, body);
     const outcome = await acquireLock(lockPath, fixedClock(T0), 100);
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) throw new Error("unreachable");
-    expect(outcome.lock.reclaimed).toBe(true);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.reason).toBe("STALE_LOCK");
   });
 
-  test("a lockfile missing its fields is treated the same way", async () => {
-    writeFileSync(lockPath, JSON.stringify({ pid: "not a number" }));
+  test("once the operator clears it, the next writer proceeds", async () => {
+    writeFileSync(lockPath, JSON.stringify({ pid: 99, started_at: T0 }));
+    rmSync(lockPath);
     expect((await acquireLock(lockPath, fixedClock(T0), 100)).ok).toBe(true);
-  });
-
-  test("a fresh acquire is not marked reclaimed", async () => {
-    const outcome = await acquireLock(lockPath, fixedClock(T0), 99);
-    if (!outcome.ok) throw new Error("unreachable");
-    expect(outcome.lock.reclaimed).toBe(false);
   });
 });
 
@@ -118,79 +144,37 @@ describe("withLock", () => {
   });
 });
 
-describe("reclaiming a stale lock is atomic", () => {
-  /**
-   * `rm` then `open(wx)` is NOT atomic across two reclaimers: A unlinks and creates, then
-   * B unlinks — deleting A's fresh lock — and creates its own. Both believe they hold it
-   * and both append. Reclaiming by `rename` closes that window, and this asserts the
-   * property rather than the branch: whatever the interleaving, exactly one winner.
-   */
-  test("exactly one of two concurrent reclaimers wins, every time", async () => {
-    const stale = new Date(Date.parse(T0) + STALE_LOCK_MS).toISOString();
+describe("two writers can never both hold it", () => {
+  test("exactly one of many concurrent acquirers wins, every time", async () => {
     for (let round = 0; round < 25; round++) {
-      writeFileSync(lockPath, JSON.stringify({ pid: 1, started_at: T0 }));
       const outcomes = await Promise.all([
-        acquireLock(lockPath, fixedClock(stale), 100),
-        acquireLock(lockPath, fixedClock(stale), 200),
+        acquireLock(lockPath, fixedClock(T0), 100),
+        acquireLock(lockPath, fixedClock(T0), 200),
+        acquireLock(lockPath, fixedClock(T0), 300),
       ]);
       expect(outcomes.filter((o) => o.ok)).toHaveLength(1);
-
-      // The loser must lose *properly*: whichever of the two reclaim races it lost, it
-      // reports contention with a message naming the path, never a silent empty refusal.
-      const loser = outcomes.find((o) => !o.ok);
-      if (loser?.ok === false) {
-        expect(loser.reason).toBe("LOCK_HELD");
-        expect(loser.message).toContain(lockPath);
-        expect(loser.message.length).toBeGreaterThan(lockPath.length);
+      for (const outcome of outcomes) {
+        if (!outcome.ok) expect(outcome.reason).toBe("LOCK_HELD");
       }
-
       const winner = outcomes.find((o) => o.ok);
       if (winner?.ok === true) await winner.lock.release();
     }
   });
 
-  test("leaves no stashed lockfile behind", async () => {
-    const { readdirSync } = await import("node:fs");
+  test("and a stale lock does not create a second winner, because nobody takes it", async () => {
     writeFileSync(lockPath, JSON.stringify({ pid: 1, started_at: T0 }));
     const stale = new Date(Date.parse(T0) + STALE_LOCK_MS).toISOString();
-    const outcome = await acquireLock(lockPath, fixedClock(stale), 100);
-    if (!outcome.ok) throw new Error("unreachable");
-    await outcome.lock.release();
-    expect(readdirSync(h.dir)).toEqual([]);
-  });
-});
-
-describe("a lockfile must carry both fields to be believed", () => {
-  test.each([
-    ["no started_at", { pid: 99 }],
-    ["no pid", { started_at: T0 }],
-    ["pid of the wrong type", { pid: "99", started_at: T0 }],
-    ["started_at of the wrong type", { pid: 99, started_at: 1 }],
-    ["not an object", "nope"],
-  ])("%s is treated as a crashed writer, not as a live one", async (_name, content) => {
-    writeFileSync(lockPath, JSON.stringify(content));
-    const outcome = await acquireLock(lockPath, fixedClock(T0), 100);
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) throw new Error("unreachable");
-    expect(outcome.lock.reclaimed).toBe(true);
+    const outcomes = await Promise.all([
+      acquireLock(lockPath, fixedClock(stale), 100),
+      acquireLock(lockPath, fixedClock(stale), 200),
+    ]);
+    expect(outcomes.filter((o) => o.ok)).toHaveLength(0);
   });
 
-  test("a complete lockfile is believed and blocks", async () => {
-    writeFileSync(lockPath, JSON.stringify({ pid: 99, started_at: T0 }));
-    expect((await acquireLock(lockPath, fixedClock(T0), 100)).ok).toBe(false);
-  });
-});
-
-describe("only EEXIST means 'someone else has it'", () => {
-  test("any other failure propagates rather than being read as contention", async () => {
-    // A missing directory is a bug in the caller, not a busy lock. Swallowing it would
-    // make `kona mutate` report LOCK_HELD forever against a path that cannot exist.
-    let thrown: unknown;
-    try {
-      await acquireLock(join(h.dir, "no-such-dir", "lock"), fixedClock(T0), 1);
-    } catch (error) {
-      thrown = error;
-    }
-    expect((thrown as { code?: string } | undefined)?.code).toBe("ENOENT");
+  test("no stray files are left behind", async () => {
+    writeFileSync(lockPath, JSON.stringify({ pid: 1, started_at: T0 }));
+    const stale = new Date(Date.parse(T0) + STALE_LOCK_MS).toISOString();
+    await acquireLock(lockPath, fixedClock(stale), 100);
+    expect(readdirSync(h.dir)).toEqual(["lock"]);
   });
 });

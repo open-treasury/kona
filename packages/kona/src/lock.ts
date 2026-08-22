@@ -9,7 +9,7 @@
  * a crash rather than a slow peer, and why reclaiming one after a bounded age is safe.
  */
 
-import { open, readFile, rename, rm } from "node:fs/promises";
+import { link, readFile, rm, writeFile } from "node:fs/promises";
 import type { Clock } from "./clock.ts";
 
 /** A legal write is a read, a validate and an append. Thirty seconds is generous. */
@@ -22,14 +22,18 @@ export interface LockInfo {
 
 export interface HeldLock {
   info: LockInfo;
-  /** Reclaimed a lock left behind by a process that died mid-write. */
-  reclaimed: boolean;
   release: () => Promise<void>;
 }
 
 export type LockOutcome =
   | { ok: true; lock: HeldLock }
-  | { ok: false; reason: "LOCK_HELD"; message: string; holder: LockInfo | null };
+  | {
+      ok: false;
+      /** `LOCK_HELD` — someone is writing. `STALE_LOCK` — someone died writing. */
+      reason: "LOCK_HELD" | "STALE_LOCK";
+      message: string;
+      holder: LockInfo | null;
+    };
 
 function isEexist(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === "EEXIST";
@@ -47,12 +51,30 @@ async function readLockInfo(path: string): Promise<LockInfo | null> {
   }
 }
 
+/** Distinguishes two temp files created in the same millisecond by the same process. */
+let sequence = 0;
+
+/**
+ * Write the contents first, then LINK it into place.
+ *
+ * `open(path, "wx")` is atomic about creation but not about content: for a moment the
+ * lock exists and is empty, and a second writer that reads it in that window sees an
+ * unreadable lockfile — which is the signature of a crash. It would then tell the operator
+ * to delete a lock somebody is actively holding.
+ *
+ * `link` is atomic and fails with EEXIST if the target exists, so it keeps the mutual
+ * exclusion while guaranteeing the file never appears without its contents.
+ */
 async function writeLock(path: string, info: LockInfo): Promise<() => Promise<void>> {
-  const handle = await open(path, "wx");
+  sequence += 1;
+  const staging = `${path}.${info.pid}.${sequence}`;
+  await writeFile(staging, JSON.stringify(info));
   try {
-    await handle.writeFile(JSON.stringify(info));
+    await link(staging, path);
   } finally {
-    await handle.close();
+    // Whether or not the link took, the staging name is no longer needed: on success it
+    // is a second name for the same inode, and removing it leaves the lock in place.
+    await rm(staging, { force: true });
   }
   return async () => {
     await rm(path, { force: true });
@@ -68,58 +90,37 @@ export async function acquireLock(
   const info: LockInfo = { pid, started_at: now() };
 
   try {
-    return { ok: true, lock: { info, reclaimed: false, release: await writeLock(path, info) } };
+    return { ok: true, lock: { info, release: await writeLock(path, info) } };
   } catch (error) {
     if (!isEexist(error)) throw error;
   }
 
   const holder = await readLockInfo(path);
+  const age = holder === null ? Number.NaN : Date.parse(now()) - Date.parse(holder.started_at);
+  const stale = Number.isNaN(age) || age >= staleAfterMs;
 
-  // One comparison decides it, and `NaN` does the right thing for free: an unreadable
-  // lockfile, or one whose timestamp is garbage, fails this test and falls through to
-  // reclaim — which is correct, because both are the signature of a writer that died
-  // mid-write rather than one still working. There is no "unknown holder" message to
-  // write, because a holder that cannot be read is never treated as holding.
-  if (holder !== null && Date.parse(now()) - Date.parse(holder.started_at) < staleAfterMs) {
-    return {
-      ok: false,
-      reason: "LOCK_HELD",
-      message: `another writer holds ${path} (pid ${holder.pid}, since ${holder.started_at})`,
-      holder,
-    };
-  }
-
-  // Reclaim by RENAME, not by unlink-then-create.
+  // A STALE LOCK IS NOT RECLAIMED AUTOMATICALLY, and that is a deliberate reversal.
   //
-  // `rm` followed by `open(wx)` is not atomic across two reclaimers: A unlinks and
-  // creates, then B unlinks — deleting A's fresh lock — and creates its own. Both would
-  // believe they held it, and both would append. `rename` moves the stale file aside in
-  // one step, so exactly one racer can succeed and the loser gets ENOENT.
-  const stashed = `${path}.stale-${pid}-${Date.parse(info.started_at)}`;
-  try {
-    await rename(path, stashed);
-  } catch {
-    return {
-      ok: false,
-      reason: "LOCK_HELD",
-      message: `another writer reclaimed ${path} first`,
-      holder: await readLockInfo(path),
-    };
-  }
-  // `rename` succeeded, so `stashed` exists; no `force` needed.
-  await rm(stashed);
-
-  try {
-    return { ok: true, lock: { info, reclaimed: true, release: await writeLock(path, info) } };
-  } catch (error) {
-    if (!isEexist(error)) throw error;
-    return {
-      ok: false,
-      reason: "LOCK_HELD",
-      message: `another writer took ${path} during reclaim`,
-      holder: await readLockInfo(path),
-    };
-  }
+  // An earlier version unlinked or renamed a stale lock and took it. Both are unsafe, and
+  // the failure is silent: B reads the holder and judges it stale, A completes its entire
+  // reclaim, then B moves A's FRESH lock aside and takes the lock too. Two writers append
+  // to one log and the lines interleave. There is no POSIX compare-and-delete that closes
+  // it — the check and the removal cannot be made one operation.
+  //
+  // Reclaiming is also solving a problem the design does not have: §6.7 gives write
+  // authority to the orchestrator alone, so a second writer is already the exception. What
+  // a stale lock actually means is that something crashed mid-write, and git has the right
+  // answer for exactly this file: say so, and let a human clear it.
+  return {
+    ok: false,
+    reason: stale ? "STALE_LOCK" : "LOCK_HELD",
+    message: stale
+      ? `${path} was left behind by a writer that is no longer running ` +
+        `(pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"}). ` +
+        `Make sure no kona process is running, then delete the file to continue.`
+      : `another writer holds ${path} (pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"})`,
+    holder,
+  };
 }
 
 /** Run `body` under the lock, releasing it even if `body` throws. */
@@ -129,7 +130,9 @@ export async function withLock<T>(
   pid: number,
   body: (lock: HeldLock) => Promise<T>,
   staleAfterMs: number = STALE_LOCK_MS,
-): Promise<{ ok: true; value: T } | { ok: false; reason: "LOCK_HELD"; message: string }> {
+): Promise<
+  { ok: true; value: T } | { ok: false; reason: "LOCK_HELD" | "STALE_LOCK"; message: string }
+> {
   const outcome = await acquireLock(path, now, pid, staleAfterMs);
   if (!outcome.ok) return { ok: false, reason: outcome.reason, message: outcome.message };
   try {

@@ -27,8 +27,18 @@ const PLAN = [
   },
 ];
 
-/** A port unlikely to collide with a real `kona view` or another test file. */
-const PORT = 7411;
+/**
+ * Port 0 — the OS picks a free one and `startView` reports it back.
+ *
+ * A fixed port here is not merely flaky: Stryker runs eight sandboxes at once, all of them
+ * `bun test`, so a fixed port makes every concurrent run fail, every mutant look killed,
+ * and the mutation score read a meaningless 100%. A broken suite scores perfectly.
+ */
+const EPHEMERAL = 0;
+
+function portOf(url: string): number {
+  return Number(new URL(url).port);
+}
 
 beforeEach(async () => {
   h = harness();
@@ -46,7 +56,7 @@ afterEach(async () => {
   h.cleanup();
 });
 
-async function serve(port = PORT): Promise<RunningView> {
+async function serve(port = EPHEMERAL): Promise<RunningView> {
   const started = await startView(h.io, { port, json: false });
   if (started === null) throw new Error(`view refused to start: ${h.err.join("; ")}`);
   view = started;
@@ -141,19 +151,20 @@ describe("file-watch pushes the change", () => {
 describe("localhost only (rule 9)", () => {
   test("it reports a loopback URL, never a routable one", async () => {
     const running = await serve();
-    expect(running.url).toBe(`http://127.0.0.1:${PORT}`);
+    expect(running.url).toStartWith("http://127.0.0.1:");
+    expect(portOf(running.url)).toBeGreaterThan(0);
     expect(h.out[0]).toContain("localhost only, zero outbound calls");
   });
 
   test("--json reports the endpoints a viewer needs", async () => {
-    const started = await startView(h.io, { port: PORT + 1, json: true });
+    const started = await startView(h.io, { port: EPHEMERAL, json: true });
     if (started === null) throw new Error("refused");
     view = started;
     expect(JSON.parse(h.out[0] ?? "{}")).toEqual({
       ok: true,
-      url: `http://127.0.0.1:${PORT + 1}`,
-      graph: `http://127.0.0.1:${PORT + 1}/graph`,
-      events: `http://127.0.0.1:${PORT + 1}/events`,
+      url: started.url,
+      graph: `${started.url}/graph`,
+      events: `${started.url}/events`,
     });
   });
 
@@ -166,7 +177,7 @@ describe("it refuses rather than serving nothing", () => {
   test("outside a pursuit", async () => {
     const outside = harness();
     try {
-      expect(await startView(outside.io, { port: PORT + 2, json: false })).toBeNull();
+      expect(await startView(outside.io, { port: EPHEMERAL, json: false })).toBeNull();
       expect(outside.err[0]).toContain("NO_PURSUIT");
     } finally {
       outside.cleanup();
@@ -174,9 +185,9 @@ describe("it refuses rather than serving nothing", () => {
   });
 
   test("when the port is taken", async () => {
-    await serve(PORT + 3);
+    const first = await serve();
     h.reset();
-    expect(await startView(h.io, { port: PORT + 3, json: false })).toBeNull();
+    expect(await startView(h.io, { port: portOf(first.url), json: false })).toBeNull();
     expect(h.err[0]).toContain("PORT_UNAVAILABLE");
   });
 
@@ -192,7 +203,7 @@ describe("a damaged log is served as damaged, not hidden", () => {
     const log = join(h.dir, ".kona", "mutations.jsonl");
     const lines = (await Bun.file(log).text()).trim().split("\n");
     writeFileSync(log, `${lines[0]}\n{"v":1,"broken":true}\n${lines[1]}\n`);
-    const running = await serve(PORT + 4);
+    const running = await serve();
     const state = (await (await fetch(`${running.url}/graph`)).json()) as State;
     expect(state.damaged).toHaveLength(1);
   });
