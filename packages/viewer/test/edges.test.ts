@@ -139,6 +139,80 @@ describe("viewEdges", () => {
   });
 });
 
+/**
+ * Labels — the one thing on a line that is words rather than paint.
+ *
+ * A condition is only worth printing when the source can fire something ELSE. Measured on the
+ * poker pursuit before this rule: 17 labels drawn, **16 of them the word `satisfied`**, and 5
+ * of those 16 on grey lines — `satisfied` is a condition and green is a state, so a line that
+ * said `satisfied` while not being satisfied contradicted itself in two words.
+ */
+describe("viewEdges — labels", () => {
+  const edges = viewEdges(GRAPH);
+  const requires = edges.filter((edge) => edge.kind === "requires");
+
+  /** Rebuilt from the graph, so these are an independent check of the rule, not a restatement. */
+  const conditionsBySource = new Map<string, Set<string | null>>();
+  for (const edge of GRAPH.edges) {
+    const set = conditionsBySource.get(edge.from) ?? new Set<string | null>();
+    set.add(edge.condition?.on ?? null);
+    conditionsBySource.set(edge.from, set);
+  }
+  const forks = (from: string): boolean => (conditionsBySource.get(from)?.size ?? 0) >= 2;
+
+  test("only a dependency is ever labelled", () => {
+    for (const edge of edges) {
+      if (edge.kind !== "requires") expect(edge.label).toBeNull();
+    }
+  });
+
+  test("an unconditional edge is never labelled", () => {
+    for (const edge of requires) {
+      if (edge.condition === null) expect(edge.label).toBeNull();
+    }
+  });
+
+  test("`satisfied` alone is the default outcome and says nothing", () => {
+    // 16 of the fixture's 17 labels used to be this word, five of them on grey lines.
+    const plain = requires.filter((edge) => edge.condition === "satisfied" && !forks(edge.from));
+    expect(plain.length).toBeGreaterThan(0);
+    for (const edge of plain) expect(edge.label).toBeNull();
+  });
+
+  test("a condition that is not the default IS labelled, even as an only child", () => {
+    // The rule this replaced keyed on sibling count and dropped exactly the label worth having:
+    // `ruling-on-inviting-a-stranger` has ONE out-edge, conditioned `accept`, and everything
+    // downstream happens only if a person says yes.
+    const forked = requires.filter(
+      (edge) => edge.condition !== null && edge.condition !== "satisfied",
+    );
+    expect(forked.length).toBeGreaterThan(0);
+    for (const edge of forked) expect(edge.label).toBe(`on ${edge.condition}`);
+  });
+
+  test("on a forking source even the default is worth printing", () => {
+    for (const edge of requires) {
+      if (edge.condition !== null && forks(edge.from)) {
+        expect(edge.label).toBe(`on ${edge.condition}`);
+      }
+    }
+  });
+
+  test("the label reads as a condition, not as a state", () => {
+    for (const edge of requires) {
+      if (edge.label !== null) expect(edge.label.startsWith("on ")).toBe(true);
+    }
+  });
+
+  test("the fixture keeps the fork and drops the noise", () => {
+    const labelled = requires.filter((edge) => edge.label !== null);
+    expect(labelled.length).toBeGreaterThan(0);
+    expect(labelled.length).toBeLessThan(requires.length);
+    // The bare word is gone; what survives says what it is.
+    expect(labelled.map((edge) => edge.label)).not.toContain("satisfied");
+  });
+});
+
 describe("flowTerminals", () => {
   test("a start has nothing before it", () => {
     const { starts } = flowTerminals(GRAPH);
