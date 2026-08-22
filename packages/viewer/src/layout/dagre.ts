@@ -16,7 +16,7 @@
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { EdgeLabel, GraphLabel, NodeLabel } from "@dagrejs/dagre";
 import type { Graph, NodeType } from "@kona/core";
-import { viewEdges } from "../model/edges.ts";
+import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 
 /** A placed node, in React Flow's coordinates: `x`/`y` are the TOP-LEFT corner. */
 export interface NodeBox {
@@ -29,6 +29,12 @@ export interface NodeBox {
 export interface Layout {
   /** Insertion order, so anything that iterates it gets rule 7's visual order for free. */
   boxes: Map<string, NodeBox>;
+  /**
+   * The two notation circles, placed by the same pass so their arrows are short and land where
+   * the eye expects. Deliberately a SEPARATE map from `boxes`: they are not pursuit nodes, and
+   * anything counting or iterating the graph's nodes must not pick them up by accident.
+   */
+  markers: Map<string, NodeBox>;
   width: number;
   height: number;
   /** The key this layout was computed under, carried on the value so a cache cannot mis-pair
@@ -62,6 +68,15 @@ export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: numbe
   task: { width: 300, height: 62 },
   wait: { width: 300, height: 82 },
 };
+
+/**
+ * The initial and final circles. Small enough to read as punctuation rather than as a step.
+ *
+ * The box IS the circle, and that is load-bearing: React Flow attaches an edge at the handle,
+ * which sits on the box edge, so any padding between the box and the drawn circle shows up as
+ * a gap between the arrow and the mark it is pointing at.
+ */
+export const MARKER_SIZE = { width: 20, height: 20 } as const;
 
 /**
  * Everything the picture is a function of, and nothing else.
@@ -147,6 +162,19 @@ function runDagre(graph: Graph, signature: string): Layout {
     }
   }
 
+  // The two notation circles, and the arrows that make them mean anything. Adding them to the
+  // SAME pass is what keeps those arrows short: an unranked marker would be placed at the
+  // origin and its arrow would cross the whole canvas to reach the first step.
+  const terminals = flowTerminals(graph);
+  if (terminals.starts.size > 0) {
+    g.setNode(START_MARKER_ID, { ...MARKER_SIZE });
+    for (const id of terminals.starts) g.setEdge(START_MARKER_ID, id);
+  }
+  if (terminals.ends.size > 0) {
+    g.setNode(END_MARKER_ID, { ...MARKER_SIZE });
+    for (const id of terminals.ends) g.setEdge(id, END_MARKER_ID);
+  }
+
   dagreLayout(g);
 
   const boxes = new Map<string, NodeBox>();
@@ -165,8 +193,20 @@ function runDagre(graph: Graph, signature: string): Layout {
     });
   }
 
+  const markers = new Map<string, NodeBox>();
+  for (const id of [START_MARKER_ID, END_MARKER_ID]) {
+    if (!g.hasNode(id)) continue;
+    const placed = g.node(id);
+    markers.set(id, {
+      x: (placed.x ?? 0) - MARKER_SIZE.width / 2,
+      y: (placed.y ?? 0) - MARKER_SIZE.height / 2,
+      width: MARKER_SIZE.width,
+      height: MARKER_SIZE.height,
+    });
+  }
+
   const label = g.graph();
-  return { boxes, width: extent(label.width), height: extent(label.height), signature };
+  return { boxes, markers, width: extent(label.width), height: extent(label.height), signature };
 }
 
 /**

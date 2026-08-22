@@ -120,6 +120,16 @@ export function viewEdges(graph: Graph): ViewEdge[] {
   return out;
 }
 
+/**
+ * The activity diagram's initial and final nodes, as ids.
+ *
+ * They are NOTATION, not pursuit nodes: nothing in the log corresponds to them, they carry no
+ * status, they cannot be selected, and they are kept out of `Layout.boxes` so that no count of
+ * "how many nodes does this pursuit have" can accidentally include them. A real id must match
+ * `[a-z0-9][a-z0-9-]*` (§6.2), so a leading underscore cannot collide with one.
+ */
+export const START_MARKER_ID = "__start";
+export const END_MARKER_ID = "__end";
 
 /**
  * Where the pursuit starts, and where it currently stops.

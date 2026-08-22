@@ -42,8 +42,26 @@ function resolveSource(): Source {
 }
 
 const source = resolveSource();
-// The one caller that wants hot reloading and the error overlay. `kona view` does not.
-const served = await serveViewer({ root: source.root, development: true });
+/**
+ * Hot reloading is OFF unless you ask for it, which is the opposite of the usual default and
+ * is deliberate: on this app it has cost more than it bought.
+ *
+ * Two things arrive with Bun's dev mode. The first is the error overlay, which reports the
+ * browser's benign `ResizeObserver loop completed with undelivered notifications` — emitted
+ * about once a frame by React Flow's measuring during the diff animation — as a full-width red
+ * *Runtime Error* across the canvas, on the exact beat the viewer exists to show. It cannot be
+ * swallowed: a `window` error listener matching that message stops React Flow finishing its
+ * measuring pass and every edge on the canvas disappears. Measured twice; see `useTween.ts`.
+ *
+ * The second is the module swap itself, which repeatedly left React Flow holding nodes and no
+ * edges until a full reload. Both go away here, and the price is pressing reload after an edit.
+ *
+ *     KONA_DEV_HMR=1 bun run dev
+ */
+const served = await serveViewer({
+  root: source.root,
+  development: process.env["KONA_DEV_HMR"] === "1",
+});
 
 // oxlint bans `console` outside `packages/kona/src/bin.ts`, and it is right to: a library that
 // prints is a side effect nobody asked for, and `console` is the easiest one to leave behind.

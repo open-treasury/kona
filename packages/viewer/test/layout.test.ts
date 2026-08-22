@@ -16,6 +16,7 @@ import {
   layoutGraph,
   topologySignature,
 } from "../src/layout/dagre.ts";
+import { END_MARKER_ID, START_MARKER_ID, flowTerminals } from "../src/model/edges.ts";
 import { folded, headVersion } from "./fixture.ts";
 
 function nodeOf(graph: Graph, id: string): Node {
@@ -165,7 +166,9 @@ describe("layoutGraph", () => {
 
   test("boxes are top-left corners, not dagre's centres", () => {
     const layout = layoutGraph(folded().graph);
-    const boxes = [...layout.boxes.values()];
+    // Markers included: they are laid out in the same pass, so dagre's reported extent covers
+    // them and the identity below is about the whole picture rather than the cards alone.
+    const boxes = [...layout.boxes.values(), ...layout.markers.values()];
     const left = Math.min(...boxes.map((b) => b.x));
     const right = Math.max(...boxes.map((b) => b.x + b.width));
     const top = Math.min(...boxes.map((b) => b.y));
@@ -267,5 +270,49 @@ describe("createLayoutCache", () => {
     // v0…v7; v3 and v4 repeat v2's shape and cost nothing, and the `+ 1` is v0 itself, the
     // cold start.
     expect(produced.size).toBe(SHAPE_CHANGING_VERSIONS.size + 1);
+  });
+});
+
+describe("the notation markers", () => {
+  test("are placed, and kept OUT of the node boxes", () => {
+    const layout = layoutGraph(folded().graph);
+    // The separation is the point: anything counting or iterating the pursuit's nodes must not
+    // pick up two circles that correspond to nothing in the log.
+    expect(layout.boxes.has(START_MARKER_ID)).toBe(false);
+    expect(layout.boxes.has(END_MARKER_ID)).toBe(false);
+    expect(layout.markers.has(START_MARKER_ID)).toBe(true);
+    expect(layout.markers.has(END_MARKER_ID)).toBe(true);
+    expect(layout.boxes.size).toBe(folded().graph.nodes.size);
+  });
+
+  test("the start sits left of every card it points at, and the end right of every one", () => {
+    const graph = folded().graph;
+    const layout = layoutGraph(graph);
+    const { starts, ends } = flowTerminals(graph);
+    const start = layout.markers.get(START_MARKER_ID);
+    const end = layout.markers.get(END_MARKER_ID);
+    if (start === undefined || end === undefined) throw new Error("markers were not placed");
+
+    // Ranked in the same dagre pass, which is what keeps the arrows short. An unranked marker
+    // would sit at the origin and its arrow would cross the whole canvas to reach the graph.
+    expect(starts.size).toBeGreaterThan(0);
+    for (const id of starts) {
+      const box = layout.boxes.get(id);
+      if (box === undefined) throw new Error(`no box for ${id}`);
+      expect(start.x).toBeLessThan(box.x);
+    }
+    expect(ends.size).toBeGreaterThan(0);
+    for (const id of ends) {
+      const box = layout.boxes.get(id);
+      if (box === undefined) throw new Error(`no box for ${id}`);
+      expect(end.x).toBeGreaterThan(box.x);
+    }
+  });
+
+  test("an empty graph gets no markers at all", () => {
+    // v0 is genesis: no nodes, so no flow, so nothing to punctuate.
+    const layout = layoutGraph(folded(0).graph);
+    expect(layout.boxes.size).toBe(0);
+    expect(layout.markers.size).toBe(0);
   });
 });

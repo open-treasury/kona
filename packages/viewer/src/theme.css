@@ -263,6 +263,13 @@
     opacity: 0.45;
   }
 
+  /* The arrows into and out of the two notation circles. Quiet: they carry no state, they only
+     say where the flow enters and leaves. */
+  .react-flow__edge.e-marker .react-flow__edge-path {
+    stroke: var(--color-carbon-40);
+    stroke-width: 1.25;
+  }
+
   .react-flow__edge.e-supersedes .react-flow__edge-path {
     stroke: var(--color-carbon-40);
     stroke-width: 1.25;
@@ -292,6 +299,16 @@
 
   .react-flow__edge.e-dead .react-flow__edge-text {
     fill: var(--color-carbon-40);
+  }
+
+  /*
+   * The notation circles have handles too — an edge has to attach to something — but theirs
+   * must not be seen. On a card a handle reads as a connector point, which is the Actions
+   * idiom and correct; flanking a bare initial or final circle it reads as two stray dots
+   * beside the one mark that is supposed to be a single clean symbol.
+   */
+  .react-flow__node-kona-marker .react-flow__handle {
+    opacity: 0;
   }
 
   /* The graph is read-only, so a handle is decoration: small, dim, and never a drop target. */

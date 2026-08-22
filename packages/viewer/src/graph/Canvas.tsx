@@ -8,18 +8,31 @@
  */
 
 import { useMemo } from "react";
-import { Background, Controls, ReactFlow } from "@xyflow/react";
+import { Background, Controls, MarkerType, ReactFlow } from "@xyflow/react";
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 import type { Graph } from "@kona/core";
 import type { GraphView } from "../model/types.ts";
 import type { ViewEdge } from "../model/edges.ts";
-import { viewEdges } from "../model/edges.ts";
+import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 import { edgeKeyString } from "../model/diff.ts";
-import { NODE_SIZE } from "../layout/dagre.ts";
+import { MARKER_SIZE, NODE_SIZE } from "../layout/dagre.ts";
 import type { Fresh } from "./useFresh.ts";
 import type { Positions } from "./useTween.ts";
 import { KONA_NODE_TYPE, nodeTypes } from "./NodeCard.tsx";
 import type { CardData } from "./NodeCard.tsx";
+import { KONA_MARKER_TYPE, markerNodeTypes } from "./MarkerNode.tsx";
+
+/** The card renderer and the two notation circles, in one map React Flow can hold. */
+const ALL_NODE_TYPES = { ...nodeTypes, ...markerNodeTypes };
+
+/**
+ * An arrowhead, on the edges that mean FLOW.
+ *
+ * `{from: A, to: B}` reads "B requires A", so the arrow runs A → B and points the way the work
+ * actually goes. A timeout route is flow too — it is where a blown deadline sends you. A
+ * supersede link is not: it is lineage, and an arrowhead on it would read as a step.
+ */
+const ARROW = { type: MarkerType.ArrowClosed, width: 14, height: 14 } as const;
 
 export interface CanvasProps {
   graph: Graph;
@@ -100,6 +113,39 @@ export function Canvas({
     [view, positions, data, selected],
   );
 
+  /**
+   * The two notation circles. Appended to the node list rather than mixed into `view.nodes`,
+   * so that everything upstream — the model, the inspector, every count — still sees exactly
+   * the pursuit's own nodes and nothing else.
+   */
+  const markers = useMemo<FlowNode[]>(() => {
+    const terminals = flowTerminals(graph);
+    const out: FlowNode[] = [];
+    for (const [id, kind] of [
+      [START_MARKER_ID, "start"],
+      [END_MARKER_ID, "end"],
+    ] as const) {
+      const at = positions.get(id);
+      if (at === undefined) continue;
+      if (kind === "start" && terminals.starts.size === 0) continue;
+      if (kind === "end" && terminals.ends.size === 0) continue;
+      out.push({
+        id,
+        type: KONA_MARKER_TYPE,
+        position: at,
+        data: { kind },
+        width: MARKER_SIZE.width,
+        height: MARKER_SIZE.height,
+        draggable: false,
+        connectable: false,
+        deletable: false,
+        selectable: false,
+        focusable: false,
+      });
+    }
+    return out;
+  }, [graph, positions]);
+
   const edges = useMemo<FlowEdge[]>(
     () =>
       viewEdges(graph).map((edge) => {
@@ -118,6 +164,8 @@ export function Canvas({
           deletable: false,
           selectable: false,
         };
+        // Flow gets an arrowhead; lineage does not. See ARROW above.
+        if (edge.kind !== "supersedes") flow.markerEnd = ARROW;
         // Assigned rather than spread: `exactOptionalPropertyTypes` refuses an explicit
         // `label: undefined`, and a conditional spread inside `map` is what oxlint's
         // `no-map-spread` is about.
@@ -128,11 +176,39 @@ export function Canvas({
     [graph, fresh],
   );
 
+  const markerEdges = useMemo<FlowEdge[]>(() => {
+    const terminals = flowTerminals(graph);
+    const out: FlowEdge[] = [];
+    for (const id of terminals.starts) {
+      out.push({
+        id: `marker:${START_MARKER_ID}>${id}`,
+        source: START_MARKER_ID,
+        target: id,
+        className: "e e-marker",
+        markerEnd: ARROW,
+        deletable: false,
+        selectable: false,
+      });
+    }
+    for (const id of terminals.ends) {
+      out.push({
+        id: `marker:${id}>${END_MARKER_ID}`,
+        source: id,
+        target: END_MARKER_ID,
+        className: "e e-marker",
+        markerEnd: ARROW,
+        deletable: false,
+        selectable: false,
+      });
+    }
+    return out;
+  }, [graph]);
+
   return (
     <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
+      nodes={[...nodes, ...markers]}
+      edges={[...edges, ...markerEdges]}
+      nodeTypes={ALL_NODE_TYPES}
       nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable

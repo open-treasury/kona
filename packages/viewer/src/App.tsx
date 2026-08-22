@@ -72,6 +72,9 @@ export function App(): React.ReactElement {
   const target = useMemo<ReadonlyMap<string, Point>>(() => {
     const points = new Map<string, Point>();
     for (const [id, box] of layout.boxes) points.set(id, { x: box.x, y: box.y });
+    // The two notation circles move with everything else, or they would sit where the previous
+    // version left them while the graph slid out from under their arrows.
+    for (const [id, box] of layout.markers) points.set(id, { x: box.x, y: box.y });
     return points;
   }, [layout]);
 
