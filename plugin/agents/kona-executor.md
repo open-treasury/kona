@@ -67,6 +67,15 @@ rejected — nothing could ever reference it.
 `evidence_ref` is **where the value came from**, not a restatement of it: a file and
 version, a URL, a message id. It is what somebody uses in a month to check your work.
 
+**On exit `3`, re-read head and commit again.** You are usually not alone: the orchestrator
+dispatches the whole ready frontier at once, so several executors finish together and the
+last to arrive finds head has moved. Exit 3 is that, and nothing else — your ops are still
+right, they were simply written against a version that is no longer current. Read the new
+head, reuse the same ops, commit again.
+
+Do **not** re-do the work, and do **not** change what you are recording to make it apply.
+You own one node; another executor moving head cannot have invalidated what you observed.
+
 Then reply `EXECUTED`.
 
 ---

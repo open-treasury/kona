@@ -24,6 +24,11 @@ if you find yourself doing arithmetic the CLI could do, ask the CLI.
 Run this loop. **One macro-step per external event** — one reply in, one lock, one cascade,
 one version.
 
+That is a rule about *commits*, not about *work*: it keeps the rationale chain readable by
+refusing to batch unrelated events into one version. Dispatching a wide frontier to many
+executors at once is not batching unrelated events — it is one decision, taken once, about
+what is ready.
+
 ### 1. Reconcile
 
 ```bash
@@ -39,6 +44,11 @@ output. If it says **NEEDS A HUMAN**, stop and see step 6.
 kona next --json
 ```
 
+**`next` returns the whole frontier, not one node — dispatch all of it at once.** §6.7's
+role-scoped write authority is what makes that safe: you own topology, each executor writes
+only its own node's status and output, so concurrent executors never touch the same region.
+A frontier of thirty invitations is thirty executors, not thirty turns.
+
 For each node it returns:
 
 ```bash
@@ -48,12 +58,33 @@ kona brief <node-id>
 `brief` exits **non-zero** when the node is not actually dispatchable — that is not advice,
 it is a refusal. Do not dispatch a node whose brief exited non-zero.
 
-Hand the brief to the **`kona-executor`** subagent, verbatim. Do not summarise it, do not
-add to it, and do not paste the graph around it. The brief contains an `authority`
-statement and a `disclosure` block naming what must never reach a counterparty — a summary
-loses exactly those.
+**Claim the whole frontier in one batch before you dispatch any of it**, so the graph says
+what is being worked rather than only what is ready, and so a second orchestrator cannot
+hand the same node to a second executor:
 
-The executor returns one of `EXECUTED`, `COMPOSED`, or `REFUSED`. Handle each per step 4.
+```jsonc
+[
+  { "op": "set_status", "node": "ask-dana", "status": "in_flight", "evidence_ref": "claim" },
+  { "op": "set_status", "node": "ask-sam",  "status": "in_flight", "evidence_ref": "claim" }
+]
+```
+
+One batch, because one commit is cheaper than N and the whole frontier is one decision. A
+node already claimed refuses with `ALREADY_CLAIMED` — somebody else is on it; take the rest
+and move on. If you believe the holder is gone, `kona resume` returns abandoned claims to
+the frontier: nothing was sent, so nothing needs a human.
+
+Hand each brief to the **`kona-executor`** subagent, verbatim, and **run them concurrently**.
+Do not summarise a brief, do not add to it, and do not paste the graph around it. The brief
+contains an `authority` statement and a `disclosure` block naming what must never reach a
+counterparty — a summary loses exactly those.
+
+Each executor returns one of `EXECUTED`, `COMPOSED`, or `REFUSED`. Handle each per step 4.
+
+> **Work parallelises; commits do not.** Every write takes the lock and CAS's against head,
+> so executors finishing together commit one after another and some will exit `3`. That is
+> the design working — re-read and re-decide, never blind-merge. It costs nothing, because
+> the work takes minutes and the commit takes milliseconds.
 
 ### 3. Take in what came back
 
