@@ -41,6 +41,11 @@ export interface ViewEdge {
   kind: EdgeKind;
   /** Only a `requires` edge carries one. */
   condition: EdgeCondition | null;
+  /**
+   * What to print on the line, or null to print nothing. See `labelOf`: a condition earns a
+   * label only when the source can fire something else.
+   */
+  label: string | null;
   /** This dependency is met. Meaningless for the other two kinds, which never gate anything. */
   satisfied: boolean;
   /** This dependency can never be met: the source is terminal without having succeeded. */
@@ -64,6 +69,62 @@ function isDead(graph: Graph, edge: Edge): boolean {
   return isTerminal(source.status.state) && !isEdgeSatisfied(graph, edge);
 }
 
+/**
+ * `satisfied` is the DEFAULT outcome — "the source succeeded" — and it is what an
+ * unconditional edge already means. Every other condition names one outcome out of several.
+ *
+ * Naming exactly one value is a switch on an enum §6.2 lets grow, so the fallback is the safe
+ * direction: a condition this build has never seen gets labelled. Showing a word we do not
+ * recognise is recoverable; hiding a fork is not.
+ */
+const DEFAULT_CONDITION = "satisfied";
+
+/**
+ * The sources that fire more than one thing — where the contrast itself is the information.
+ *
+ * `null` counts as a value: a source with one `accept` edge and one unconditional edge is
+ * forking, because "always" and "only on accept" are different promises. On such a source even
+ * `satisfied` is worth printing, because it is being contrasted with something.
+ */
+function forkingSources(graph: Graph): ReadonlySet<string> {
+  const seen = new Map<string, Set<EdgeCondition | null>>();
+  for (const edge of graph.edges) {
+    const conditions = seen.get(edge.from) ?? new Set<EdgeCondition | null>();
+    conditions.add(edge.condition?.on ?? null);
+    seen.set(edge.from, conditions);
+  }
+
+  const out = new Set<string>();
+  for (const [from, conditions] of seen) if (conditions.size >= 2) out.add(from);
+  return out;
+}
+
+/**
+ * Whether the condition tells a reader anything the line's existence does not.
+ *
+ * Measured on the 31-arm poker pursuit before this: 17 labels drawn and **16 of them said
+ * `satisfied`**, which is the default outcome and therefore no news. Five of those sixteen sat
+ * on GREY lines, which made them worse than noise — `satisfied` is a condition ("taken when
+ * the source fires satisfied") and green is a state ("this dependency is met"), so a grey line
+ * reading `satisfied` contradicted itself in one word. Meanwhile the single label that carried
+ * real information, `on accept` where a human ruling gates everything downstream, was lost in
+ * the crowd.
+ *
+ * An earlier version of this rule keyed on the sibling count alone and dropped that one too:
+ * `ruling-on-inviting-a-stranger` has exactly ONE outgoing edge, conditioned `accept`, because
+ * the `ignore` branch is simply not wired. One out-edge, and the condition is the whole point —
+ * everything after it happens only if a person says yes.
+ *
+ * `on accept` rather than `accept`, so the word reads as a condition rather than as a state the
+ * edge is in — and so a `timeout` CONDITION on a solid dependency stays distinguishable from
+ * the dashed `timeout` ARC, a different relation wearing the same word.
+ */
+function labelOf(on: EdgeCondition | null, forks: boolean): string | null {
+  if (on === null) return null;
+  if (on === DEFAULT_CONDITION && !forks) return null;
+  return `on ${on}`;
+}
+
 function timeoutTargetOf(node: Node): string | null {
   if (node.type !== "wait") return null;
   return node.spec.on_timeout ?? null;
@@ -71,6 +132,7 @@ function timeoutTargetOf(node: Node): string | null {
 
 export function viewEdges(graph: Graph): ViewEdge[] {
   const out: ViewEdge[] = [];
+  const forking = forkingSources(graph);
 
   // Dependencies first, in append order — §6.1 makes that the one stable order in the system.
   for (const edge of graph.edges) {
@@ -81,6 +143,7 @@ export function viewEdges(graph: Graph): ViewEdge[] {
       to: edge.to,
       kind: "requires",
       condition: on,
+      label: labelOf(on, forking.has(edge.from)),
       satisfied: isEdgeSatisfied(graph, edge),
       dead: isDead(graph, edge),
     });
@@ -98,6 +161,7 @@ export function viewEdges(graph: Graph): ViewEdge[] {
         to: target,
         kind: "timeout",
         condition: null,
+        label: null,
         satisfied: false,
         dead: false,
       });
@@ -111,6 +175,7 @@ export function viewEdges(graph: Graph): ViewEdge[] {
         to: replacement,
         kind: "supersedes",
         condition: null,
+        label: null,
         satisfied: false,
         dead: false,
       });

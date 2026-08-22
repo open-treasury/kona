@@ -21,6 +21,7 @@ import type { Positions } from "./useTween.ts";
 import { KONA_NODE_TYPE, nodeTypes } from "./NodeCard.tsx";
 import type { CardData } from "./NodeCard.tsx";
 import { KONA_MARKER_TYPE, markerNodeTypes } from "./MarkerNode.tsx";
+import { Legend } from "./Legend.tsx";
 
 /** The card renderer and the two notation circles, in one map React Flow can hold. */
 const ALL_NODE_TYPES = { ...nodeTypes, ...markerNodeTypes };
@@ -62,11 +63,6 @@ function edgeClass(edge: ViewEdge, fresh: boolean): string {
   }
   if (fresh) parts.push("e-fresh");
   return parts.join(" ");
-}
-
-/** Only a dependency is worth labelling; the other two say what they are by how they look. */
-function edgeLabel(edge: ViewEdge): string | undefined {
-  return edge.kind === "requires" ? (edge.condition ?? undefined) : undefined;
 }
 
 export function Canvas({
@@ -169,8 +165,9 @@ export function Canvas({
         // Assigned rather than spread: `exactOptionalPropertyTypes` refuses an explicit
         // `label: undefined`, and a conditional spread inside `map` is what oxlint's
         // `no-map-spread` is about.
-        const label = edgeLabel(edge);
-        if (label !== undefined) flow.label = label;
+        // `model/edges.ts` decides whether the condition is worth printing — a label that
+        // repeats what every sibling edge says is 16 pieces of furniture and no information.
+        if (edge.label !== null) flow.label = edge.label;
         return flow;
       }),
     [graph, fresh],
@@ -246,6 +243,7 @@ export function Canvas({
     >
       <Background gap={22} size={1} color="var(--color-dots)" />
       <Controls showInteractive={false} />
+      <Legend />
       {/*
         No minimap. It bought an overview that matters only past about ten arms — see
         kona-e6-8h7.10, where a 31-arm pursuit does not fit above the legibility floor — and
