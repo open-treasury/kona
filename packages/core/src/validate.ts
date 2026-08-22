@@ -21,10 +21,20 @@
  * using whatever the code does that day. Deciding once and writing the decision down is the
  * same rule already settled for id minting.
  *
- * Invariant 3 is half-built on purpose. 3(b) ships as the recipient grammar (stage 3a);
- * resolving a ref to an evidenced entity needs an `evidence_ref` the folded graph does not
- * yet carry, and 3(a)'s send budget is enforced at `effect reserve` (T3.4), where the send
- * happens and where a ledger can actually be read.
+ * INVARIANT 3 IS NOT A STAGE HERE, and that is where its exit code comes from.
+ *
+ * Both halves are enforced, and both outside the invariant stages. 3(b) is stage 3a: the
+ * recipient grammar AND the resolution against pre-commit head, which is parser-class work
+ * — it asks whether a string names somebody the graph already knew, not whether a
+ * transition is legal. 3(a) is enforced at `effect reserve`, because a budget is a ledger
+ * and this function has never seen one; a check here would be advice the enforcement point
+ * ignores, which is what it was until T3.4.
+ *
+ * So invariants 1 and 2 `violate()` and exit **4**, while invariant 3 `refuse()`s and exits
+ * **1** with its own tokens — `UNEVIDENCED_RECIPIENT`, `EFFECT_BUDGET_EXHAUSTED`. §6.8 makes
+ * the symbolic reason the API and the numeric code a coarse class, and the plugin's one
+ * human gate keys on the token for exactly this reason. A shell that branches on `-eq 4`
+ * alone will miss the fabricated-counterparty case, which is the one it most wants.
  */
 
 import type { Actor, AuthoredOp, CommittedOp } from "./schema.ts";

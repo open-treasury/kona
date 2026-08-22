@@ -333,6 +333,8 @@ Four things follow, which is why it is a law: §7's 100% mutation-score target i
 
 **Exit status is 8-bit** (`409` truncates to `153`): `0` ok · `1` refused · `3` stale base version · `4` invariant violation. Every non-zero exit writes one stderr line beginning with a symbolic reason — `STALE_BASE_VERSION` (+ head), `INVARIANT_VIOLATION` (+ invariant and node), `REFUSED` (+ reason).
 
+**The reason token is the API; the code is a coarse class.** Exit `4` means precisely "the stderr line begins with `INVARIANT_VIOLATION`", which is invariants 1 and 2. **Invariant 3 exits `1`**, both halves, because neither is a transition guard: 3(b) is parser-class — does this string name somebody the graph already knew — and 3(a) is a ledger read at `effect reserve`, where the send actually happens. They carry `UNEVIDENCED_RECIPIENT` and `EFFECT_BUDGET_EXHAUSTED`, and §6.9's one human gate keys on those tokens rather than on the number. Worth stating because the trap is silent: a script branching on `-eq 4` alone misses the fabricated-counterparty case, which is the one it most wants to catch.
+
 Hardcode the five queries the viewer needs. **No query language.**
 
 ### 6.9 The plugin
