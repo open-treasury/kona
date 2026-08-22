@@ -264,7 +264,11 @@ describe("watchLog", () => {
           `import { watchLog } from ${JSON.stringify(LOG_FEED)};`,
           // Exit 3 rather than hang if the event never arrives: that is a broken premise, and
           // it must not be reported as the leak this test is looking for.
-          `const giveUp = setTimeout(() => { process.exit(3); }, 1500);`,
+          // Generous on purpose. This test discriminates between "exits in ~50ms" and "never
+          // exits", so every budget in it can be wide without weakening the claim — and a tight
+          // one turns a loaded machine into a red suite. `fs.watch` delivery on macOS is not
+          // prompt when the rest of the suite is holding an HTTP server and hammering the disk.
+          `const giveUp = setTimeout(() => { process.exit(3); }, 8000);`,
           `let sawChange = () => {};`,
           `const changed = new Promise((resolve) => { sawChange = resolve; });`,
           `const unwatch = watchLog(${JSON.stringify(pursuit)}, () => { sawChange(); }, 10);`,
@@ -292,7 +296,7 @@ describe("watchLog", () => {
         const overran = new Promise<typeof LEAKED>((resolve) => {
           deadline = setTimeout(() => {
             resolve(LEAKED);
-          }, 2500);
+          }, 12_000);
         });
         const outcome = await Promise.race([child.exited, overran]);
         if (deadline !== undefined) clearTimeout(deadline);
@@ -306,7 +310,7 @@ describe("watchLog", () => {
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 30_000);
 
   test("an append inside the window after unsubscribing never lands", async () => {
     await quiet();

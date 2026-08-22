@@ -1,34 +1,26 @@
 /**
- * The status chip, and the two smaller chips beside it.
+ * The small chips: a reason code on a timeline row, a quorum counter on a card.
  *
- * `tailwind-variants` earns its place here rather than being ceremony: §6.2 froze **five**
- * statuses, and the variant map is that closed set written once. A sixth would have to be
- * added here, next to the comment saying that widening a vocabulary is a spec change and not a
- * code change — which is a better place for that argument to live than scattered across three
- * components.
+ * **Status is not one of them.** It used to be — a filled chip per state — and it is now the
+ * circular glyph in `graph/NodeCard.tsx`, in the GitHub Actions idiom: a ring you read by its
+ * shape before you read it by its colour, which costs a third of the width a word does and
+ * survives being zoomed out. The five-status vocabulary §6.2 froze lives there now, in one
+ * place, rather than half here and half there.
  *
- * The shape is the kit's `Tag`: `rounded-sm`, uppercase, `text-ui-xs` with its wide tracking,
- * and a **tinted fill carrying foreground-weight ink** rather than white on a saturated block.
- * Fourteen saturated chips on one canvas is a fruit salad; fourteen tinted ones read as a
- * legend.
+ * The shape is the kit's `Tag`: `rounded-sm`, uppercase, `text-ui-xs` with its wide tracking.
  */
 
 import { tv } from "tailwind-variants";
 import type { VariantProps } from "tailwind-variants";
-import type { Status } from "@kona/core";
 import { cn } from "../lib/cn.ts";
 
 const badge = tv({
   base: "inline-flex shrink-0 items-center gap-1 rounded-sm font-medium uppercase",
   variants: {
     tone: {
-      active: "bg-status-active-fill text-status-active-ink",
-      sending: "bg-status-sending-fill text-status-sending-ink animate-breathe",
-      done: "bg-status-done-fill text-status-done-ink",
-      failed: "bg-status-failed-fill text-status-failed-ink",
-      dropped: "bg-status-dropped-fill text-status-dropped-ink",
-      /* Outlined: everything that qualifies the node rather than states it. */
+      /** Qualifies a node rather than stating it — the quorum counter. */
       outline: "border border-border text-carbon-40",
+      /** §6.3's machine-readable half of the rationale, on a timeline row. */
       reason: "border border-border text-muted-foreground",
     },
     size: {
@@ -43,33 +35,4 @@ export type BadgeProps = React.ComponentProps<"span"> & VariantProps<typeof badg
 
 export function Badge({ className, tone, size, ...props }: BadgeProps): React.ReactElement {
   return <span data-slot="badge" className={cn(badge({ tone, size }), className)} {...props} />;
-}
-
-/**
- * The status, as a chip — except for `active`, which is a bare dot.
- *
- * `active` is the commonest state on a live canvas, so a chip spelling it out on every card
- * spends the most valuable pixels restating the default. The four that are worth a word are
- * the four that are *not* the default: something is in flight, finished, broken, or abandoned.
- *
- * `sending` is ochre and breathing on purpose. §6.2 makes it the one non-terminal status that
- * looks finished from the outside: the bytes have left, and what the world did with them is
- * unknown. A green chip there would be a claim the store has not made.
- */
-export function StatusBadge({
-  status,
-  className,
-}: {
-  status: Status;
-  className?: string;
-}): React.ReactElement {
-  // `active` renders as nothing at all. The card's left rule is already green, so a chip would
-  // be the third thing on screen saying the commonest fact about a node. The one dot a card
-  // carries is on the right and means something the border cannot: readiness.
-  if (status === "active") return <></>;
-  return (
-    <Badge tone={status} size="sm" className={className}>
-      {status}
-    </Badge>
-  );
 }

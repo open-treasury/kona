@@ -102,7 +102,12 @@
    *
    * Which leaves `active` meaning "exists, nobody has run it yet" — queued, not in flight. Blue
    * is the conventional colour for that and, more to the point, it is the one that is still
-   * free. `active` renders as no chip at all; the card's left rule carries it.
+   * free.
+   *
+   * `-ink` is what paints the card's status glyph. The `-fill` half is the tinted chip
+   * background and is currently unreferenced — status became a ring rather than a chip — so
+   * Tailwind emits no utility for it. It stays because it is half of the vocabulary, and the
+   * next thing that needs a status chip should not have to invent the tint again.
    */
   --color-status-active-fill: var(--color-tag-cobalt-bg);
   --color-status-active-ink: var(--color-cobalt-bold);

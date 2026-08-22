@@ -36,21 +36,30 @@ export interface Layout {
 }
 
 /**
- * Fixed sizes. Nothing is measured, ever.
+ * Fixed sizes. Nothing is measured, ever — rule 7 wants a deterministic layout, and measuring
+ * the DOM makes the geometry a function of the reader's installed fonts: the same log would
+ * lay out differently on two machines, and a webfont swapping in mid-render would move every
+ * node after the reader had started reading.
  *
- * Rule 7 wants a deterministic layout, and measuring the DOM makes the geometry a function of
- * the reader's installed fonts: the same log would lay out differently on two machines, and a
- * webfont swapping in mid-render would move every node after the reader had started reading.
- * A `wait` is the taller box because rule 4 makes it carry a deadline countdown and a
- * predicate counter under its label; a task carries neither.
+ * Fixed **per type** rather than per card — which is the constraint that
+ * shapes the card, so it is worth stating plainly.
+ *
+ * A card that grew to fit its content would be the obvious thing and it would break rule 2. Its
+ * height would then depend on the blocked reason and the recorded outcome, both of which appear
+ * and vanish on a *status* tick — so a reply landing would change a box, change the layout, and
+ * re-rank the whole graph. That is precisely the freeze this module exists to prevent.
+ *
+ * So each type reserves its worst case instead: a task is a title row plus ONE detail row
+ * (blocked reason, or the verdict, or nothing), and a wait is a title row plus the match line
+ * plus that same detail row. The countdown does not need a row of its own — it rides in the
+ * trailing slot on the title, the way a duration does in a GitHub Actions run graph.
+ *
+ * Measured against the 31-arm pursuit: this takes the graph from 5216px tall to about 3300, so
+ * `fitView`'s legibility floor now shows about sixteen arms rather than ten (kona-e6-8h7.10).
  */
 export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: number }>> = {
-  task: { width: 260, height: 96 },
-  // Five rows at the busiest: type and status, label, deadline, match plus counter, and the
-  // blocked reason. Measured against `goalie-confirmed`, which carries all five — at 112 the
-  // label's descenders clipped, and a clipped label reads as a rendering fault rather than a
-  // full card.
-  wait: { width: 260, height: 122 },
+  task: { width: 268, height: 62 },
+  wait: { width: 268, height: 82 },
 };
 
 /**
@@ -107,7 +116,7 @@ function runDagre(graph: Graph, signature: string): Layout {
   const g = new graphlib.Graph<GraphLabel, NodeLabel, EdgeLabel>();
   // Left to right: a pursuit reads as a chain of dependencies, and `{from, to}` means "to
   // requires from". The rank gap is wide enough for an edge label to sit in later.
-  g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 96, marginx: 24, marginy: 24 });
+  g.setGraph({ rankdir: "LR", nodesep: 18, ranksep: 72, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
 
   for (const node of graph.nodes.values()) {
