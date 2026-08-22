@@ -18,7 +18,8 @@
     "check": "bun run typecheck && bun run lint && bun run knip && bun run test",
     "mutate:core": "STRYKER_TIER=core stryker run stryker.conf.mjs",
     "mutate:durability": "STRYKER_TIER=durability stryker run stryker.conf.mjs",
-    "mutate:rest": "STRYKER_TIER=rest stryker run stryker.conf.mjs"
+    "mutate:rest": "STRYKER_TIER=rest stryker run stryker.conf.mjs",
+    "mutate:outbox": "STRYKER_TIER=outbox stryker run stryker.conf.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "10.0.0",

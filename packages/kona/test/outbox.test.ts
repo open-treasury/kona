@@ -273,7 +273,106 @@ describe("a node that has moved bytes is never re-executed", () => {
   });
 });
 
+describe("the effect key", () => {
+  test("is a readable, fixed-width slot name", () => {
+    expect(KEY).toMatch(/^ek_[0-9a-f]{16}$/);
+  });
+
+  test("names the slot, and two slots are never the same name", () => {
+    expect(effectKey("ask-dana", 1)).not.toBe(effectKey("ask-dana", 2));
+    expect(effectKey("ask-dana", 1)).not.toBe(effectKey("ask-sam", 1));
+    expect(effectKey("ask-dana", 1)).toBe(effectKey("ask-dana", 1));
+  });
+});
+
+describe("--json says exactly what happened", () => {
+  async function reserveJson(payloadHash: string): Promise<Record<string, unknown>> {
+    h.reset();
+    expect(
+      await run(
+        ["effect", "reserve", "ask-dana", "--payload-hash", payloadHash, "--why", "send", "--json"],
+        h.io,
+      ),
+    ).toBe(0);
+    return JSON.parse(h.out[0] ?? "{}") as Record<string, unknown>;
+  }
+
+  test("a fresh reservation reports the slot and the version it landed at", async () => {
+    expect(await reserveJson("sha256:aaa")).toEqual({
+      ok: true,
+      effect_key: KEY,
+      reserved: true,
+      idempotent: false,
+      version: 2,
+    });
+  });
+
+  test("a repeat reports the SAME slot, and that it reserved nothing", async () => {
+    await reserveJson("sha256:aaa");
+    // `reserved: false` with `ok: true` is the whole signal: you already hold this slot,
+    // so send it — do not reserve again, and do not treat this as a failure and retry.
+    expect(await reserveJson("sha256:aaa")).toEqual({
+      ok: true,
+      effect_key: KEY,
+      reserved: false,
+      idempotent: true,
+    });
+  });
+
+  test("recording reports the outcome and the message id", async () => {
+    await reserveJson("sha256:aaa");
+    h.reset();
+    expect(
+      await run(
+        ["effect", "record", "ask-dana", "--key", KEY, "--outcome", "sent", "--message-id", "<m-1>", "--why", "ok", "--json"],
+        h.io,
+      ),
+    ).toBe(0);
+    expect(JSON.parse(h.out[0] ?? "{}")).toEqual({
+      ok: true,
+      effect_key: KEY,
+      outcome: "sent",
+      message_id: "<m-1>",
+      version: 3,
+    });
+  });
+
+  test("the human line names the slot and the version", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(h.out[0]).toBe(`reserved ${KEY} at v2 — fsynced, safe to send`);
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(h.out[0]).toBe(`already reserved ${KEY} for this payload — send it, do not re-reserve`);
+  });
+
+  test("recording says which slot closed and how", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    expect(await record(KEY, "sent", "<m-1>")).toBe(0);
+    expect(h.out[0]).toBe(`recorded ${KEY} as sent at v3`);
+  });
+});
+
 describe("dispatch", () => {
+  test("recording against a node that does not exist is refused", async () => {
+    h.reset();
+    expect(
+      await run(
+        ["effect", "record", "ghost", "--key", KEY, "--outcome", "sent", "--message-id", "<m-1>", "--why", "x"],
+        h.io,
+      ),
+    ).toBe(1);
+    expect(h.err[0]).toContain("UNKNOWN_NODE");
+  });
+
+  test("--message-id and --key are both required to record", async () => {
+    expect(await reserve("sha256:aaa")).toBe(0);
+    h.reset();
+    expect(await run(["effect", "record", "ask-dana", "--outcome", "sent", "--message-id", "<m>", "--why", "x"], h.io)).toBe(1);
+    expect(h.err[0]).toContain("--key");
+    h.reset();
+    expect(await run(["effect", "record", "ask-dana", "--key", KEY, "--outcome", "sent", "--why", "x"], h.io)).toBe(1);
+    expect(h.err[0]).toContain("--message-id");
+  });
+
   test.each([
     ["no subcommand", ["effect"]],
     ["an unknown subcommand", ["effect", "cancel", "ask-dana"]],

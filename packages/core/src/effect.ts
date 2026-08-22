@@ -71,8 +71,9 @@ export function parseEffectEvidence(evidenceRef: string): EffectEvidence | null 
     // string this module had just encoded — leaving effect_log empty and every
     // downstream duplicate-send guard unreachable.
     const payloadHash = parts.slice(3).join(":");
-    if (effectKey === undefined || effectKey.length === 0) return null;
-    if (payloadHash.length === 0) return null;
+    // One truthiness test covers both "absent" and "empty"; two would be one redundant
+    // branch, since the length check above already guarantees the slot exists.
+    if (!effectKey || !payloadHash) return null;
     return { kind: "reserve", effect_key: effectKey, payload_hash: payloadHash };
   }
 
@@ -80,9 +81,8 @@ export function parseEffectEvidence(evidenceRef: string): EffectEvidence | null 
     const effectKey = parts[2];
     const outcome = parts[3];
     const messageId = parts.slice(4).join(":");
-    if (effectKey === undefined || effectKey.length === 0) return null;
+    if (!effectKey || !messageId) return null;
     if (outcome !== "sent" && outcome !== "failed") return null;
-    if (messageId.length === 0) return null;
     return { kind: "record", effect_key: effectKey, outcome, message_id: messageId };
   }
 

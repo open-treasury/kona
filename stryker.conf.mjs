@@ -24,12 +24,25 @@ const TIERS = {
     mutate: ["packages/core/src/**/*.ts"],
     thresholds: { high: 100, low: 95, break: 90 },
   },
+  /**
+   * §7 puts the outbox at 100: a surviving mutant here is a second email, and there is
+   * no rollback.
+   */
+  outbox: {
+    mutate: [
+      "packages/core/src/effect.ts",
+      "packages/kona/src/commands/effect.ts",
+      "packages/kona/src/hash.ts",
+    ],
+    thresholds: { high: 100, low: 100, break: 95 },
+  },
   /** The write path: lock, CAS, append, fsync. A surviving mutant here is a lost commit. */
   durability: {
     mutate: [
       "packages/kona/src/lock.ts",
       "packages/kona/src/store.ts",
       "packages/kona/src/commands/mutate.ts",
+      "packages/kona/src/commit.ts",
     ],
     thresholds: { high: 100, low: 95, break: 90 },
   },
@@ -40,6 +53,9 @@ const TIERS = {
       "!packages/kona/src/lock.ts",
       "!packages/kona/src/store.ts",
       "!packages/kona/src/commands/mutate.ts",
+      "!packages/kona/src/commands/effect.ts",
+      "!packages/kona/src/commit.ts",
+      "!packages/kona/src/hash.ts",
       "!packages/kona/src/bin.ts",
     ],
     thresholds: { high: 95, low: 90, break: 80 },

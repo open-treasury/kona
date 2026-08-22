@@ -5,7 +5,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 TIERS=("$@")
-if [ ${#TIERS[@]} -eq 0 ]; then TIERS=(core durability rest); fi
+if [ ${#TIERS[@]} -eq 0 ]; then TIERS=(core outbox durability rest); fi
 
 FAILED=()
 for tier in "${TIERS[@]}"; do

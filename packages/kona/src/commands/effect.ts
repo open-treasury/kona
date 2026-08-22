@@ -19,7 +19,6 @@
 import {
   type Graph,
   type Node,
-  attemptCount,
   effectByKey,
   encodeRecordEvidence,
   encodeReserveEvidence,
@@ -105,13 +104,13 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
       return { refused: EXIT_OK };
     }
 
-    if (attemptCount(node) >= node.spec.max_reattempts) {
-      io.err(
-        `REFUSED EFFECT_BUDGET_EXHAUSTED '${node.id}' has ${attemptCount(node)} attempts against a limit of ` +
-          `${node.spec.max_reattempts}; escalate rather than loop`,
-      );
-      return { refused: EXIT_REFUSED };
-    }
+    // §6.6's restart budget (`max_reattempts`) is deliberately NOT enforced here, because
+    // as the ops stand it cannot fire. `attemptCount` only grows with a distinct
+    // effect_key, and the key is a function of (node, created_by_version) — so one node
+    // has exactly one slot. A failed send makes the node terminal and invariant 1 forbids
+    // reopening it, which means the only retry is supersede-with-a-replacement: a NEW node,
+    // a new key, and its own budget. A guard here would be unreachable code implying a
+    // protection that does not exist. See kona-e3-3zc.3.
 
     if (node.status.state !== "active") {
       io.err(`REFUSED NOT_DISPATCHABLE '${node.id}' is '${node.status.state}', not active`);

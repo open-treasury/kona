@@ -58,6 +58,21 @@ describe("the key names the slot, not the bytes (§6.6)", () => {
 });
 
 describe("evidence round-trips", () => {
+  test("the wire format is exact — it is durable data, not an internal detail", () => {
+    // These strings live in the log forever. Changing them silently re-interprets every
+    // pursuit ever written, so they are pinned by literal rather than by round trip.
+    expect(encodeReserveEvidence(KEY, "abc")).toBe(`effect:reserve:${KEY}:abc`);
+    expect(encodeRecordEvidence(KEY, "sent", "<m-1>")).toBe(`effect:record:${KEY}:sent:<m-1>`);
+  });
+
+  test("a payload hash with no separator is the shortest legal reservation", () => {
+    expect(parseEffectEvidence(`effect:reserve:${KEY}:abc`)).toEqual({
+      kind: "reserve",
+      effect_key: KEY,
+      payload_hash: "abc",
+    });
+  });
+
   test("a reservation", () => {
     expect(parseEffectEvidence(encodeReserveEvidence(KEY, "sha256:aaa"))).toEqual({
       kind: "reserve",
@@ -101,6 +116,8 @@ describe("evidence round-trips", () => {
     ["record with an unknown outcome", "effect:record:k:maybe:m"],
     ["record with an empty key", "effect:record::sent:m"],
     ["empty", ""],
+    ["a long string whose action is neither", "effect:cancel:k:sent:m-1"],
+    ["reserve spelled as something else, at record length", "effect:reserved:k:sent:m-1"],
   ])("%s is not an outbox transition", (_name, evidence) => {
     expect(parseEffectEvidence(evidence)).toBeNull();
   });
