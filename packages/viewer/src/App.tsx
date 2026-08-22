@@ -22,12 +22,18 @@ import type { Point } from "./graph/useTween.ts";
 import { Timeline } from "./panels/Timeline.tsx";
 import { Inspector } from "./panels/Inspector.tsx";
 import { cn } from "./lib/cn.ts";
-import { TooltipProvider } from "./ui/tooltip.tsx";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip.tsx";
 
-const LIVE_DOT: Record<string, string> = {
-  connecting: "bg-status-dropped",
-  open: "bg-status-done animate-breathe",
-  lost: "bg-status-failed",
+/**
+ * The feed light. `open` and `lost` are `EventSource`'s words, not a reader's — what a reader
+ * wants to know is whether the picture in front of them is still following the file. `lost`
+ * renders as *reconnecting* because that is what is actually happening: EventSource retries on
+ * its own with a backoff, so there is nothing for anybody to do about it.
+ */
+const FEED: Record<string, { dot: string; label: string }> = {
+  connecting: { dot: "bg-status-dropped-ink", label: "connecting" },
+  open: { dot: "bg-status-done-ink animate-breathe", label: "live" },
+  lost: { dot: "bg-status-failed-ink", label: "reconnecting" },
 };
 
 const NOTICE = "px-3.5 py-1.5 font-mono text-[11px] border-b border-border";
@@ -88,21 +94,26 @@ export function App(): React.ReactElement {
     <TooltipProvider>
       <div className="grid h-full grid-cols-[minmax(0,1fr)_380px] grid-rows-[44px_minmax(0,1fr)]">
         <header className="col-span-full flex items-center gap-4 border-b border-border bg-background px-4 shadow-nav">
-          <span className="text-[15px] font-semibold tracking-tight">kona</span>
-          <span className="text-ui-xs text-carbon-40 uppercase">
-            the binary never calls a model
-          </span>
+          <span className="text-[15px] font-semibold tracking-tight">Kona</span>
+          <span className="text-ui-xs text-carbon-40 uppercase">Workflow graph</span>
           <span className="flex-1" />
           <span className="font-mono text-[11px] text-muted-foreground">
-            v<b className="font-semibold text-foreground">{shown.version}</b> ·{" "}
-            <b className="font-semibold text-foreground">{view.nodes.length}</b> nodes ·{" "}
-            <b className="font-semibold text-foreground">{shown.edges.length}</b> edges ·{" "}
-            <b className="font-semibold text-foreground">{view.frontier.length}</b> ready
+            v<b className="font-semibold text-foreground">{shown.version}</b>
           </span>
-          <span className="inline-flex items-center gap-1.5 text-ui-xs text-muted-foreground uppercase">
-            <span className={cn("size-1.5 rounded-full", LIVE_DOT[feed.state])} />
-            {feed.state}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help items-center gap-1.5 text-ui-xs text-muted-foreground uppercase">
+                <span
+                  className={cn("size-1.5 rounded-full", FEED[feed.state]?.dot ?? "bg-carbon-40")}
+                />
+                {FEED[feed.state]?.label ?? feed.state}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              the file-watch stream from the pursuit&apos;s <code>mutations.jsonl</code> — the
+              viewer&apos;s only source. While it is live, every append reaches this canvas.
+            </TooltipContent>
+          </Tooltip>
         </header>
 
         <main className="relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] border-r border-border">

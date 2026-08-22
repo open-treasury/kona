@@ -158,8 +158,21 @@ export function Canvas({
         onSelect(null);
       }}
       fitView
-      fitViewOptions={{ padding: 0.18, maxZoom: 1 }}
-      minZoom={0.15}
+      /*
+       * `fitView` has a legibility FLOOR, and the canvas's own `minZoom` sits well below it.
+       *
+       * Measured on a 31-arm pursuit — the size the PRD actually scopes, "email up to 30
+       * players from this roster": the graph is 1328 x 5216 px in a 1131 x 672 pane, so
+       * fitting it whole needs scale 0.13 and renders a 260px card at 34px. That is not a
+       * small graph, it is a grey smear. Below about 0.45 a card's label stops being a label.
+       *
+       * So the opening shot is as much of the graph as stays readable, and the rest is the
+       * minimap and the scroll wheel — never an unreadable whole. The canvas `minZoom` is
+       * still 0.05, because deliberately zooming out to see the SHAPE of a fan-out is a
+       * reasonable thing to want; being dropped there on load is not.
+       */
+      fitViewOptions={{ padding: 0.18, minZoom: 0.45, maxZoom: 1 }}
+      minZoom={0.05}
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={22} size={1} color="var(--color-dots)" />

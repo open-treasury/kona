@@ -1081,6 +1081,9 @@
   .bg-carbon-8 {
     background-color: var(--color-carbon-8);
   }
+  .bg-carbon-40 {
+    background-color: var(--color-carbon-40);
+  }
   .bg-card {
     background-color: var(--color-card);
   }
@@ -1099,11 +1102,20 @@
   .bg-status-done-fill {
     background-color: var(--color-status-done-fill);
   }
+  .bg-status-done-ink {
+    background-color: var(--color-status-done-ink);
+  }
   .bg-status-dropped-fill {
     background-color: var(--color-status-dropped-fill);
   }
+  .bg-status-dropped-ink {
+    background-color: var(--color-status-dropped-ink);
+  }
   .bg-status-failed-fill {
     background-color: var(--color-status-failed-fill);
+  }
+  .bg-status-failed-ink {
+    background-color: var(--color-status-failed-ink);
   }
   .bg-status-sending-fill {
     background-color: var(--color-status-sending-fill);
