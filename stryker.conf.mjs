@@ -34,9 +34,13 @@
  * and spends about five seconds asleep, which it has to: notification timing is the thing
  * under test. That is 5s of every 7.2s run, paid per mutant, for suites that in the
  * kona-only tiers cannot change the answer.
+ *
+ * `KONA_SKIP_EXTERNAL` is the same rule one level down: `plugin-catalogue.test.ts` shells out
+ * to `claude plugin validate` three times, which no tier's mutants can affect either. It runs
+ * in `bun run check` and sits out mutation runs.
  */
-const KONA_ONLY = "bun test packages/core packages/kona";
-const EVERYTHING = "bun test packages";
+const KONA_ONLY = "KONA_SKIP_EXTERNAL=1 bun test packages/core packages/kona";
+const EVERYTHING = "KONA_SKIP_EXTERNAL=1 bun test packages";
 
 const TIERS = {
   /** Pure, branch-heavy, and the last thing standing between a bad batch and the log. */

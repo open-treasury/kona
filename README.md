@@ -235,7 +235,7 @@ bun run typecheck:purity   # TS2591: Cannot find name 'process'
 | `bun run lint` | oxlint 1.79 with type-aware rules |
 | `bun run knip` | unused files, exports, dependencies |
 | `bun test` | 1,200 tests |
-| `bun run mutate` | StrykerJS 10, four tiers with per-area floors — `core` 95 / `outbox` 100 / `durability` 95 / `rest` 90 |
+| `bun run mutate` | StrykerJS 10, four tiers with per-area floors. Measured 2026-08-22: `core` **90.84** (floor 90) · `outbox` **96.73** (95) · `durability` **95.19** (90) · `rest` **81.45** (80) |
 
 ## Toolchain notes — TypeScript 7 breaks things, and here is how
 
@@ -255,6 +255,11 @@ verified empirically, not read off a changelog.
 
 `knip --production` is deliberately **not** a gate: it flags every export whose only consumer
 is a test. `exclude: ["types"]` is set for the same reason.
+
+The floors differ by area because a surviving mutant means different things in different
+places: in `validate()` it is a bad graph reaching the file, and in the CLI's argument
+plumbing it is a worse error message. The outbox is highest — a surviving mutant there is a
+second email, and there is no rollback.
 
 Each mutation tier runs only the suites that could kill its mutants. `packages/viewer` imports
 `@kona/core` and never `@kona/cli` — a test enforces both directions — so viewer tests can kill

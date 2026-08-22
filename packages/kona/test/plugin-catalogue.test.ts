@@ -224,7 +224,15 @@ describe("the real tooling accepts it", () => {
    * **Skipped, not failed**, when the CLI is absent: a checkout without it is a checkout that
    * cannot answer the question, which is different from one where the answer is no.
    */
-  const cli = Bun.spawnSync({ cmd: ["claude", "--version"], stdout: "pipe", stderr: "pipe" });
+  // Skipped under mutation testing, and for a reason worth stating: this spawns an external
+  // binary three times, which is about 0.75s of every 8.3s test run — and it cannot kill a
+  // mutant in `core` or `kona`, because validating a plugin manifest exercises neither. Over
+  // 2,184 mutants that is three and a half minutes buying nothing. Same rule as the viewer
+  // suite: a tier runs the suites that could kill its mutants, and no others.
+  const underMutation = process.env["KONA_SKIP_EXTERNAL"] !== undefined;
+  const cli = underMutation
+    ? { success: false }
+    : Bun.spawnSync({ cmd: ["claude", "--version"], stdout: "pipe", stderr: "pipe" });
   const available = cli.success;
 
   function validate(...parts: string[]): { ok: boolean; output: string } {
