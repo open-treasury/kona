@@ -110,7 +110,11 @@ function Entry({
               }}
               className="mt-1.5 cursor-pointer font-mono text-[10px] text-carbon-40 hover:text-muted-foreground"
             >
-              {open ? "−" : "+"} {entry.ops.length} {entry.ops.length === 1 ? "op" : "ops"}
+              {/* A verb, not a glyph. `+ 2 ops` names a quantity and leaves the reader to
+                  infer that the row does something; `View 2 ops` says what pressing it does,
+                  which is the whole job of the only control on the panel. */}
+              {open ? "Hide" : "View"} {entry.ops.length}{" "}
+              {entry.ops.length === 1 ? "op" : "ops"}
               {extras ? " · rationale detail" : ""}
             </button>
 
