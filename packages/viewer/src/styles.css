@@ -912,9 +912,6 @@
   .animate-spin {
     animation: var(--animate-spin);
   }
-  .cursor-default {
-    cursor: default;
-  }
   .cursor-help {
     cursor: help;
   }
@@ -969,9 +966,6 @@
   .gap-2 {
     gap: calc(var(--spacing) * 2);
   }
-  .gap-2\.5 {
-    gap: calc(var(--spacing) * 2.5);
-  }
   .gap-4 {
     gap: calc(var(--spacing) * 4);
   }
@@ -1000,9 +994,6 @@
   }
   .rounded-\[2px\] {
     border-radius: 2px;
-  }
-  .rounded-\[3px\] {
-    border-radius: 3px;
   }
   .rounded-\[inherit\] {
     border-radius: inherit;
@@ -1050,9 +1041,6 @@
   .border-border {
     border-color: var(--color-border);
   }
-  .border-current {
-    border-color: currentcolor;
-  }
   .border-foreground {
     border-color: var(--color-foreground);
   }
@@ -1076,9 +1064,6 @@
   }
   .border-l-status-dropped-ink {
     border-left-color: var(--color-status-dropped-ink);
-  }
-  .border-l-status-sending-ink {
-    border-left-color: var(--color-status-sending-ink);
   }
   .border-l-transparent {
     border-left-color: transparent;
@@ -1175,9 +1160,6 @@
   }
   .text-center {
     text-align: center;
-  }
-  .text-left {
-    text-align: left;
   }
   .font-mono {
     font-family: var(--font-mono);
@@ -1379,9 +1361,6 @@
   @media (hover: hover) {
     .hover\:bg-accent:hover {
       background-color: var(--color-accent);
-    }
-    .hover\:bg-carbon-4:hover {
-      background-color: var(--color-carbon-4);
     }
     .hover\:bg-carbon-40:hover {
       background-color: var(--color-carbon-40);

@@ -101,30 +101,3 @@ export function buildPursuit(logText: string, upToVersion?: number): PursuitView
     damaged: folded.damaged,
   };
 }
-
-/**
- * Which pursuit the canvas is showing: head, or an earlier version read only.
- *
- * This is three lines and it lives here rather than in `App.tsx` for one reason — **nothing
- * tests a `.tsx` file.** There is no jsdom, no testing-library and no component test in this
- * package, and `bun test --coverage` does not so much as list the React tree, so any judgment
- * left in a component is judgment no mutant can reach. That is not hypothetical: the version
- * of this logic that lived in `App.tsx` folded the travelled graph with a bare `foldLog` and
- * then read it against HEAD's completion index, so scrubbing to v2 rendered `wait-for-dana`
- * counting down from a clock `ask-dana-to-play-in-goal` does not start until v3. Typecheck,
- * lint, knip and 589 tests all passed with that in.
- *
- * Returning a whole `PursuitView` is the point: the graph and the two time indexes it must be
- * read against come out of one fold and cannot be paired up wrongly by a caller.
- */
-export function pursuitAt(
-  head: PursuitView,
-  logText: string,
-  viewing: number | null,
-): PursuitView {
-  // `>=` and not `===`: a version beyond head is what a stale click produces when the file
-  // grew between render and click, and the honest answer to "show me v12 of a 10-version log"
-  // is head, not an empty canvas.
-  if (viewing === null || viewing >= head.graph.version) return head;
-  return buildPursuit(logText, viewing);
-}

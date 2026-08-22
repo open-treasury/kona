@@ -59,33 +59,14 @@ function prefersReducedMotion(): boolean {
  */
 export function useTweenedPositions(
   target: Positions,
-  /**
-   * Changes whenever the reader JUMPED rather than the file grew, and a change makes this
-   * layout snap instead of tween.
-   *
-   * Rule 7's "animate, don't snap" is about a version *landing*: the graph grew, and the
-   * motion is the growth. Read-only time travel is not that. Sliding the canvas from v10's
-   * layout to v2's claims a rearrangement that never happened — the graph did not move, the
-   * reader did — and rule 6 is emphatic that time travel must not look like the graph
-   * changing under you.
-   *
-   * It is also what makes the interaction quiet. Interpolating over ~28 frames re-renders
-   * every node on each one, and React Flow re-measures on each re-render; scrubbing back one
-   * version produced **120** "ResizeObserver loop completed with undelivered notifications"
-   * warnings, measured. Snapping produces one layout pass.
-   */
-  snapKey: string,
   durationMs: number = DEFAULT_MS,
 ): Positions {
   const [positions, setPositions] = useState<Positions>(target);
   const renderedRef = useRef<Positions>(target);
   const frameRef = useRef<number | null>(null);
-  const snapRef = useRef(snapKey);
 
   useEffect(() => {
     const from = renderedRef.current;
-    const jumped = snapRef.current !== snapKey;
-    snapRef.current = snapKey;
 
     const settle = (): void => {
       renderedRef.current = target;
@@ -97,7 +78,7 @@ export function useTweenedPositions(
       const prev = from.get(id);
       return prev !== undefined && (prev.x !== point.x || prev.y !== point.y);
     });
-    if (jumped || !moves || durationMs <= 0 || prefersReducedMotion()) {
+    if (!moves || durationMs <= 0 || prefersReducedMotion()) {
       settle();
       return;
     }
@@ -126,7 +107,7 @@ export function useTweenedPositions(
         frameRef.current = null;
       }
     };
-  }, [target, snapKey, durationMs]);
+  }, [target, durationMs]);
 
   return positions;
 }

@@ -22,7 +22,7 @@
 import { describe, expect, test } from "bun:test";
 import { isReady, isTerminal, readyFrontier, satisfiesBlockingEdge } from "@kona/core";
 import { buildGraphView } from "../src/model/view.ts";
-import { buildPursuit, completionTimeOf, pursuitAt } from "../src/model/pursuit.ts";
+import { buildPursuit, completionTimeOf } from "../src/model/pursuit.ts";
 import { waitStateOf } from "../src/model/waitState.ts";
 import type { GraphView, Instant, NodeView, PursuitView, Readiness } from "../src/model/types.ts";
 import { NOW, folded, headVersion, logText } from "./fixture.ts";
@@ -543,34 +543,32 @@ describe("a log that is not the happy one", () => {
 });
 
 /**
- * `pursuitAt` — the composition `App.tsx` used to hold inline, and the reason it does not.
+ * Building the view at an earlier version — the pairing that has to come out of ONE fold.
  *
- * **Nothing in this package tests a `.tsx` file.** There is no jsdom, no testing-library and no
- * component test; `bun test --coverage` does not so much as list the React tree. So a judgment
- * left in a component is a judgment no mutant can reach — and that is not hypothetical. The
- * inline version of this logic folded the travelled graph with a bare `foldLog` and then read
- * it against HEAD's completion index, and typecheck, lint, knip and 589 tests all passed with
- * that in. These are the assertions that would have caught it.
+ * The UI that used to reach for this is gone: the timeline is read, not operated, and the
+ * canvas shows head. The property survives it, because it is a property of the model. A
+ * `PursuitView` carries a graph AND the two time indexes that graph must be read against, and
+ * the bug these assertions exist for was pairing them from different folds — an earlier graph
+ * read against HEAD's completion index, so `wait-for-dana` counted down from a clock that
+ * `ask-dana-to-play-in-goal` does not start until v3. Typecheck, lint, knip and 589 tests all
+ * passed with that in, because **nothing in this package tests a `.tsx` file**: there is no
+ * jsdom, no testing-library, no component test, and `bun test --coverage` does not so much as
+ * list the React tree. Judgment left in a component is judgment no mutant can reach, which is
+ * why the composition lives in `model/` and why these are here.
  */
-describe("pursuitAt", () => {
+describe("buildPursuit at an earlier version", () => {
   const head = buildPursuit(logText());
 
-  test("head is returned by identity, not rebuilt", () => {
-    // Identity matters: `App` memoizes the layout and the tween on this object, so handing
-    // back an equal-but-new `PursuitView` would re-run dagre on every render.
-    expect(pursuitAt(head, logText(), null)).toBe(head);
-    expect(pursuitAt(head, logText(), head.graph.version)).toBe(head);
+  test("a version beyond head folds to head, not to an empty canvas", () => {
+    expect(buildPursuit(logText(), head.graph.version + 5).graph.version).toBe(
+      head.graph.version,
+    );
   });
 
-  test("a version beyond head is head, not an empty canvas", () => {
-    // What a stale click produces when the file grew between render and click.
-    expect(pursuitAt(head, logText(), head.graph.version + 5)).toBe(head);
-  });
-
-  test("travelling carries its OWN completion index, never head's", () => {
+  test("an earlier version carries its OWN completion index, never head's", () => {
     // The bug, named. `ask-dana-to-play-in-goal` goes `done` at v3, so at v2 there is no clock
     // for `wait-for-dana` to count down — and reading head's index would invent one.
-    const at2 = pursuitAt(head, logText(), 2);
+    const at2 = buildPursuit(logText(), 2);
     expect(at2.graph.version).toBe(2);
     expect(head.completionTime.has("ask-dana-to-play-in-goal")).toBe(true);
     expect(at2.completionTime.has("ask-dana-to-play-in-goal")).toBe(false);
@@ -583,14 +581,14 @@ describe("pursuitAt", () => {
     expect(state?.unresolvedReason).toContain("still active");
   });
 
-  test("every version of the fixture composes without throwing, and folds to itself", () => {
+  test("every version of the fixture builds without throwing, and folds to itself", () => {
     for (let v = 0; v <= head.graph.version; v++) {
-      const travelled = pursuitAt(head, logText(), v);
-      expect(travelled.graph.version).toBe(v);
+      const built = buildPursuit(logText(), v);
+      expect(built.graph.version).toBe(v);
       // The two indexes must come from the same fold: nothing in `completionTime` may name a
-      // node the travelled graph does not have.
-      for (const id of travelled.completionTime.keys())
-        expect(travelled.graph.nodes.has(id)).toBe(true);
+      // node the graph at that version does not have.
+      for (const id of built.completionTime.keys())
+        expect(built.graph.nodes.has(id)).toBe(true);
     }
   });
 });

@@ -7,9 +7,10 @@
  * enforced by a schema that makes omitting them impossible, so this panel is the one place the
  * whole architecture becomes visible.
  *
- * Clicking a version is **read-only time travel** (rule 6), and the wording is load-bearing:
- * nothing here says restore, revert, roll back or undo, because the log is append-only and the
- * offer would be a lie. It says *viewing*, and it offers to come back to head.
+ * **Nothing on a row is a control.** The panel is read, not operated: the version, the reason
+ * code, the ops and the rationale are facts, and there is no verb anywhere in it. Rows were
+ * briefly buttons that time-travelled the canvas — the affordance is gone and so is the state
+ * behind it, which is why `App` no longer has a version to be "at" other than head.
  */
 
 import { useState } from "react";
@@ -21,10 +22,8 @@ import { ScrollArea } from "../ui/scroll-area.tsx";
 
 export interface TimelineProps {
   entries: readonly TimelineEntry[];
+  /** The version on the canvas — always head, and marked so the newest row is not just first. */
   headVersion: number;
-  /** Which version the canvas is showing. Equal to `headVersion` unless time-travelling. */
-  viewing: number;
-  onView: (version: number) => void;
 }
 
 function shapeOf(entry: TimelineEntry): { text: string; stable: boolean } {
@@ -51,16 +50,9 @@ function shapeOf(entry: TimelineEntry): { text: string; stable: boolean } {
 function Entry({
   entry,
   isHead,
-  isViewing,
-  travelling,
-  onView,
 }: {
   entry: TimelineEntry;
   isHead: boolean;
-  isViewing: boolean;
-  /** True while the canvas is showing some version other than head. */
-  travelling: boolean;
-  onView: () => void;
 }): React.ReactElement {
   const shape = shapeOf(entry);
   const [open, setOpen] = useState(false);
@@ -69,40 +61,16 @@ function Entry({
     entry.alternativesRejected.length > 0 ||
     entry.trigger !== null;
 
-  /*
-   * The row you are already looking at is not a link.
-   *
-   * Every row used to be a button, including the one whose version is on the canvas — so the
-   * head row invited a click that could not do anything, and the affordance lied for exactly
-   * one row out of thirteen. `aria-current` says which one it is, and the cursor and the dead
-   * hover say it again to a reader who is not using a screen reader. Every row that still
-   * looks clickable now takes you somewhere.
-   */
-  const isShowing = isViewing || (isHead && !travelling);
-
   return (
     <div
       className={cn(
         "border-b border-border border-l-2 border-l-transparent",
         isHead && "border-l-primary bg-carbon-4",
-        isViewing && "border-l-status-sending-ink bg-warning-bg",
       )}
     >
-      <button
-        type="button"
-        aria-current={isShowing ? "true" : undefined}
-        disabled={isShowing}
-        onClick={onView}
-        title={
-          isShowing
-            ? `v${String(entry.version)} is what the canvas is showing`
-            : `view the graph as it stood at v${String(entry.version)} — read-only`
-        }
-        className={cn(
-          "w-full px-3 py-2.5 text-left",
-          isShowing ? "cursor-default" : "cursor-pointer hover:bg-carbon-4",
-        )}
-      >
+      {/* `aria-current` and the accent rule are the only things that single out head, and both
+          are descriptions rather than offers. There is nothing here to press. */}
+      <div aria-current={isHead ? "true" : undefined} className="px-3 py-2.5">
         <div className="flex items-baseline gap-2 font-mono text-[10px] text-carbon-40">
           <span className="font-semibold text-foreground">v{entry.version}</span>
           <Badge tone="reason" size="xs">
@@ -147,7 +115,7 @@ function Entry({
         >
           {shape.text}
         </div>
-      </button>
+      </div>
 
       {/*
         §6.3's rationale is four fields, not one. `why` is the sentence a human reads, but the
@@ -198,12 +166,7 @@ function Entry({
   );
 }
 
-export function Timeline({
-  entries,
-  headVersion,
-  viewing,
-  onView,
-}: TimelineProps): React.ReactElement {
+export function Timeline({ entries, headVersion }: TimelineProps): React.ReactElement {
   // No panel header. The thing that opened this said `timeline`, and its tooltip carries the
   // §6.3 explanation — a title bar underneath repeating the word, plus a count the entries
   // already are, would be the panel's most valuable row spent restating its own name.
@@ -214,16 +177,7 @@ export function Timeline({
           <p className="p-7 text-center font-mono text-[11px] text-carbon-40">no mutations yet</p>
         ) : (
           entries.map((entry) => (
-            <Entry
-              key={entry.version}
-              entry={entry}
-              isHead={entry.version === headVersion}
-              isViewing={entry.version === viewing && viewing !== headVersion}
-              travelling={viewing !== headVersion}
-              onView={() => {
-                onView(entry.version);
-              }}
-            />
+            <Entry key={entry.version} entry={entry} isHead={entry.version === headVersion} />
           ))
         )}
       </ScrollArea>

@@ -1,18 +1,21 @@
 /**
  * The whole application, and deliberately the only stateful thing in it.
  *
- * There are exactly three pieces of state here: the text of the log (owned by the feed), the
- * wall clock, and two pieces of pure UI — which node is selected and which version is being
- * looked at. Everything else on screen is a pure function of those. That is what "the viewer
- * holds zero authoritative state" means operationally: kill the process, restart it, and the
- * view is identical, because there was never anything here to lose.
+ * There are exactly four pieces of state here: the text of the log (owned by the feed), the
+ * wall clock, and two pieces of pure UI — which node is selected and whether the timeline is
+ * open. Everything else on screen is a pure function of those. That is what "the viewer holds
+ * zero authoritative state" means operationally: kill the process, restart it, and the view is
+ * identical, because there was never anything here to lose.
+ *
+ * There is no version to be "at". The canvas shows head and only head — the timeline is read,
+ * not operated (see `Timeline.tsx`).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useLogFeed } from "./feed/useLog.ts";
 import { useNow } from "./feed/useNow.ts";
-import { buildPursuit, pursuitAt } from "./model/pursuit.ts";
+import { buildPursuit } from "./model/pursuit.ts";
 import { buildGraphView } from "./model/view.ts";
 import { createLayoutCache } from "./layout/dagre.ts";
 import { Canvas } from "./graph/Canvas.tsx";
@@ -42,7 +45,6 @@ export function App(): React.ReactElement {
   const feed = useLogFeed();
   const now = useNow();
   const [selected, setSelected] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<number | null>(null);
   // §6.10 rule 5 calls this panel the differentiator, so defaulting it CLOSED is a real
   // trade: the canvas gets the whole window, and the reason the graph looks like this is one
   // click away rather than in front of you. The header button is worded rather than a bare
@@ -52,12 +54,7 @@ export function App(): React.ReactElement {
   // Structure is memoized on the log text and the view on the clock, separately. Re-folding a
   // whole log once a second to move a countdown would be this viewer's own version of Burr
   // #834: the right answer at the wrong cost, and it would first be felt at the fan-out.
-  const head = useMemo(() => buildPursuit(feed.text), [feed.text]);
-
-  // `pursuitAt` rather than the two-line conditional it replaces, because nothing in this
-  // package tests a `.tsx` file — judgment left in a component is judgment no mutant can
-  // reach, and the first version of exactly this line shipped a bug that 589 tests missed.
-  const shown = useMemo(() => pursuitAt(head, feed.text, viewing), [head, feed.text, viewing]);
+  const shown = useMemo(() => buildPursuit(feed.text), [feed.text]);
 
   const view = useMemo(
     () => buildGraphView(shown.graph, shown.completionTime, now),
@@ -78,13 +75,11 @@ export function App(): React.ReactElement {
     return points;
   }, [layout]);
 
-  // The snap key is the version the reader ASKED for. It changes only when they scrub, never
-  // when the file grows, which is exactly the line between "the graph moved" and "I moved".
-  const positions = useTweenedPositions(target, String(viewing));
+  const positions = useTweenedPositions(target);
 
   const shownEntry = useMemo(
-    () => head.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
-    [head, shown],
+    () => shown.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
+    [shown],
   );
   const fresh = useFresh(shownEntry?.diff ?? null);
 
@@ -100,8 +95,7 @@ export function App(): React.ReactElement {
   // panel reachable while a node is selected — a rail that swapped the timeline out for the
   // inspector would make selecting a card silently close the differentiator.
   const railOpen = timelineOpen || selectedView !== null;
-  const travelling = shown.graph.version !== head.graph.version;
-  const damaged = head.damaged;
+  const damaged = shown.damaged;
 
   return (
     <TooltipProvider>
@@ -187,33 +181,11 @@ export function App(): React.ReactElement {
               {damaged.length} damaged record(s): {damaged[0]?.reason} at line {damaged[0]?.line}
             </p>
           )}
-          {head.tornTail && (
+          {shown.tornTail && (
             <p className={cn(NOTICE, "bg-warning-bg text-status-sending-ink")}>
               torn final line — the expected shape of a crash, not damage. Folded without it.
             </p>
           )}
-          {travelling && (
-            <p
-              className={cn(
-                NOTICE,
-                "flex items-center gap-2.5 bg-warning-bg text-status-sending-ink",
-              )}
-            >
-              <span>
-                viewing v{shown.graph.version} as it stood — read-only. Head is v{head.graph.version}.
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setViewing(null);
-                }}
-                className="cursor-pointer rounded-[3px] border border-current px-1.5 text-[10px]"
-              >
-                back to head
-              </button>
-            </p>
-          )}
-
           <div className="min-h-0 flex-1">
             <Canvas
               graph={shown.graph}
@@ -255,14 +227,7 @@ export function App(): React.ReactElement {
             )}
             {timelineOpen && (
               <div className="flex min-h-0 flex-1 flex-col">
-                <Timeline
-                  entries={head.timeline}
-                  headVersion={head.graph.version}
-                  viewing={shown.graph.version}
-                  onView={(version) => {
-                    setViewing(version === head.graph.version ? null : version);
-                  }}
-                />
+                <Timeline entries={shown.timeline} headVersion={shown.graph.version} />
               </div>
             )}
           </aside>
