@@ -24,8 +24,13 @@ Block 1, first vertical slice: **`init` → `mutate` → `graph`, end to end.**
 |---|---|
 | `kona init` | create `.kona/`, write the genesis record, refuse on a network filesystem |
 | `kona mutate` | the only write path — validate → lock → CAS → append → fsync |
-| `kona graph` | the only read contract — the graph is a **fold** over the log |
-| `next` `brief` `poll` `resume` `effect` `view` | specified, not built; the CLI says so rather than doing nothing |
+| `kona graph` | the only read contract — the graph is a **fold** over the log (`--history` adds the rationale chain) |
+| `kona next` | the ready frontier, computed never stored |
+| `kona brief` | a node's subgraph plus identity, correlation and fail-closed preconditions |
+| `kona effect` | `reserve` \| `record` — the outbox, the only verbs that touch the world |
+| `kona resume` | reconcile-then-repair: fires overdue deadlines, surfaces unknown sends |
+| `kona view` | the localhost server behind the viewer — user-run, never plugin-spawned |
+| `poll` | specified, not built; it needs the mailbox port. The CLI says so rather than doing nothing |
 
 Of the three invariants, **#1 (terminal & effect protection)** is enforced. #2 and #3 land
 with the wait and outbox engines.

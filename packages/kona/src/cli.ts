@@ -21,6 +21,7 @@ import { runGraph } from "./commands/graph.ts";
 import { runNext } from "./commands/next.ts";
 import { runBrief } from "./commands/brief.ts";
 import { runResume } from "./commands/resume.ts";
+import { DEFAULT_VIEW_PORT, runView } from "./commands/view.ts";
 import { runMutate } from "./commands/mutate.ts";
 import { runRecord, runReserve } from "./commands/effect.ts";
 
@@ -38,7 +39,7 @@ const VERBS: { name: string; summary: string; built: boolean }[] = [
   { name: "poll", summary: "scan each armed wait's cursor", built: false },
   { name: "resume", summary: "reconcile-then-repair", built: true },
   { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", built: true },
-  { name: "view", summary: "start the localhost viewer", built: false },
+  { name: "view", summary: "start the localhost viewer — user-run, never plugin-spawned", built: true },
 ];
 
 function usage(): string {
@@ -116,10 +117,11 @@ const VERB_OPTIONS: Record<string, Options> = {
     "actor-id": { type: "string", default: "operator" },
     config: { type: "string" },
   },
-  graph: { ...COMMON, version: { type: "string" } },
+  graph: { ...COMMON, version: { type: "string" }, history: { type: "boolean", default: false } },
   next: { ...COMMON },
   brief: { ...COMMON },
   resume: { ...COMMON, "dry-run": { type: "boolean", default: false } },
+  view: { ...COMMON, port: { type: "string" } },
   effect: {
     ...COMMON,
     "payload-hash": { type: "string" },
@@ -249,6 +251,13 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     return await runEffect(values, positionals, io);
   }
 
+  if (verb === "view") {
+    if (values["port"] === undefined) return await runView(io, { json, port: DEFAULT_VIEW_PORT });
+    const port = requireInteger(values, "port", io);
+    if (port === null) return EXIT_REFUSED;
+    return await runView(io, { json, port });
+  }
+
   if (verb === "resume") {
     return await runResume(io, { json, dryRun: values["dry-run"] === true });
   }
@@ -258,13 +267,13 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   }
 
   if (verb === "graph") {
-    const raw = values["version"];
-    if (raw !== undefined) {
+    const history = values["history"] === true;
+    if (values["version"] !== undefined) {
       const version = requireInteger(values, "version", io);
       if (version === null) return EXIT_REFUSED;
-      return await runGraph(io, { json, version });
+      return await runGraph(io, { json, version, history });
     }
-    return await runGraph(io, { json });
+    return await runGraph(io, { json, history });
   }
 
   const opsFile = requireString(values, "ops", io);

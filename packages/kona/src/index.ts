@@ -14,6 +14,7 @@ export * from "./commands/graph.ts";
 export * from "./commands/next.ts";
 export * from "./commands/brief.ts";
 export * from "./commands/resume.ts";
+export * from "./commands/view.ts";
 export * from "./commands/mutate.ts";
 export * from "./commands/effect.ts";
 export * from "./commit.ts";
