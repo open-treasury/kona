@@ -56,6 +56,41 @@ const walk = (dir: string, out: string[] = [], depth = 0): string[] => {
 };
 
 const isKona = (name: string): boolean => /kona/i.test(name);
+
+/**
+ * Per-check results, which is the only quality signal this task actually offers.
+ *
+ * `test.sh` writes reward 1 only when pytest exits 0 — all twenty constraint checks or
+ * nothing. On a 4-hour expert task that means both arms score 0.0 and the headline number
+ * carries no information at all. But pytest also writes CTRF, and a run that satisfied
+ * seventeen constraints is not the same event as one that satisfied three. Measured: the
+ * seeded Sonnet run read `reward: 0.0` and had passed 17/20.
+ */
+type Checks = { passed: number; total: number; failed: string[] } | null;
+const checksFor = (trialFile: string): Checks => {
+  const dir = trialFile.slice(0, trialFile.lastIndexOf("/"));
+  try {
+    const ctrf = JSON.parse(readFileSync(`${dir}/verifier/ctrf.json`, "utf8")) as {
+      results?: { tests?: { name: string; status: string }[] };
+    };
+    const tests = ctrf.results?.tests ?? [];
+    if (tests.length === 0) return null;
+    return {
+      passed: tests.filter((t) => t.status === "passed").length,
+      total: tests.length,
+      failed: tests.filter((t) => t.status !== "passed").map((t) => t.name.split("::").at(-1) ?? t.name),
+    };
+  } catch {
+    return null;
+  }
+};
+
+/** Wall-clock for the trial, from the timestamps the runner stamped. */
+const minutesFor = (t: { started_at?: string; finished_at?: string }): number | null => {
+  if (t.started_at === undefined || t.finished_at === undefined) return null;
+  const ms = Date.parse(t.finished_at) - Date.parse(t.started_at);
+  return Number.isFinite(ms) ? ms / 60_000 : null;
+};
 const rewardOf = (t: Trial): number | null => {
   const r = t.verifier_result?.rewards;
   if (!r) return null;
@@ -157,6 +192,27 @@ for (const r of rows) {
   const d = r.delta === null ? "  n/a " : (r.delta > 0 ? "+" : "") + r.delta.toFixed(3);
   console.log(`  ${fmt(r.base)}  ${fmt(r.kona)}  ${d.padStart(7)}   ${r.task}${r.note ? `   [${r.note}]` : ""}`);
 }
+
+// Constraint checks and wall-clock — the two comparisons the binary reward cannot make.
+console.log(`\n=== checks passed, and time taken ===`);
+for (const task of tasks) {
+  for (const arm of ["baseline", "kona"] as const) {
+    const t = trials.find((x) => x.task === task && x.arm === arm);
+    if (t === undefined) continue;
+    const c = checksFor(t.file);
+    const mins = minutesFor(t.trial as { started_at?: string; finished_at?: string });
+    const checks = c === null ? "no ctrf" : `${c.passed}/${c.total} checks`;
+    const time = mins === null ? "" : ` · ${mins.toFixed(0)} min`;
+    console.log(`  ${arm.padEnd(8)} ${checks.padEnd(16)}${time}   ${task}`);
+    if (c !== null && c.failed.length > 0) {
+      console.log(`           failed: ${c.failed.join(", ")}`);
+    }
+  }
+}
+console.log(
+  `\n  Reward is BINARY on this suite — all checks or zero — so a 0.0 on both arms is the\n` +
+    `  expected outcome and says nothing. The check count is where the comparison lives.`,
+);
 
 const scored = rows.filter((r) => r.delta !== null) as (Row & { delta: number })[];
 const pos = scored.filter((r) => r.delta > 0).length;

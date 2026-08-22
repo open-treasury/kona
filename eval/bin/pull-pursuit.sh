@@ -30,11 +30,18 @@ for a in "$@"; do
 done
 
 pull_once() {
-  # The agent container is the one running the task; verifier containers come and go.
-  local c
-  c="$(docker ps --format '{{.Names}}' | grep -- '-main-1$' | head -1 || true)"
+  # In an A/B both arms are up and only ONE has a pursuit — the baseline has no `.kona/`
+  # because it has no Kona, which is the whole point of it. So pick by what the container
+  # holds rather than by name order, or half the time you tail the arm with nothing in it.
+  local c=""
+  for candidate in $(docker ps --format '{{.Names}}' | grep -- '-main-1$'); do
+    if docker exec "${candidate}" test -f /.kona/mutations.jsonl 2>/dev/null; then
+      c="${candidate}"
+      break
+    fi
+  done
   if [[ -z "${c}" ]]; then
-    echo "no running trial container" >&2
+    echo "no running container has a pursuit" >&2
     return 1
   fi
   mkdir -p "${dest}/.kona"

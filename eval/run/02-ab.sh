@@ -29,7 +29,7 @@ for arm in baseline kona; do
     $(env_file_flag) \
     -k 1 \
     -n "${N_CONCURRENT}" \
-    --agent-timeout-multiplier 1.0 \
+    --agent-timeout-multiplier "${MULT:-1.0}" \
     -o "${JOBS_DIR}" \
     --job-name "ab-${STAMP}-${arm}" \
     --artifact /.kona/mutations.jsonl \
