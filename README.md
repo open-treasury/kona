@@ -31,7 +31,7 @@ viewer are the remaining work.
 | `kona effect` | `reserve` \| `record` — the outbox, the only verbs that touch the world |
 | `kona resume` | reconcile-then-repair: fires overdue deadlines, surfaces unknown sends |
 | `kona poll` | which wait each inbound reply belongs to — and nothing about what it says |
-| `kona view` | the localhost server behind the viewer — user-run, never plugin-spawned |
+| `kona view` | start the viewer — user-run, never plugin-spawned |
 
 Of the three invariants, **#1 (terminal & effect protection)** is enforced. #2 and #3 land
 with the wait and outbox engines.

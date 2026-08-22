@@ -21,7 +21,7 @@ import { runGraph } from "./commands/graph.ts";
 import { runNext } from "./commands/next.ts";
 import { runBrief } from "./commands/brief.ts";
 import { runResume } from "./commands/resume.ts";
-import { DEFAULT_VIEW_PORT, runView } from "./commands/view.ts";
+import { runView } from "./commands/view.ts";
 import { runPoll } from "./commands/poll.ts";
 import { runMutate } from "./commands/mutate.ts";
 import { runRecord, runReserve } from "./commands/effect.ts";
@@ -253,7 +253,8 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   }
 
   if (verb === "view") {
-    if (values["port"] === undefined) return await runView(io, { json, port: DEFAULT_VIEW_PORT });
+    // No default port here: the viewer package owns that number.
+    if (values["port"] === undefined) return await runView(io, { json });
     const port = requireInteger(values, "port", io);
     if (port === null) return EXIT_REFUSED;
     return await runView(io, { json, port });

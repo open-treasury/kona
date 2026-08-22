@@ -28,6 +28,7 @@
       },
       "dependencies": {
         "@kona/core": "workspace:*",
+        "@kona/viewer": "workspace:*",
       },
     },
     "packages/viewer": {

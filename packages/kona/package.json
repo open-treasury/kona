@@ -11,6 +11,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@kona/core": "workspace:*"
+    "@kona/core": "workspace:*",
+    "@kona/viewer": "workspace:*"
   }
 }
