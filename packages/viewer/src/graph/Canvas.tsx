@@ -217,6 +217,10 @@ export function Canvas({
       selectionKeyCode={null}
       multiSelectionKeyCode={null}
       onNodeClick={(_event, node) => {
+        // The markers are notation. Selecting one would ask the inspector for a node the
+        // graph does not have, and clearing the selection would make the two circles the
+        // only cards on the canvas that close the panel.
+        if (node.type === KONA_MARKER_TYPE) return;
         onSelect(node.id);
       }}
       onPaneClick={() => {

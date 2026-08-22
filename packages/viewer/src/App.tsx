@@ -94,6 +94,12 @@ export function App(): React.ReactElement {
   }, [view, selected]);
 
   const selectedView = selected === null ? null : (view.byId.get(selected) ?? null);
+  // ONE right rail, with two sections in it rather than two rails side by side. A second
+  // 380px column would cost the canvas 760px of a 1512px window, and the graph is already the
+  // thing that runs out of room first (kona-e6-8h7.10). Stacking also keeps §6.10 rule 5's
+  // panel reachable while a node is selected — a rail that swapped the timeline out for the
+  // inspector would make selecting a card silently close the differentiator.
+  const railOpen = timelineOpen || selectedView !== null;
   const travelling = shown.graph.version !== head.graph.version;
   const damaged = head.damaged;
 
@@ -102,7 +108,7 @@ export function App(): React.ReactElement {
       <div
         className={cn(
           "grid h-full grid-rows-[44px_minmax(0,1fr)]",
-          timelineOpen ? "grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-[minmax(0,1fr)]",
+          railOpen ? "grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-[minmax(0,1fr)]",
         )}
       >
         <header className="col-span-full flex items-center gap-4 border-b border-border bg-background px-4 shadow-nav">
@@ -172,8 +178,8 @@ export function App(): React.ReactElement {
 
         <main
           className={cn(
-            "relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]",
-            timelineOpen && "border-r border-border",
+            "relative flex min-h-0 min-w-0 flex-col",
+            railOpen && "border-r border-border",
           )}
         >
           {damaged.length > 0 && (
@@ -208,24 +214,16 @@ export function App(): React.ReactElement {
             </p>
           )}
 
-          <Canvas
-            graph={shown.graph}
-            view={view}
-            positions={positions}
-            fresh={fresh}
-            selected={selected}
-            onSelect={setSelected}
-          />
-
-          {selectedView !== null && (
-            <Inspector
+          <div className="min-h-0 flex-1">
+            <Canvas
               graph={shown.graph}
-              view={selectedView}
-              onClose={() => {
-                setSelected(null);
-              }}
+              view={view}
+              positions={positions}
+              fresh={fresh}
+              selected={selected}
+              onSelect={setSelected}
             />
-          )}
+          </div>
         </main>
 
         {/*
@@ -234,16 +232,39 @@ export function App(): React.ReactElement {
           scrolled position and a `rationale detail` toggle alive behind a panel nobody can
           see, which is state the viewer is not supposed to have.
         */}
-        {timelineOpen && (
-          <aside className="grid min-h-0 grid-rows-[minmax(0,1fr)] bg-background">
-            <Timeline
-              entries={head.timeline}
-              headVersion={head.graph.version}
-              viewing={shown.graph.version}
-              onView={(version) => {
-                setViewing(version === head.graph.version ? null : version);
-              }}
-            />
+        {railOpen && (
+          <aside className="flex min-h-0 min-w-0 flex-col bg-background">
+            {/* The selected node on top, because it is what the reader just asked for. It is
+                capped rather than halved: a task with no wait and no outcome is six rows, and
+                giving it half the rail would be six rows of data over a field of white. */}
+            {selectedView !== null && (
+              <div
+                className={cn(
+                  "flex min-h-0 flex-col",
+                  timelineOpen ? "max-h-[58%] border-b border-border" : "flex-1",
+                )}
+              >
+                <Inspector
+                  graph={shown.graph}
+                  view={selectedView}
+                  onClose={() => {
+                    setSelected(null);
+                  }}
+                />
+              </div>
+            )}
+            {timelineOpen && (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <Timeline
+                  entries={head.timeline}
+                  headVersion={head.graph.version}
+                  viewing={shown.graph.version}
+                  onView={(version) => {
+                    setViewing(version === head.graph.version ? null : version);
+                  }}
+                />
+              </div>
+            )}
           </aside>
         )}
       </div>

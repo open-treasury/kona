@@ -47,7 +47,13 @@ function Reveal({
   );
 }
 
-const KV = "grid grid-cols-[132px_minmax(0,1fr)] gap-x-3 gap-y-0.5 px-3.5 py-2.5 font-mono text-[11px]";
+/**
+ * Two columns rather than stacked label-over-value, at 100px because that is what a 380px rail
+ * leaves. Stacking would read more comfortably and doubles the length of a panel that is
+ * already the longest thing in the app — and this is a reference panel, scanned down the label
+ * column for one row, not prose. Density wins here; it would not on the card.
+ */
+const KV = "grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-0.5 px-3.5 py-2.5 font-mono text-[11px]";
 
 export function Inspector({ graph, view, onClose }: InspectorProps): React.ReactElement {
   const node = view.node;
@@ -57,7 +63,7 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
   const wait = view.wait;
 
   return (
-    <section className="grid max-h-[46vh] grid-rows-[auto_minmax(0,1fr)] border-t border-border bg-background">
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-background">
       <div className="flex items-center gap-2 border-b border-border px-3 py-3 text-ui font-medium text-muted-foreground uppercase">
         <span className="truncate">{node.id}</span>
         <span className="flex-1" />

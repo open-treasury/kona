@@ -857,8 +857,8 @@
   .h-px {
     height: 1px;
   }
-  .max-h-\[46vh\] {
-    max-height: 46vh;
+  .max-h-\[58\%\] {
+    max-height: 58%;
   }
   .min-h-0 {
     min-height: 0px;
@@ -930,8 +930,8 @@
   .grid-cols-\[86px_minmax\(0\,1fr\)\] {
     grid-template-columns: 86px minmax(0,1fr);
   }
-  .grid-cols-\[132px_minmax\(0\,1fr\)\] {
-    grid-template-columns: 132px minmax(0,1fr);
+  .grid-cols-\[100px_minmax\(0\,1fr\)\] {
+    grid-template-columns: 100px minmax(0,1fr);
   }
   .grid-cols-\[minmax\(0\,1fr\)\] {
     grid-template-columns: minmax(0,1fr);
@@ -947,9 +947,6 @@
   }
   .grid-rows-\[minmax\(0\,1fr\)\] {
     grid-template-rows: minmax(0,1fr);
-  }
-  .grid-rows-\[minmax\(0\,1fr\)_auto\] {
-    grid-template-rows: minmax(0,1fr) auto;
   }
   .flex-col {
     flex-direction: column;
