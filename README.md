@@ -31,7 +31,7 @@ rig that drives all of it as a subprocess. 1,200 tests.
 |---|---|
 | `kona init` | create `.kona/`, write the genesis record, refuse on a network filesystem |
 | `kona mutate` | the only write path — validate → lock → CAS → append → fsync |
-| `kona graph` | the only read contract — the graph is a **fold** over the log (`--history` adds the rationale chain) |
+| `kona graph` | the only read contract — the graph is a **fold** over the log (`--json --history` adds the rationale chain; `--history` alone changes nothing, since the text rendering has nowhere to put it) |
 | `kona next` | the ready frontier, computed never stored |
 | `kona brief` | a node's subgraph plus identity, correlation and fail-closed preconditions |
 | `kona effect` | `reserve` \| `record` — the outbox, the only verbs that touch the world |
@@ -110,7 +110,7 @@ kona mutate --ops ask.json --base-version 1 --why "again" --reason-code OTHER; e
 fresh pursuit and the store will not have it:
 
 ```
-UNEVIDENCED_RECIPIENT node=ask-dana-to-play-thursday op=0 nothing in the graph attests to
+UNEVIDENCED_RECIPIENT node=ask-dana-to-play-thursday op=1 nothing in the graph attests to
 'dana' (recipient_ref 'roster.contacts#dana'). A recipient must already be named by a
 recorded output that cited its source, or by an outcome's attrs — evidence that existed
 BEFORE this batch. At n=60 a mutator that could not satisfy a constraint invented
