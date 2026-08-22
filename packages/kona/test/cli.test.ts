@@ -373,3 +373,60 @@ describe("the architecture, asserted", () => {
     }
   });
 });
+
+describe("§6.8: every non-zero exit writes one symbolic stderr line", () => {
+  /**
+   * The contract a caller depends on. `demo/kona.ts` throws a `KonaError` carrying stderr,
+   * and a shell script greps the first token — so a verb that fails SILENTLY leaves both
+   * with nothing to report but the number. Checked across every refusal reachable from
+   * argument handling, since that is where a `return EXIT_REFUSED` is easiest to add
+   * without a message beside it.
+   */
+  const REFUSALS: [string, string[]][] = [
+    ["unknown verb", ["rollback"]],
+    ["unknown flag", ["graph", "--yolo"]],
+    ["graph outside a pursuit", ["graph"]],
+    ["next outside a pursuit", ["next"]],
+    ["resume outside a pursuit", ["resume"]],
+    ["poll outside a pursuit", ["poll"]],
+    ["view outside a pursuit", ["view"]],
+    ["brief with no node", ["brief"]],
+    ["brief outside a pursuit", ["brief", "some-node"]],
+    ["effect with no subcommand", ["effect", "--why", "x"]],
+    ["effect with an unknown subcommand", ["effect", "cancel", "n", "--why", "x"]],
+    ["effect with no node", ["effect", "reserve", "--why", "x", "--payload-hash", "h"]],
+    ["reserve outside a pursuit", ["effect", "reserve", "n", "--why", "x", "--payload-hash", "h"]],
+    ["mutate with no --ops", ["mutate", "--base-version", "0", "--why", "x", "--reason-code", "OTHER"]],
+    ["mutate with no --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "0"]],
+    ["mutate with an empty --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "0", "--why", ""]],
+    ["mutate with a bad --reason-code", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "0", "--why", "x", "--reason-code", "NOPE"]],
+    ["mutate with a bad --base-version", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "one", "--why", "x", "--reason-code", "OTHER"]],
+    ["a bad --version", ["graph", "--version", "abc"]],
+    ["a bad --port", ["view", "--port", "abc"]],
+  ];
+
+  test.each(REFUSALS)("%s", async (_name, argv) => {
+    h.reset();
+    const code = await run(argv, h.io);
+    expect(code).not.toBe(0);
+    expect(h.err.length).toBeGreaterThan(0);
+    // Symbolic reason first, so `cut -d' ' -f1` is a stable contract.
+    expect(h.err[0] ?? "").toMatch(/^[A-Z][A-Z_]+ /);
+  });
+
+  test("and a zero exit writes nothing to stderr", async () => {
+    h.reset();
+    expect(await run(["init"], h.io)).toBe(0);
+    expect(h.err).toEqual([]);
+    h.reset();
+    expect(await run(["graph"], h.io)).toBe(0);
+    expect(h.err).toEqual([]);
+  });
+
+  test("the exit code is always one of the four §6.8 defines", async () => {
+    for (const [, argv] of REFUSALS) {
+      h.reset();
+      expect([0, 1, 3, 4]).toContain(await run(argv, h.io));
+    }
+  });
+});

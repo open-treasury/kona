@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# The `kona` binary, as the plugin ships it.
+#
+# §6.12 makes plugin/bin/ the home of the compiled binary, and §1 defers building one:
+# "For Friday, ship the TS and require Bun — one artifact, no matter which OS."
+# So this resolves, in order:
+#
+#   1. a compiled binary next to this script, if `bun build --compile` has been run
+#   2. the repo's TypeScript entry point, run under Bun
+#
+# Every argument is forwarded untouched, and the exit status is preserved — §6.8's codes
+# (0 ok · 1 refused · 3 stale base version · 4 invariant violation) are the whole point,
+# and a wrapper that swallowed them would make every caller guess.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -x "${here}/kona-bin" ]]; then
+  exec "${here}/kona-bin" "$@"
+fi
+
+entry="${here}/../../packages/kona/src/bin.ts"
+if [[ ! -f "${entry}" ]]; then
+  echo "REFUSED NO_BINARY neither ${here}/kona-bin nor ${entry} exists" >&2
+  exit 1
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  echo "REFUSED NO_BUN kona ships as TypeScript and needs Bun on PATH (https://bun.sh)" >&2
+  exit 1
+fi
+
+exec bun "${entry}" "$@"

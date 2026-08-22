@@ -1,0 +1,18 @@
+{
+  "name": "kona",
+  "displayName": "Kona",
+  "version": "0.1.0",
+  "description": "A living workflow graph. Author a pursuit from a brief, run it, and let it change shape as reality answers \u2014 every mutation versioned with its rationale.",
+  "author": {
+    "name": "Ilya Vorobiev"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "agents",
+    "graph",
+    "long-horizon"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
+}
