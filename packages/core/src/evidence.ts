@@ -53,31 +53,34 @@ export function evidencedKeys(graph: Graph): Set<string> {
 
   const harvest = (value: unknown): void => {
     if (typeof value === "string") {
+      // An empty string would be a key that `recipient_ref` could match with an empty key,
+      // which is a fabrication passing as evidence.
       if (value.length > 0) keys.add(value.toLowerCase());
       return;
     }
-    if (Array.isArray(value)) {
-      for (const entry of value) harvest(entry);
-      return;
-    }
-    if (typeof value === "object" && value !== null) {
-      for (const entry of Object.values(value)) harvest(entry);
-    }
+    // `Object.values` throws on `null` and `undefined`, yields nothing for every other
+    // primitive, and yields an array's elements — so this one branch covers objects, arrays
+    // and the rest. An explicit `Array.isArray` case was only a slower spelling of it, and
+    // mutation testing said so: deleting the branch changed no answer anywhere.
+    if (value === null || value === undefined) return;
+    for (const entry of Object.values(value)) harvest(entry);
   };
 
   for (const node of graph.nodes.values()) {
-    // An output counts only where its evidence was retained. `record_output` has always
-    // required an `evidence_ref`; a value with none behind it is the model's own word.
-    const evidence = node.status.output_evidence;
-    if (evidence !== null && node.status.output !== null) {
-      for (const [name, value] of Object.entries(node.status.output)) {
-        if (typeof evidence[name] === "string") harvest(value);
-      }
-    }
-    // Outcomes carry an evidence_ref by schema, so their attrs are attested by construction.
-    for (const outcome of node.status.outcomes) {
-      if (outcome.attrs !== undefined) harvest(outcome.attrs);
-    }
+    // An output counts because `record_output` CANNOT be committed without an
+    // `evidence_ref` — the schema makes it mandatory and non-empty, and `MutationRecordSchema`
+    // re-parses every historical line on every fold, so the guarantee is retroactive too.
+    //
+    // An earlier version re-checked it here, per output field. Every one of those branches
+    // was an unkillable mutant, because `applyOps` writes `output` and `output_evidence` in
+    // one statement and no graph can have the key sets disagree. Enforcing an invariant twice
+    // is the same mistake as storing a fact twice: the copies can only ever diverge, and the
+    // second one reads as caution while being noise. `evidence.test.ts` pins the guarantee
+    // instead, so a schema that relaxed would fail there rather than silently here.
+    harvest(node.status.output);
+    // Outcomes carry an `evidence_ref` by the same rule, so their attrs are attested by
+    // construction — and they are the half that makes a referral chain work.
+    for (const outcome of node.status.outcomes) harvest(outcome.attrs);
   }
 
   return keys;
