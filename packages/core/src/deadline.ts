@@ -1,0 +1,133 @@
+/**
+ * Deadline evaluation (§6.2, §6.5). Pure: the clock is an argument, never a call.
+ *
+ * §6.2 makes a `deadline` and an `on_timeout` mandatory on every wait, and calls it "the
+ * schema rule that most directly prevents a silent multi-day hang". This is the half that
+ * makes the rule mean something: a message sitting in someone's spam folder is *sent* —
+ * no bounce, no reply, no error — so the only thing that ever ends that wait is the clock.
+ */
+
+import type { Deadline, MutationRecord } from "./schema.ts";
+import type { Graph, Node } from "./graph.ts";
+import { isTerminal } from "./vocab.ts";
+
+const DURATION = /^(\d+)([smhd])$/;
+const UNIT_MS: Record<string, number> = {
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+};
+
+export function parseDuration(duration: string): number | null {
+  const match = DURATION.exec(duration);
+  if (match === null) return null;
+  const amount = Number(match[1]);
+  const unit = UNIT_MS[match[2] ?? ""];
+  return unit === undefined ? null : amount * unit;
+}
+
+/**
+ * When a node reached a terminal state, taken from the log rather than from the graph.
+ *
+ * The graph keeps `observed_at_version`, not a timestamp — deliberately, since a fold must
+ * not invent times. The record that moved it is where the time lives.
+ */
+export function settledAt(records: readonly MutationRecord[], nodeId: string): string | null {
+  for (let index = records.length - 1; index >= 0; index--) {
+    const record = records[index];
+    if (record === undefined) continue;
+    for (const op of record.ops) {
+      if (op.op === "set_status" && op.node === nodeId && isTerminal(op.status)) {
+        return record.occurred_at;
+      }
+    }
+  }
+  return null;
+}
+
+export interface EffectiveDeadline {
+  /** The instant this wait expires, or null when it cannot yet be computed. */
+  at: string | null;
+  /** How it was arrived at, so a report can say why a wait is or is not overdue. */
+  basis: string;
+}
+
+/**
+ * Resolve one of §6.2's three deadline shapes to an instant.
+ *
+ * The `{expr}` shape is NOT evaluated. §6.8 hardcodes its queries and says "no query
+ * language", so shipping an expression evaluator would be exactly the thing that decision
+ * refused. Its `backstop` is what it is for: the date past which the wait expires however
+ * the expression would have resolved.
+ */
+export function effectiveDeadline(
+  records: readonly MutationRecord[],
+  deadline: Deadline,
+): EffectiveDeadline {
+  if ("at" in deadline) {
+    return { at: deadline.at, basis: "fixed instant" };
+  }
+
+  if ("after" in deadline) {
+    const anchor = settledAt(records, deadline.after);
+    if (anchor === null) {
+      return { at: null, basis: `waiting for '${deadline.after}' to settle` };
+    }
+    const span = parseDuration(deadline.duration);
+    if (span === null) {
+      return { at: null, basis: `'${deadline.duration}' is not a duration` };
+    }
+    return {
+      at: new Date(Date.parse(anchor) + span).toISOString(),
+      basis: `${deadline.duration} after '${deadline.after}' settled`,
+    };
+  }
+
+  return {
+    at: deadline.backstop,
+    basis: `backstop for '${deadline.expr}' (expressions are not evaluated)`,
+  };
+}
+
+/** A wait that is still armed: live, unresolved, and holding something up. */
+export function armedWaits(graph: Graph): Node[] {
+  return [...graph.nodes.values()].filter(
+    (node) =>
+      node.type === "wait" &&
+      node.status.state === "active" &&
+      node.provenance.superseded_by === null,
+  );
+}
+
+export interface WaitStatus {
+  node: Node;
+  deadline: EffectiveDeadline;
+  overdue: boolean;
+}
+
+export function waitStatus(
+  records: readonly MutationRecord[],
+  node: Node,
+  now: string,
+): WaitStatus {
+  if (node.spec.deadline === undefined) {
+    return { node, deadline: { at: null, basis: "no deadline" }, overdue: false };
+  }
+  const deadline = effectiveDeadline(records, node.spec.deadline);
+  // Fail SAFE: an unresolvable deadline is not an expired one. Treating "cannot tell"
+  // as "expired" would fire a timeout branch — and possibly a pivot — on a wait whose
+  // anchor simply has not run yet.
+  const overdue = deadline.at !== null && Date.parse(now) >= Date.parse(deadline.at);
+  return { node, deadline, overdue };
+}
+
+export function overdueWaits(
+  records: readonly MutationRecord[],
+  graph: Graph,
+  now: string,
+): WaitStatus[] {
+  return armedWaits(graph)
+    .map((node) => waitStatus(records, node, now))
+    .filter((status) => status.overdue);
+}

@@ -6,7 +6,7 @@
  * enforces that: `core` has no `node:fs` import to make.
  */
 
-import { open, readFile } from "node:fs/promises";
+import { open, readFile, truncate } from "node:fs/promises";
 import { type FoldResult, type MutationRecord, foldLog } from "@kona/core";
 import type { KonaPaths } from "./paths.ts";
 
@@ -21,6 +21,25 @@ export async function loadGraph(paths: KonaPaths): Promise<FoldResult> {
 /** One record, one line. No trailing spaces, no pretty-printing, always newline-terminated. */
 export function serializeRecord(record: MutationRecord): string {
   return `${JSON.stringify(record)}\n`;
+}
+
+/**
+ * Drop a torn final line before appending after it.
+ *
+ * A crash between append and fsync leaves a partial last line, which `fold` correctly
+ * tolerates (§6.1). But appending *after* it buries the tear in the MIDDLE of the file,
+ * where it stops being a tolerable tail and becomes damage — and from then on every read
+ * and every write refuses. One crash would permanently corrupt the pursuit.
+ *
+ * Truncating is not a rewrite of durable data: a torn line is by definition a record whose
+ * fsync never returned, so nothing was ever promised about it and nothing can depend on it.
+ * Only the last line can be torn, so exactly one line is dropped.
+ */
+export async function dropTornTail(paths: KonaPaths, text: string): Promise<void> {
+  const withoutFinalNewline = text.replace(/\n$/, "");
+  const lastBreak = withoutFinalNewline.lastIndexOf("\n");
+  const kept = lastBreak === -1 ? "" : withoutFinalNewline.slice(0, lastBreak + 1);
+  await truncate(paths.log, Buffer.byteLength(kept, "utf8"));
 }
 
 /**

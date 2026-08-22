@@ -52,7 +52,7 @@ describe("dispatch", () => {
   });
 
   test("a specified-but-unbuilt verb says so rather than doing nothing", async () => {
-    expect(await run(["resume"], h.io)).toBe(1);
+    expect(await run(["poll"], h.io)).toBe(1);
     expect(h.err[0]).toContain("NOT_IMPLEMENTED");
   });
 

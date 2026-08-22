@@ -8,6 +8,8 @@ export * from "./result.ts";
 export * from "./effect.ts";
 export * from "./correlation.ts";
 export * from "./brief.ts";
+export * from "./deadline.ts";
+export * from "./resume.ts";
 export * from "./apply.ts";
 export * from "./normalize.ts";
 export * from "./fold.ts";

@@ -19,7 +19,7 @@ import {
 } from "@kona/core";
 import type { KonaPaths } from "./paths.ts";
 import { findPursuitRoot, konaPaths } from "./paths.ts";
-import { appendRecord, readLogText } from "./store.ts";
+import { appendRecord, dropTornTail, readLogText } from "./store.ts";
 import { withLock } from "./lock.ts";
 import { EXIT_REFUSED, exitCodeFor } from "./exit.ts";
 import type { Io } from "./io.ts";
@@ -65,7 +65,8 @@ export async function commitBatch(
   const paths: KonaPaths = konaPaths(root);
 
   const held = await withLock(paths.lock, io.now, io.pid, async () => {
-    const folded = foldLog(await readLogText(paths));
+    const text = await readLogText(paths);
+    const folded = foldLog(text);
 
     const [firstDamaged] = folded.damaged;
     if (firstDamaged !== undefined) {
@@ -110,6 +111,9 @@ export async function commitBatch(
       outcome: null,
     };
 
+    // Before appending, remove any torn tail a previous crash left, or this append would
+    // bury it mid-file and turn a survivable crash into a corrupt log.
+    if (folded.torn_tail !== null) await dropTornTail(paths, text);
     await appendRecord(paths, record);
 
     return {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { SCHEMA_VERSION, type MutationRecord } from "@kona/core";
 import { konaPaths } from "../src/paths.ts";
-import { appendRecord, loadGraph, readLogText, serializeRecord } from "../src/store.ts";
+import { appendRecord, dropTornTail, loadGraph, readLogText, serializeRecord } from "../src/store.ts";
 import { systemClock } from "../src/clock.ts";
 import { harness, type Harness } from "./harness.ts";
 
@@ -74,5 +74,42 @@ describe("the clock", () => {
 
   test("it is the only moving part: two reads may differ, a fixed clock never does", () => {
     expect(h.io.now()).toBe(h.io.now());
+  });
+});
+
+describe("a torn tail is dropped before appending after it", () => {
+  test("so one crash cannot corrupt the log permanently", async () => {
+    // Appending after a torn line buries it MID-FILE, where it stops being a tolerable
+    // tail and becomes damage — and from then on every read and every write refuses.
+    const paths = konaPaths(h.dir);
+    await appendRecord(paths, stamped(0));
+    await Bun.write(paths.log, `${readFileSync(paths.log, "utf8")}{"v":1,"schema_ver`);
+
+    const torn = await loadGraph(paths);
+    expect(torn.torn_tail).not.toBeNull();
+
+    await dropTornTail(paths, await readLogText(paths));
+    await appendRecord(paths, stamped(1));
+
+    const healed = await loadGraph(paths);
+    expect(healed.torn_tail).toBeNull();
+    expect(healed.damaged).toEqual([]);
+    expect(healed.records.map((r) => r.v)).toEqual([0, 1]);
+  });
+
+  test("a log that is nothing but a torn line truncates to empty", async () => {
+    const paths = konaPaths(h.dir);
+    await Bun.write(paths.log, '{"v":0,"schema_ver');
+    await dropTornTail(paths, await readLogText(paths));
+    expect(await readLogText(paths)).toBe("");
+  });
+
+  test("dropping is exact — a complete record before the tear survives byte for byte", async () => {
+    const paths = konaPaths(h.dir);
+    await appendRecord(paths, stamped(0));
+    const intact = readFileSync(paths.log, "utf8");
+    await Bun.write(paths.log, `${intact}{"v":1,"sch`);
+    await dropTornTail(paths, await readLogText(paths));
+    expect(readFileSync(paths.log, "utf8")).toBe(intact);
   });
 });

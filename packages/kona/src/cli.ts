@@ -20,6 +20,7 @@ import { runInit } from "./commands/init.ts";
 import { runGraph } from "./commands/graph.ts";
 import { runNext } from "./commands/next.ts";
 import { runBrief } from "./commands/brief.ts";
+import { runResume } from "./commands/resume.ts";
 import { runMutate } from "./commands/mutate.ts";
 import { runRecord, runReserve } from "./commands/effect.ts";
 
@@ -35,7 +36,7 @@ const VERBS: { name: string; summary: string; built: boolean }[] = [
   { name: "next", summary: "the ready frontier, computed never stored", built: true },
   { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", built: true },
   { name: "poll", summary: "scan each armed wait's cursor", built: false },
-  { name: "resume", summary: "reconcile-then-repair", built: false },
+  { name: "resume", summary: "reconcile-then-repair", built: true },
   { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", built: true },
   { name: "view", summary: "start the localhost viewer", built: false },
 ];
@@ -118,6 +119,7 @@ const VERB_OPTIONS: Record<string, Options> = {
   graph: { ...COMMON, version: { type: "string" } },
   next: { ...COMMON },
   brief: { ...COMMON },
+  resume: { ...COMMON, "dry-run": { type: "boolean", default: false } },
   effect: {
     ...COMMON,
     "payload-hash": { type: "string" },
@@ -245,6 +247,10 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 
   if (verb === "effect") {
     return await runEffect(values, positionals, io);
+  }
+
+  if (verb === "resume") {
+    return await runResume(io, { json, dryRun: values["dry-run"] === true });
   }
 
   if (verb === "next") {
