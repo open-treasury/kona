@@ -18,7 +18,6 @@ import { formatIso } from "../format.ts";
 import { cn } from "../lib/cn.ts";
 import { Badge } from "../ui/badge.tsx";
 import { ScrollArea } from "../ui/scroll-area.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
 export interface TimelineProps {
   entries: readonly TimelineEntry[];
@@ -182,22 +181,11 @@ export function Timeline({
   viewing,
   onView,
 }: TimelineProps): React.ReactElement {
+  // No panel header. The thing that opened this said `timeline`, and its tooltip carries the
+  // §6.3 explanation — a title bar underneath repeating the word, plus a count the entries
+  // already are, would be the panel's most valuable row spent restating its own name.
   return (
-    <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-      <div className="flex items-center gap-2 border-b border-border px-3 py-3 text-ui font-medium text-muted-foreground uppercase">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="cursor-help">mutation timeline</span>
-          </TooltipTrigger>
-          <TooltipContent>
-            every commit carries a rationale — the schema makes omitting one impossible (§6.3).
-            Click a version to see the graph as it stood; it is read-only, never a revert.
-          </TooltipContent>
-        </Tooltip>
-        <span className="flex-1" />
-        <span>{entries.length} versions</span>
-      </div>
-
+    <section className="grid min-h-0 grid-rows-[minmax(0,1fr)]">
       <ScrollArea className="min-h-0">
         {entries.length === 0 ? (
           <p className="p-7 text-center font-mono text-[11px] text-carbon-40">no mutations yet</p>

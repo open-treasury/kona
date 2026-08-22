@@ -22,7 +22,6 @@ import type { Point } from "./graph/useTween.ts";
 import { Timeline } from "./panels/Timeline.tsx";
 import { Inspector } from "./panels/Inspector.tsx";
 import { cn } from "./lib/cn.ts";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip.tsx";
 
 /**
@@ -132,9 +131,10 @@ export function App(): React.ReactElement {
           </span>
 
           {/*
-            Worded, not a bare icon. §6.10 rule 5 calls this panel "the differentiator", and a
-            closed panel behind an unlabelled chevron is a differentiator nobody finds — so the
-            header says what is behind it, and the tooltip says why it is worth opening.
+            A word and nothing else. §6.10 rule 5 calls this panel "the differentiator", and a
+            closed panel behind an unlabelled chevron is a differentiator nobody finds — the
+            label is what makes it findable, and the fill is what says whether it is open, so a
+            glyph beside it was the third thing saying the same thing.
           */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -145,18 +145,13 @@ export function App(): React.ReactElement {
                   setTimelineOpen((open) => !open);
                 }}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-sm border px-2 py-1",
+                  "inline-flex items-center rounded-sm border px-2 py-1",
                   "text-ui-xs uppercase transition-colors duration-[--transition-fast]",
                   timelineOpen
                     ? "border-transparent bg-accent text-foreground"
                     : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
                 )}
               >
-                {timelineOpen ? (
-                  <PanelRightClose aria-hidden className="size-3.5" />
-                ) : (
-                  <PanelRightOpen aria-hidden className="size-3.5" />
-                )}
                 timeline
               </button>
             </TooltipTrigger>
