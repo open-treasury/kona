@@ -3,8 +3,14 @@
  *
  * Every assertion here is a fact about `fixtures/thursday.*`, which the real binary wrote:
  * which versions changed the shape of the graph and which only moved statuses around. The
- * table in `plans/active/e6-viewer/context.md` is transcribed below, and if a regen of the
- * fixture changes the story, these tests are supposed to fail rather than quietly follow it.
+ * table below IS that record — it was transcribed from an E6 working note that has since
+ * been dropped from the repo, and keeping it here is the better home anyway: a table in a
+ * document goes stale silently, and this one is executed.
+ *
+ * If a regen of the fixture changes the story, these tests are supposed to fail rather than
+ * quietly follow it. The version numbers come from `fixture.ts`'s `V`, whose names are pinned
+ * against the log's own ops by `beats.test.ts` — so a regen that REORDERS the story fails
+ * there, in one place, rather than here in thirty with arithmetic errors.
  */
 
 import { describe, expect, test } from "bun:test";

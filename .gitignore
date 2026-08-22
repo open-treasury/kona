@@ -21,3 +21,7 @@ reports/
 
 # Other windows' worktrees of this same repo
 .claude/worktrees/
+
+# Per-epic working notes from the parallel windows. Local scratch, not a deliverable —
+# whatever they settled that still matters is in the spec, the tests or a beads issue.
+plans/
