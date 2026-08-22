@@ -45,6 +45,16 @@ function render(io: Io, plan: ResumePlan): void {
       const when = wait.deadline ?? "unknown";
       io.out(`    ${wait.overdue ? "OVERDUE" : "waiting"}  ${wait.node_id}  ${when}  (${wait.basis})`);
     }
+    // §6.7's step 3 — "reconcile waits against the world" — from the operator's side.
+    //
+    // `resume` cannot take that step itself, and the reason is the determinism law: reaching
+    // a mailbox is a network call, and no verb makes one. So the honest thing is to name the
+    // verb that CAN. Without this line a fresh terminal is told the pursuit's state and left
+    // to guess the next action, which is precisely the moment somebody reaches for the graph
+    // and starts hand-editing.
+    io.out("");
+    io.out("  Next: `kona poll` for the addresses to fetch, then `kona poll --inbound <file>`");
+    io.out("  to route what came back. Reconciliation is truth; a deadline is only a backstop.");
   }
 
   if (report.unknown_sends.length > 0) {

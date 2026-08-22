@@ -269,6 +269,32 @@ describe("crash between reserve and record — the send is unknown", () => {
   });
 });
 
+describe("a fresh terminal is told what to DO, not only what is true", () => {
+  test("an armed wait names the verb that reconciles it", async () => {
+    // §6.7's step 3 is "reconcile waits against the world", and `resume` cannot take it: a
+    // mailbox is a network call and no verb makes one. Naming `kona poll` is how the step
+    // survives the split. Without it the operator is told the state and left to guess the
+    // action — which is the moment somebody reaches for the graph and starts hand-editing.
+    const term = freshTerminal(T0);
+    expect(await run(["resume", "--dry-run"], term.io)).toBe(0);
+    const text = term.out.join("\n");
+    expect(text).toContain("armed waits");
+    expect(text).toContain("kona poll");
+    expect(text).toContain("kona poll --inbound");
+  });
+
+  test("and says nothing about polling when nothing is waiting", async () => {
+    // Advice nobody can act on is noise, and this report is read at the worst moment.
+    const term = freshTerminal(AFTER_DEADLINE);
+    expect(await run(["resume"], term.io)).toBe(0);
+    term.reset();
+    expect(await run(["resume", "--dry-run"], term.io)).toBe(0);
+    const text = term.out.join("\n");
+    expect(text).not.toContain("armed waits");
+    expect(text).not.toContain("kona poll");
+  });
+});
+
 describe("resume fires overdue deadlines, and says why", () => {
   test("a blown deadline resolves the wait and opens its escape route", async () => {
     const term = freshTerminal(AFTER_DEADLINE);
