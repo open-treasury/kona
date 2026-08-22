@@ -18,11 +18,34 @@
  * nothing here: Bun is transpile-only, so a type-invalid mutant still runs and still dies.
  */
 
+/**
+ * WHICH SUITES CAN KILL THIS TIER'S MUTANTS — and no more.
+ *
+ * The command runner re-runs the whole command per mutant, so every second in it is
+ * multiplied by the mutant count. Including a suite that cannot possibly kill a tier's
+ * mutants is pure cost; excluding one that can would let a covered mutant survive and send
+ * somebody hunting a test that already exists.
+ *
+ * The line is the dependency graph. `packages/viewer` imports `@kona/core` and NEVER
+ * `@kona/cli` — `packages/viewer/test/seam.test.ts` enforces that in both directions — so
+ * viewer tests can kill a `core` mutant and can never kill a `kona` one.
+ *
+ * The cost is not marginal. `packages/viewer/test/logFeed.test.ts` is a real `fs.watch` test
+ * and spends about five seconds asleep, which it has to: notification timing is the thing
+ * under test. That is 5s of every 7.2s run, paid per mutant, for suites that in the
+ * kona-only tiers cannot change the answer.
+ */
+const KONA_ONLY = "bun test packages/core packages/kona";
+const EVERYTHING = "bun test packages";
+
 const TIERS = {
   /** Pure, branch-heavy, and the last thing standing between a bad batch and the log. */
   core: {
     mutate: ["packages/core/src/**/*.ts"],
     thresholds: { high: 100, low: 95, break: 90 },
+    // The viewer folds, diffs and renders core's output all day; its tests kill core mutants
+    // that nothing in `packages/core/test` reaches.
+    command: EVERYTHING,
   },
   /**
    * §7 puts the outbox at 100: a surviving mutant here is a second email, and there is
@@ -35,6 +58,9 @@ const TIERS = {
       "packages/kona/src/hash.ts",
     ],
     thresholds: { high: 100, low: 100, break: 95 },
+    // `core/effect.ts` is in scope, and the viewer reads `effect_log` to paint a node as
+    // sending. At a 100 floor the conservative command is the right one.
+    command: EVERYTHING,
   },
   /** The write path: lock, CAS, append, fsync. A surviving mutant here is a lost commit. */
   durability: {
@@ -45,6 +71,7 @@ const TIERS = {
       "packages/kona/src/commit.ts",
     ],
     thresholds: { high: 100, low: 95, break: 90 },
+    command: KONA_ONLY,
   },
   /** Verb dispatch, rendering, path handling. */
   rest: {
@@ -59,6 +86,7 @@ const TIERS = {
       "!packages/kona/src/bin.ts",
     ],
     thresholds: { high: 95, low: 90, break: 80 },
+    command: KONA_ONLY,
   },
 };
 
@@ -72,12 +100,10 @@ export default {
   $schema: "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   packageManager: "npm",
   testRunner: "command",
-  // Scoped to `packages/` on purpose. Every tier mutates code under `packages/`, and the
-  // demo suite exercises `demo/` — so running it per mutant tests nothing and costs
-  // everything: it re-runs a full divergence scenario per assertion, ~18s, against a
-  // packages suite that takes 0.4s. Across ~1400 mutants that is the difference between
-  // half a minute and seven hours.
-  commandRunner: { command: "bun test packages" },
+  // Never `demo/`. Those suites drive the binary as a SUBPROCESS, so they cannot report a
+  // mutant's death to Stryker's sandbox at all — and they are minutes long apiece, because
+  // one of them kills real processes. See the note on TIERS for the split within `packages/`.
+  commandRunner: { command: config.command },
   // The command runner reports no per-test coverage, so this must be "off".
   coverageAnalysis: "off",
   tsconfigFile: "stryker-no-such-tsconfig.json",

@@ -79,7 +79,18 @@ async function readLockInfo(path: string): Promise<LockInfo | null> {
   }
 }
 
-/** Distinguishes two temp files created in the same millisecond by the same process. */
+/**
+ * Distinguishes two temp files created in the same millisecond by the same process.
+ *
+ * Only distinctness matters, so incrementing and decrementing are equally correct — which is
+ * why mutation testing reports `sequence -= 1` as a survivor and will keep doing so. Left as
+ * a note rather than chased: an equivalent mutant is not a missing test, and writing one to
+ * pin the direction of a counter nobody reads would be testing the test.
+ *
+ * The other known-equivalent survivors in this file are the defensive `?.` on a caught
+ * `error` (a `catch` binding is `unknown`, and `throw null` is legal, but no fs error is
+ * null) and `readFile(path, "utf8")` -> `readFile(path, "")`, which Bun coerces identically.
+ */
 let sequence = 0;
 
 /**
@@ -125,16 +136,6 @@ export async function acquireLock(
     if (!isEexist(error)) throw error;
   }
 
-  const holder = await readLockInfo(path);
-  const age = holder === null ? Number.NaN : Date.parse(now()) - Date.parse(holder.started_at);
-  // Age alone is a PROXY for "the holder is dead", and a poor one for the first thirty
-  // seconds — which is exactly the window a crash is discovered in. Measured: `kill -9`
-  // mid-write and the next command said "another writer holds it (pid 41usa)", naming a
-  // corpse, and a human had to wait out the timer to be told the truth. Asking whether the
-  // pid is running answers it in the moment.
-  const dead = holder !== null && !isRunning(holder.pid);
-  const stale = Number.isNaN(age) || age >= staleAfterMs || dead;
-
   // A STALE LOCK IS NOT RECLAIMED AUTOMATICALLY, and that is a deliberate reversal.
   //
   // An earlier version unlinked or renamed a stale lock and took it. Both are unsafe, and
@@ -147,19 +148,65 @@ export async function acquireLock(
   // authority to the orchestrator alone, so a second writer is already the exception. What
   // a stale lock actually means is that something crashed mid-write, and git has the right
   // answer for exactly this file: say so, and let a human clear it.
+  //
+  // What follows is three messages, because a human does three different things about them,
+  // and each names the evidence it rests on so nobody has to guess how sure the tool is.
+  const holder = await readLockInfo(path);
+
+  // A lockfile that will not parse is ITSELF the signature of a crash mid-write, and it is
+  // its own case rather than a fall-through. Folding it into the branches below meant every
+  // holder field needed a `?? "unknown"` that could never fire — dead expressions that read
+  // as caution and were only noise. Mutation testing is what surfaced them: four survivors
+  // in one line, all of them unreachable.
+  if (holder === null) {
+    return {
+      ok: false,
+      reason: "STALE_LOCK",
+      message:
+        `${path} exists but cannot be read as a lock, which is what a crash mid-write ` +
+        `leaves. Make sure no kona process is running, then delete the file to continue.`,
+      holder: null,
+    };
+  }
+
+  // Age is a PROXY for "the holder is dead", and a poor one for the first thirty seconds —
+  // exactly the window a crash is discovered in. Measured: `kill -9` mid-write and the next
+  // command said "another writer holds it (pid 41usa)", naming a corpse, and a human had to
+  // wait out the timer to be told the truth. Asking whether the pid is running answers it in
+  // the moment. A `started_at` that will not parse leaves `age` NaN, which is stale too.
+  const age = Date.parse(now()) - Date.parse(holder.started_at);
+  const dead = !isRunning(holder.pid);
+  const since = `(pid ${String(holder.pid)}, since ${holder.started_at}`;
+
+  if (dead) {
+    return {
+      ok: false,
+      reason: "STALE_LOCK",
+      message:
+        `${path} was left behind by a writer that is no longer running ${since}; ` +
+        `that process is gone). Delete the file to continue.`,
+      holder,
+    };
+  }
+
+  if (Number.isNaN(age) || age >= staleAfterMs) {
+    // Still running, and has held the lock longer than any legal write takes. Both signals
+    // are reported because they disagree, and the operator is told to check before deleting:
+    // this one might really be working.
+    return {
+      ok: false,
+      reason: "STALE_LOCK",
+      message:
+        `${path} was left behind by a writer that is no longer running ${since}). ` +
+        `Make sure no kona process is running, then delete the file to continue.`,
+      holder,
+    };
+  }
+
   return {
     ok: false,
-    reason: stale ? "STALE_LOCK" : "LOCK_HELD",
-    // Three messages, because a human does three different things about them. The evidence
-    // each rests on is named, so nobody has to guess how sure the tool is.
-    message: stale
-      ? `${path} was left behind by a writer that is no longer running ` +
-        `(pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"}` +
-        (dead ? "; that process is gone). " : "). ") +
-        (dead
-          ? "Delete the file to continue."
-          : "Make sure no kona process is running, then delete the file to continue.")
-      : `another writer holds ${path} (pid ${holder?.pid ?? "unknown"}, since ${holder?.started_at ?? "unknown"}, still running)`,
+    reason: "LOCK_HELD",
+    message: `another writer holds ${path} ${since}, still running)`,
     holder,
   };
 }

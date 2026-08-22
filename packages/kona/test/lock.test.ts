@@ -176,8 +176,10 @@ describe("is the holder actually running? (the kill rehearsal's finding)", () =>
     const outcome = await take(fixedClock(T0), 100, false);
     if (outcome.ok) throw new Error("unreachable");
     expect(outcome.reason).toBe("STALE_LOCK");
-    expect(outcome.message).toContain("that process is gone");
-    expect(outcome.message).toContain("Delete the file to continue");
+    expect(outcome.message).toBe(
+      `${lockPath} was left behind by a writer that is no longer running (pid 99, since ${T0}; ` +
+        "that process is gone). Delete the file to continue.",
+    );
   });
 
   test("a live holder inside the window is LOCK_HELD, and said to be running", async () => {
@@ -185,7 +187,9 @@ describe("is the holder actually running? (the kill rehearsal's finding)", () =>
     const outcome = await take(fixedClock(T0), 100, true);
     if (outcome.ok) throw new Error("unreachable");
     expect(outcome.reason).toBe("LOCK_HELD");
-    expect(outcome.message).toContain("still running");
+    expect(outcome.message).toBe(
+      `another writer holds ${lockPath} (pid 99, since ${T0}, still running)`,
+    );
   });
 
   test("a live holder that has held it too long is stale by AGE, and not called gone", async () => {
@@ -197,8 +201,12 @@ describe("is the holder actually running? (the kill rehearsal's finding)", () =>
     const outcome = await take(fixedClock(later), 100, true);
     if (outcome.ok) throw new Error("unreachable");
     expect(outcome.reason).toBe("STALE_LOCK");
-    expect(outcome.message).toContain("Make sure no kona process is running");
-    expect(outcome.message).not.toContain("that process is gone");
+    // The WHOLE sentence, not a substring of it. Three messages differ by a clause each, and
+    // asserting on fragments let a mutant drop the punctuation between them unnoticed.
+    expect(outcome.message).toBe(
+      `${lockPath} was left behind by a writer that is no longer running (pid 99, since ${T0}). ` +
+        "Make sure no kona process is running, then delete the file to continue.",
+    );
   });
 
   test("the REAL probe knows this process is alive", async () => {
@@ -208,6 +216,16 @@ describe("is the holder actually running? (the kill rehearsal's finding)", () =>
     const outcome = await acquireLock(lockPath, fixedClock(T0), process.pid + 1);
     if (outcome.ok) throw new Error("unreachable");
     expect(outcome.reason).toBe("LOCK_HELD");
+  });
+
+  test("a started_at that will not parse is stale — the age arithmetic is meaningless", async () => {
+    // A holder with both fields, one of them nonsense. `Date.parse` gives NaN, and NaN is
+    // never `>= staleAfterMs`, so a naive age comparison would call this lock FRESH forever.
+    writeFileSync(lockPath, JSON.stringify({ pid: 99, started_at: "not a date" }));
+    const outcome = await take(fixedClock(T0), 100, true);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.reason).toBe("STALE_LOCK");
+    expect(outcome.holder?.pid).toBe(99);
   });
 
   test("the real probe treats an impossible pid as gone rather than throwing", async () => {
@@ -289,23 +307,32 @@ describe("the refusal names the holder, or says it cannot", () => {
     expect(outcome.message).toContain(`since ${T0}`);
   });
 
-  test("an unreadable one says 'unknown' rather than printing undefined", async () => {
+  test("an unreadable one says so, rather than reporting a holder it cannot name", async () => {
+    // It used to print "pid unknown, since unknown", which is a sentence pretending to be a
+    // report. A lockfile that will not parse IS the finding: nothing else writes that file,
+    // so a corrupt one is a crash caught between the write and the link.
     writeFileSync(lockPath, "{not json");
     const outcome = await take(fixedClock(T0), 100);
     if (outcome.ok) throw new Error("unreachable");
-    expect(outcome.message).toContain("pid unknown");
-    expect(outcome.message).toContain("since unknown");
+    expect(outcome.reason).toBe("STALE_LOCK");
+    expect(outcome.message).toContain("cannot be read as a lock");
+    expect(outcome.message).toContain("crash mid-write");
+    expect(outcome.message.toLowerCase()).toContain("delete the file");
     expect(outcome.message).not.toContain("undefined");
+    // No holder to report, and the field says so rather than inventing one.
+    expect(outcome.holder).toBeNull();
   });
 
-  test("a half-written one is unknown too — a partial record is not a holder", async () => {
+  test("a half-written one is the same case — a partial record is not a holder", async () => {
     // Both fields are required to believe a lockfile. Trusting a pid without a timestamp
-    // would print `since undefined` at the operator and, worse, treat a live writer's
+    // would make the age arithmetic meaningless and, worse, treat a live writer's
     // half-flushed lock as identifiable.
     writeFileSync(lockPath, JSON.stringify({ pid: 99 }));
     const outcome = await take(fixedClock(T0), 100);
     if (outcome.ok) throw new Error("unreachable");
-    expect(outcome.message).toContain("pid unknown");
+    expect(outcome.reason).toBe("STALE_LOCK");
+    expect(outcome.message).toContain("cannot be read as a lock");
+    expect(outcome.holder).toBeNull();
     expect(outcome.message).not.toContain("undefined");
   });
 
