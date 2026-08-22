@@ -397,7 +397,7 @@ React Flow (fully controlled) + dagre `rankdir:'LR'`, positions derived every ve
 | Offline fallback | **Mailpit** behind the same `MailboxProvider` port |
 | Correlation keys | two, free: the plus-tag on `To:`, and `In-Reply-To` → message-id |
 
-Send-as *aliases* are capped (~30/user); **plus-addressing is uncapped**. Gmail↔Gmail between two established accounts is the safest path — no new domain, no four-week reputation ramp. Every send records `provider` and `sandbox_or_real`. Personas and the scripted premise-break are `kona mutate` injections, which double as the live-failure fallback for every external hop.
+Send-as *aliases* are capped (~30/user); **plus-addressing is uncapped**. Gmail↔Gmail between two established accounts is the safest path — no new domain, no four-week reputation ramp. Every send records `provider` and `sandbox_or_real`. Personas and the scripted premise-break are injections, which double as the live-failure fallback for every external hop — **and there is no tenth verb for it**. Two paths, both already in the nine: `kona mutate` injects the *decision* directly, and `kona poll --inbound <file>` injects the *message* and lets the binary route it. Prefer the second on stage. It takes an ordinary JSON array of `{message_id, from, to}`, so a reply can be hand-written when the network dies — and because it goes through the same correlation matching a real reply does, an injected event proves the routing rather than bypassing it.
 
 *Out of scope: prompt injection via inbound mail.* The counterparties are personas we author; in general this is the ordinary untrusted-content exposure every tool reading a webpage has. The closed op vocabulary and the effect gate bound what an injected instruction could express.
 
