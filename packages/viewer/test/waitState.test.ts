@@ -19,7 +19,7 @@ import { predicateCount } from "../src/model/predicate.ts";
 import { completionTimeOf, versionTimeOf } from "../src/model/pursuit.ts";
 import type { Instant, WaitState } from "../src/model/types.ts";
 import { waitStateOf } from "../src/model/waitState.ts";
-import { NOW, folded, logText } from "./fixture.ts";
+import { NOW, V, folded, logText } from "./fixture.ts";
 
 const FOLD = folded();
 const GRAPH = FOLD.graph;
@@ -159,7 +159,7 @@ describe("waitStateOf", () => {
     const extended = foldLog(
       logText() +
         mutation(
-          9,
+          V.patReserved + 1,
           SENT_AT,
           [
             {
@@ -172,14 +172,15 @@ describe("waitStateOf", () => {
           "Pat's mail went out.",
         ) +
         mutation(
-          10,
+          V.patReserved + 2,
           RECEIPT_AT,
           [
+            // `late` — a fact that arrived after the graph moved on, which is what a delivery
+            // receipt is. Non-resolving, so it changes no projection; it is still a touch.
             {
-              op: "record_output",
+              op: "record_outcome",
               node: "ask-pat-to-play-in-goal",
-              output_name: "sent_message_id",
-              value: "<sent-pat@mail>",
+              verdict: "late",
               evidence_ref: "<dsn-delivered@mail>",
             },
           ],
@@ -190,14 +191,14 @@ describe("waitStateOf", () => {
     test("the appended records are real records, not a shape the schema would reject", () => {
       expect(extended.damaged).toEqual([]);
       expect(extended.torn_tail).toBeNull();
-      expect(extended.graph.version).toBe(10);
+      expect(extended.graph.version).toBe(V.patReserved + 2);
     });
 
     test("a receipt landing on a finished node does not move the deadline", () => {
       const anchor = node("ask-pat-to-play-in-goal", extended.graph);
       expect(anchor.status.state).toBe("done");
       // The receipt is the last version to touch it — this is the field that must NOT be read.
-      expect(anchor.status.observed_at_version).toBe(10);
+      expect(anchor.status.observed_at_version).toBe(V.patReserved + 2);
 
       const completion = completionTimeOf(extended.records);
       expect(completion.get(anchor.id)).toBe(Date.parse(SENT_AT));

@@ -16,7 +16,7 @@ import {
   layoutGraph,
   topologySignature,
 } from "../src/layout/dagre.ts";
-import { folded, headVersion } from "./fixture.ts";
+import { V, folded, headVersion } from "./fixture.ts";
 
 function nodeOf(graph: Graph, id: string): Node {
   const node = graph.nodes.get(id);
@@ -47,21 +47,31 @@ function nodeWithEdgesBothWays(graph: Graph): string {
 }
 
 /**
- * The versions whose ops changed the shape of the graph — the table in `context.md`. v3 and v4
- * are the pure status ticks: v3 sets three statuses and records two outputs, v4 records an
- * outcome and a status. Both leave the same nine nodes and seven edges v2 left.
+ * The versions whose ops changed the shape of the graph — the table in `context.md`.
+ *
+ * Everything NOT here is a status tick, and most of the fixture is: five of the eight ticks
+ * are the outbox, since §6.6 makes a send two commits and neither of them touches the
+ * picture. That ratio is the case for rule 1. A viewer that re-ran dagre on every version
+ * would re-lay-out the whole graph twice per email.
  */
-const SHAPE_CHANGING_VERSIONS = new Set([1, 2, 5, 6, 7]);
+const SHAPE_CHANGING_VERSIONS = new Set([
+  V.roster,
+  V.plan,
+  V.samRefers,
+  V.rosterSuperseded,
+  V.patPlanned,
+]);
 
 describe("topologySignature", () => {
-  test("v2, v3 and v4 are one shape, and the fixture really does move between them", () => {
-    const signatures = [2, 3, 4].map((v) => topologySignature(folded(v).graph));
+  test("the plan and the two sends after it are one shape, and statuses really do move", () => {
+    const run = [V.plan, V.danaReserved, V.danaSent];
+    const signatures = run.map((v) => topologySignature(folded(v).graph));
 
-    // Guard the premise: if a regenerated fixture made v3 or v4 a no-op, the run of equal
+    // Guard the premise: if a regenerated fixture made either send a no-op, the run of equal
     // signatures below would pass for the wrong reason.
-    expect(folded(4).graph.version).toBe(4);
-    expect(states(3)).not.toEqual(states(2));
-    expect(states(4)).not.toEqual(states(3));
+    expect(folded(V.danaSent).graph.version).toBe(V.danaSent);
+    expect(states(V.danaReserved)).not.toEqual(states(V.plan));
+    expect(states(V.danaSent)).not.toEqual(states(V.danaReserved));
 
     expect(signatures[1]).toBe(signatures[0]);
     expect(signatures[2]).toBe(signatures[1]);
@@ -237,10 +247,10 @@ describe("layoutGraph", () => {
 });
 
 describe("createLayoutCache", () => {
-  test("v3 → v4 hands back the identical object, not an equal one", () => {
+  test("a reserve → record pair hands back the identical object, not an equal one", () => {
     const layoutOf = createLayoutCache();
-    const first = layoutOf(folded(3).graph);
-    const second = layoutOf(folded(4).graph);
+    const first = layoutOf(folded(V.danaReserved).graph);
+    const second = layoutOf(folded(V.danaSent).graph);
 
     // `toBe`, deliberately: React re-renders on identity, so an equal-but-fresh object would
     // move every node's props and defeat the memo at the only layer where it pays. Identity is
@@ -251,12 +261,12 @@ describe("createLayoutCache", () => {
 
   test("a topology change gets a fresh layout", () => {
     const layoutOf = createLayoutCache();
-    const four = layoutOf(folded(4).graph);
-    const five = layoutOf(folded(5).graph);
+    const before = layoutOf(folded(V.danaDeclines).graph);
+    const after = layoutOf(folded(V.samRefers).graph);
 
-    expect(five).not.toBe(four);
-    expect(five.signature).not.toBe(four.signature);
-    expect(five.boxes.size).toBe(folded(5).graph.nodes.size);
+    expect(after).not.toBe(before);
+    expect(after.signature).not.toBe(before.signature);
+    expect(after.boxes.size).toBe(folded(V.samRefers).graph.nodes.size);
   });
 
   test("walking the whole log lays out once per shape change and no more", () => {
@@ -264,9 +274,9 @@ describe("createLayoutCache", () => {
     const produced = new Set<Layout>();
     for (let v = 0; v <= headVersion(); v++) produced.add(layoutOf(folded(v).graph));
 
-    // One distinct object per dagre run: a cache hit returns the previous one. Eight graphs,
-    // v0…v7; v3 and v4 repeat v2's shape and cost nothing, and the `+ 1` is v0 itself, the
-    // cold start.
+    // One distinct object per dagre run: a cache hit returns the previous one. Fourteen
+    // graphs, v0…v13, and only five of them cost a layout — the `+ 1` is v0 itself, the cold
+    // start. Eight versions of real work are free.
     expect(produced.size).toBe(SHAPE_CHANGING_VERSIONS.size + 1);
   });
 });

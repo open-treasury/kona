@@ -86,6 +86,59 @@ describe("the divergence run", () => {
     expect(missing).toEqual([]);
   });
 
+  test("every send was spent from a reservation the store issued (§6.6)", async () => {
+    // THE REGRESSION GUARD for the bypass this run used to have. It called `provider.send`
+    // directly and hand-wrote `set_status done`, so the artefact whose whole job is to
+    // demonstrate the product never touched `effect reserve`, the payload-hash check, or the
+    // duplicate-send refusal. It passed all four §7 assertions the entire time.
+    //
+    // A rig that regressed to a bare send cannot fill `effect_key` — there would be no key to
+    // fill it with — so this fails on the shape rather than on a convention.
+    const result = await run();
+    const byId = new Map(result.head.nodes.map((node) => [node.id, node]));
+
+    expect(result.sends.length).toBeGreaterThan(0);
+    for (const send of result.sends) {
+      const log = byId.get(send.node)?.status.effect_log ?? [];
+      const entry = log.find((candidate) => candidate.effect_key === send.effect_key);
+      expect(`${send.node}:${send.effect_key}`).toBe(`${send.node}:${entry?.effect_key ?? "MISSING"}`);
+      // The store approved a hash; these are the bytes that left. Equal, or the reservation
+      // was for something other than what was sent.
+      expect(entry?.payload_hash).toBe(send.payload_hash);
+      expect(entry?.outcome).toBe("sent");
+      expect(entry?.message_id).not.toBeNull();
+      // Closed. An open reservation is crash window 2 — a `sending` node nobody can resolve.
+      expect(entry?.completed_at).not.toBeNull();
+      // And the STATE came from `effect record`, not from a hand-written set_status.
+      expect(byId.get(send.node)?.status.state).toBe("done");
+    }
+
+    // Nothing moved bytes that this run did not account for, in either direction. Priya is
+    // the one extra slot: reserved, attempted, refused, closed as `failed`.
+    const spent = result.head.nodes.flatMap((node) => node.status.effect_log ?? []);
+    expect(spent).toHaveLength(result.sends.length + 1);
+    const priya = byId.get("ask-priya-to-play-in-goal");
+    expect(priya?.status.state).toBe("failed");
+    expect(priya?.status.effect_log?.[0]?.outcome).toBe("failed");
+    expect(priya?.status.effect_log?.[0]?.completed_at).not.toBeNull();
+  });
+
+  test("Priya's slot stays open across four versions — crash window 2, held on purpose", async () => {
+    // The window §6.6 says nothing on disk can distinguish from window 3: a `sending` node
+    // with an open reservation, no message id, and no way to know whether the bytes moved.
+    // The run holds it open from v7 to v11 so the state is real rather than described.
+    const result = await run();
+    for (const version of [7, 8, 9, 10]) {
+      const graph = asGraph(await kona.graph(result.cwd, version));
+      const priya = graph.nodes.find((node) => node.id === "ask-priya-to-play-in-goal");
+      expect(`v${version}:${priya?.status.state ?? "?"}`).toBe(`v${version}:sending`);
+      const open = priya?.status.effect_log?.[0];
+      expect(open?.completed_at).toBeNull();
+      expect(open?.outcome).toBeNull();
+      expect(open?.message_id).toBeNull();
+    }
+  });
+
   test("the COMMITTED fixture does not satisfy (c) — which is why the run goes past it", async () => {
     // The reason v8..v11 exist, pinned against the artifact actually in the repo. Every arm in
     // `fixtures/thursday.graph.json` is the same task→wait couplet, so the multiset of arm
@@ -103,21 +156,24 @@ describe("the divergence run", () => {
     expect(onFixture.find((assertion) => assertion.id === "c")?.passed).toBe(false);
   });
 
-  test("the arms start diverging at v5, and reach three distinct sizes only by v11", async () => {
+  test("the arms start diverging at v9, and reach three distinct sizes only by v16", async () => {
     const result = await run();
     const sizesAt = async (version: number): Promise<Set<number>> =>
       new Set(
         [...arms(asGraph(await kona.graph(result.cwd, version))).values()].map((n) => n.length),
       );
 
-    // Uniform while every arm is still the same ask→wait couplet.
-    expect((await sizesAt(4)).size).toBe(1);
-    // The referral edge lands at v5 and pulls the Marcus nodes into Sam's arm, so divergence
-    // begins INSIDE the fixture's own range — not at v8, as this test's previous name implied.
-    expect((await sizesAt(5)).size).toBe(2);
-    expect((await sizesAt(7)).size).toBe(2);
-    // The third distinct size arrives only after the fixture's ending.
-    expect((await sizesAt(11)).size).toBeGreaterThanOrEqual(3);
+    // Uniform while every arm is still the same ask→wait couplet — and it stays uniform
+    // through all three sends, because a reservation and a receipt change a node's STATUS,
+    // never the graph's shape. That is worth pinning: if threading the outbox through the run
+    // had moved an arm, the outbox would be authoring plan rather than recording effects.
+    expect((await sizesAt(8)).size).toBe(1);
+    // v9 is Sam's referral edge, which pulls the Marcus nodes into Sam's arm.
+    expect((await sizesAt(9)).size).toBe(2);
+    expect((await sizesAt(14)).size).toBe(2);
+    // The third distinct size arrives only at v16, when Pat's silence sprouts a follow-up.
+    expect((await sizesAt(16)).size).toBeGreaterThanOrEqual(3);
+    expect((await sizesAt(19)).size).toBeGreaterThanOrEqual(3);
   });
 
   test("(b) is not satisfiable by anyone the roster already named", async () => {
@@ -134,20 +190,20 @@ describe("the divergence run", () => {
   });
 
   test("the run is well-formed against invariant 3(b) — nothing addresses unevidenced Marcus", async () => {
-    // NOT a test that the STORE gates anything. It cannot be: only invariant 1 is implemented
-    // today (see the test below), and the version ordering here is chosen by divergence.ts, so
-    // asserting `9 > 5` would only be asserting that this repo's own source says what it says.
+    // NOT a test that the STORE gates anything — the test below is. The version ordering here
+    // is chosen by divergence.ts, so asserting `15 > 9` would only be asserting that this
+    // repo's own source says what it says.
     //
-    // What IS checkable from the graph alone, and is what 3(b) will demand when it lands:
-    // at the version where Sam names Marcus, NOTHING is addressed to him; and the node that
-    // eventually is names an `evidence_ref` that the graph already carried.
+    // What IS checkable from the graph alone: at v9, the version where Sam names Marcus,
+    // NOTHING is addressed to him; and the node that eventually is names an `evidence_ref`
+    // the graph already carried.
     const result = await run();
 
-    const atReferral = asGraph(await kona.graph(result.cwd, 5));
-    const addressedAt5 = atReferral.nodes
+    const atReferral = asGraph(await kona.graph(result.cwd, 9));
+    const addressedAtReferral = atReferral.nodes
       .map((node) => node.spec.effect?.recipient_ref)
       .filter((ref): ref is string => ref !== undefined);
-    expect(addressedAt5.some((ref) => ref.includes("marcus"))).toBe(false);
+    expect(addressedAtReferral.some((ref) => ref.includes("marcus"))).toBe(false);
 
     const byId = new Map(result.head.nodes.map((node) => [node.id, node]));
     const contact = byId.get("ask-marcus-to-play-in-goal");

@@ -45,4 +45,27 @@ describe("the compiled stylesheet is not stale", () => {
       rmSync(out, { force: true });
     }
   });
+
+  test("only `src/` feeds the class scanner — not this file", () => {
+    // Tailwind's automatic source detection starts at the PACKAGE root, which made `test/` a
+    // source of class names. Its extractor is liberal, so bare words in test prose became
+    // real utilities: `.static`, `.grow` and `.transition` shipped in the bundle because
+    // sentences here happened to contain those words.
+    //
+    // Dead CSS was the small half. The real half is that renaming a test could change the
+    // product — and the test above, which exists to catch drift, would have reported the
+    // change as legitimate.
+    const theme = readFileSync(join(PACKAGE, "src", "theme.css"), "utf8");
+    expect(theme).toContain("source(none)");
+    expect(theme).toMatch(/@source\s+"\.\/\*\*\/\*\.\{ts,tsx\}"/);
+
+    // And the proof it is working: none of the three is in the output any more, and none of
+    // them is used by a component either.
+    const styles = readFileSync(join(PACKAGE, "src", "styles.css"), "utf8");
+    for (const leaked of [".static {", ".grow {", ".transition {"]) {
+      expect(`${leaked} in styles.css: ${String(styles.includes(leaked))}`).toBe(
+        `${leaked} in styles.css: false`,
+      );
+    }
+  });
 });

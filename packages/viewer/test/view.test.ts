@@ -24,7 +24,7 @@ import { isReady, isTerminal, readyFrontier, satisfiesBlockingEdge } from "@kona
 import { buildGraphView } from "../src/model/view.ts";
 import { buildPursuit, completionTimeOf } from "../src/model/pursuit.ts";
 import type { GraphView, Instant, NodeView, PursuitView, Readiness } from "../src/model/types.ts";
-import { NOW, folded, headVersion, logText } from "./fixture.ts";
+import { NOW, V, folded, headVersion, logText } from "./fixture.ts";
 
 /** Head, folded once — the memoized half. */
 const HEAD = buildPursuit(logText());
@@ -76,7 +76,7 @@ describe("the head view covers every node exactly once", () => {
 
   test("fourteen nodes, in the log's insertion order", () => {
     expect(view.nodes).toHaveLength(14);
-    expect(view.version).toBe(8);
+    expect(view.version).toBe(V.patReserved);
     expect(view.nodes.map((entry) => entry.node.id)).toEqual([...folded().graph.nodes.keys()]);
   });
 
@@ -228,18 +228,20 @@ describe("waits carry their own clock", () => {
   });
 
   test("a relative deadline arms off the log, not off the graph", () => {
-    // Dana's ask went `done` at v3, so the clock started at v3's `observed_at` — a timestamp
-    // that exists nowhere in `kona graph --json`. This is D1's reason for folding the log.
-    const v3 = folded().records[3];
-    expect(v3?.v).toBe(3);
+    // Dana's ask went `done` when `effect record` closed her slot, so the clock started at
+    // THAT record's `observed_at` — a timestamp that exists nowhere in `kona graph --json`.
+    // This is D1's reason for folding the log. Note it is the record, not the reserve one
+    // version earlier: `sending` is not finished, and a wait behind it has not started.
+    const sent = folded().records[V.danaSent];
+    expect(sent?.v).toBe(V.danaSent);
     const wait = at(view, "wait-for-dana").wait;
-    expect(wait?.deadlineAt).toBe(Date.parse(v3?.observed_at ?? "") + HOURS_48);
+    expect(wait?.deadlineAt).toBe(Date.parse(sent?.observed_at ?? "") + HOURS_48);
     // Answered, so the clock is moot: a wait that closed is resolved, never blown.
     expect(wait?.phase).toBe("resolved");
   });
 
   test("a wait dropped by a supersede reads as dropped, whatever it answered", () => {
-    // v7 superseded Priya's wait with no replacement, so `superseded_by` stays null and the
+    // The plan change superseded Priya's wait with no replacement, so `superseded_by` stays null and the
     // store dropped it instead. It also carries a `bounced` outcome — the drop is the fact
     // that decides what happens next, so it wins.
     const priya = at(view, "wait-for-priya");
@@ -303,26 +305,29 @@ describe("completionTime — the moment a node actually finished", () => {
 
   test("the instant is the record's, at the version whose op said `done`", () => {
     const records = HEAD.records;
-    // Dana's and Sam's asks were both dispatched in v3; Sam's wait closed two versions later.
+    // Each ask finished when the outbox RECORDED it, not when it reserved the slot — two
+    // adjacent versions with different timestamps, and taking the wrong one would arm every
+    // downstream deadline early.
     expect(HEAD.completionTime.get("ask-dana-to-play-in-goal")).toBe(
-      Date.parse(records[3]?.observed_at ?? ""),
+      Date.parse(records[V.danaSent]?.observed_at ?? ""),
     );
     expect(HEAD.completionTime.get("ask-sam-to-play-in-goal")).toBe(
-      Date.parse(records[3]?.observed_at ?? ""),
+      Date.parse(records[V.samSent]?.observed_at ?? ""),
     );
     expect(HEAD.completionTime.get("wait-for-sam")).toBe(
-      Date.parse(records[5]?.observed_at ?? ""),
+      Date.parse(records[V.samRefers]?.observed_at ?? ""),
     );
   });
 
   test("it is a function of the records folded, so time travel carries it", () => {
-    const past = buildPursuit(logText(), 3);
+    const past = buildPursuit(logText(), V.danaDeclines - 1);
     expect(past.completionTime).toEqual(completionTimeOf(past.records));
     for (const node of past.graph.nodes.values()) {
       expect(past.completionTime.has(node.id)).toBe(node.status.state === "done");
     }
-    // Dana's wait only closes at v4, so at v3 there is no instant for it — and inventing one
-    // from head would be the scrubber quietly showing the reader a fact from their future.
+    // Dana's wait only closes when she declines, so one version earlier there is no instant
+    // for it — and inventing one from head would be the scrubber quietly showing the reader a
+    // fact from their future.
     expect(past.completionTime.has("wait-for-dana")).toBe(false);
     expect(HEAD.completionTime.has("wait-for-dana")).toBe(true);
   });
@@ -336,7 +341,7 @@ describe("completionTime — the moment a node actually finished", () => {
     const again = "2026-08-23T00:00:00.000Z";
     const pursuit = buildPursuit(
       logText() +
-        mutation(9, first, [
+        mutation(V.patReserved + 1, first, [
           {
             op: "set_status",
             node: "ask-pat-to-play-in-goal",
@@ -344,7 +349,7 @@ describe("completionTime — the moment a node actually finished", () => {
             evidence_ref: "msg:pat-outbound",
           },
         ]) +
-        mutation(10, again, [
+        mutation(V.patReserved + 2, again, [
           {
             op: "set_status",
             node: "ask-pat-to-play-in-goal",
@@ -353,14 +358,14 @@ describe("completionTime — the moment a node actually finished", () => {
           },
         ]),
     );
-    expect(pursuit.records).toHaveLength(11);
+    expect(pursuit.records).toHaveLength(V.patReserved + 3);
     expect(pursuit.completionTime.get("ask-pat-to-play-in-goal")).toBe(Date.parse(first));
     expect(completionTimeOf(pursuit.records)).toEqual(pursuit.completionTime);
   });
 
   test("a receipt arriving after the send does not move the send's clock", () => {
     // The whole reason this map exists instead of `versionTime.get(observed_at_version)`.
-    // v8 finishes Pat's send; v9 records the delivery receipt a day later, which §6.4 allows
+    // Pat's send finishes; the next version records the delivery receipt a day later, which §6.4 allows
     // against a terminal node and which bumps `observed_at_version` with it. Anchoring the
     // deadline there would push it 24h into the future and un-blow a wait the store has
     // already timed out — the one failure mode that silently keeps a dead branch alive.
@@ -368,7 +373,7 @@ describe("completionTime — the moment a node actually finished", () => {
     const receiptAt = "2026-08-23T00:00:00.000Z";
     const pursuit = buildPursuit(
       logText() +
-        mutation(9, sentAt, [
+        mutation(V.patReserved + 1, sentAt, [
           {
             op: "set_status",
             node: "ask-pat-to-play-in-goal",
@@ -376,22 +381,26 @@ describe("completionTime — the moment a node actually finished", () => {
             evidence_ref: "msg:pat-outbound",
           },
         ]) +
-        mutation(10, receiptAt, [
+        mutation(V.patReserved + 2, receiptAt, [
+          // `late` is the verdict for a fact that arrived after the graph had moved on, which
+          // is exactly what a delivery receipt is. §6.4 lets it land on a terminal node; being
+          // non-resolving, it changes no projection — but it is still a touch, and a touch is
+          // what bumps `observed_at_version`.
           {
-            op: "record_output",
+            op: "record_outcome",
             node: "ask-pat-to-play-in-goal",
-            output_name: "sent_message_id",
-            value: "msg:pat-outbound",
+            verdict: "late",
             evidence_ref: "smtp:250-queued",
           },
         ]),
     );
     expect(pursuit.damaged).toEqual([]);
-    expect(pursuit.graph.version).toBe(10);
+    expect(pursuit.graph.version).toBe(V.patReserved + 2);
 
     const view = viewOf(pursuit, Date.parse("2026-08-24T12:00:00.000Z"));
     const pat = at(view, "ask-pat-to-play-in-goal");
-    expect(pat.observedAtVersion).toBe(10); // the receipt is the last thing we learned
+    // The receipt is the last thing we learned.
+    expect(pat.observedAtVersion).toBe(V.patReserved + 2);
     expect(HEAD.completionTime.has("ask-pat-to-play-in-goal")).toBe(false);
     expect(pursuit.completionTime.get("ask-pat-to-play-in-goal")).toBe(Date.parse(sentAt));
 
@@ -400,7 +409,7 @@ describe("completionTime — the moment a node actually finished", () => {
     expect(wait?.phase).toBe("blown");
     // Spelled out: the version-time answer is still in the future at that clock, which is
     // exactly how a blown wait would come back to life.
-    expect((pursuit.versionTime.get(10) ?? Number.NaN) + HOURS_48).toBeGreaterThan(
+    expect((pursuit.versionTime.get(V.patReserved + 2) ?? Number.NaN) + HOURS_48).toBeGreaterThan(
       Date.parse("2026-08-24T12:00:00.000Z"),
     );
   });
@@ -409,13 +418,15 @@ describe("completionTime — the moment a node actually finished", () => {
 describe("buildPursuit — the entry point", () => {
   test("head builds without throwing and surfaces a clean fold", () => {
     expect(viewOf(HEAD).nodes).toHaveLength(14);
-    expect(HEAD.graph.version).toBe(8);
-    expect(HEAD.records).toHaveLength(9);
-    expect(HEAD.timeline).toHaveLength(9);
+    expect(HEAD.graph.version).toBe(V.patReserved);
+    expect(HEAD.records).toHaveLength(V.patReserved + 1);
+    expect(HEAD.timeline).toHaveLength(V.patReserved + 1);
     expect(HEAD.tornTail).toBe(false);
     expect(HEAD.damaged).toEqual([]);
     // One entry per record, and `{after}` deadlines are computed off the completion map.
-    expect([...HEAD.versionTime.keys()]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect([...HEAD.versionTime.keys()]).toEqual(
+      Array.from({ length: V.patReserved + 1 }, (_, index) => index),
+    );
   });
 
   test("time travel to v2 is read-only: fewer lines folded, nothing written", () => {
@@ -471,13 +482,15 @@ describe("buildPursuit — the entry point", () => {
 describe("a log that is not the happy one", () => {
   test("a torn final line is surfaced, and the graph behind it is whole", () => {
     // Append-then-fsync can damage nothing but the tail, so this is the expected shape of a
-    // crash: v7 folded cleanly, v8 never finished being written. The banner exists so nobody
-    // reads a graph that is one mutation behind the file as if it were head.
-    const pursuit = buildPursuit(`${logText()}\n{"v":8,"schema_version":1,"observ`);
+    // crash: head folded cleanly, the version after it never finished being written. The
+    // banner exists so nobody reads a graph that is one mutation behind the file as if it
+    // were head.
+    const torn = `{"v":${V.patReserved + 1},"schema_version":1,"observ`;
+    const pursuit = buildPursuit(`${logText()}\n${torn}`);
     expect(pursuit.tornTail).toBe(true);
     expect(pursuit.damaged).toEqual([]);
-    expect(pursuit.graph.version).toBe(8);
-    expect(pursuit.records).toHaveLength(9);
+    expect(pursuit.graph.version).toBe(V.patReserved);
+    expect(pursuit.records).toHaveLength(V.patReserved + 1);
     expect(viewOf(pursuit).nodes).toHaveLength(14);
   });
 

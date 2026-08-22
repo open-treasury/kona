@@ -24,7 +24,7 @@ import {
   foldLog,
   projectGraph,
 } from "@kona/core";
-import { folded, graphJson, headVersion, logText } from "./fixture.ts";
+import { V, folded, graphJson, headVersion, logText } from "./fixture.ts";
 
 /**
  * `torn_tail` and `damaged` are the loader's report, not the graph — `kona graph --json`
@@ -138,8 +138,12 @@ describe("the fixture is the pursuit context.md describes", () => {
   const records: readonly MutationRecord[] = folded().records;
   const nodes: Node[] = [...folded().graph.nodes.values()];
 
-  test("exactly nine records, v0..v8, contiguous", () => {
-    expect(records.map((record) => record.v)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  test("fourteen records, v0..v13, contiguous", () => {
+    // Contiguity is the property, not the count: `fold` requires versions to increment by
+    // one, so a gap here would mean the fixture cannot be folded at all.
+    expect(records.map((record) => record.v)).toEqual(
+      Array.from({ length: V.patReserved + 1 }, (_, index) => index),
+    );
   });
 
   test("every record carries a non-empty why and a reason code", () => {

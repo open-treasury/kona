@@ -11,9 +11,10 @@ import { describe, expect, test } from "bun:test";
 import type { CommittedOp, Edge, Graph } from "@kona/core";
 import { applyOps, formatRejection } from "@kona/core";
 import { diffGraphs, edgeKey, edgeKeyString } from "../src/model/diff.ts";
-import { folded } from "./fixture.ts";
+import { V, folded, headVersion } from "./fixture.ts";
 
-const VERSIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+/** Every version that has a predecessor to be diffed against. */
+const VERSIONS = Array.from({ length: headVersion() }, (_, index) => index + 1);
 
 /** The diff the version `v` produced: fold to `v - 1`, fold to `v`, compare. */
 function step(v: number) {
@@ -40,28 +41,42 @@ function applied(graph: Graph, ops: CommittedOp[]): Graph {
 }
 
 describe("the topology table", () => {
-  test("only v3 and v4 are status ticks", () => {
+  test("eight of the thirteen versions are status ticks", () => {
+    // Most of them are the outbox: a send is `effect reserve` then `effect record`, two
+    // commits that move one node's status and touch nothing else. That is the single most
+    // common thing a live pursuit does, and re-running dagre for each would make the picture
+    // jump every time an email goes out.
     const table = Object.fromEntries(VERSIONS.map((v) => [v, step(v).topologyStable]));
     expect(table).toEqual({
-      1: false, // four nodes, two edges — the approved plan
-      2: false, // the fan-out to Sam and Priya, converging on the predicate
-      3: true, // dispatches: three set_status, two record_output
-      4: true, // Dana declines: one outcome, one status
-      5: false, // the Marcus arm
-      6: false, // the supersede — adds no edge and still moves the picture
-      7: false, // Pat's arm, after Priya bounces
+      [V.roster]: false, // the roster step and the escalation, before anyone is contacted
+      [V.plan]: false, // the fan-out to Dana, Sam and Priya, converging on the predicate
+      [V.danaReserved]: true, // active -> sending
+      [V.danaSent]: true, // sending -> done
+      [V.samReserved]: true,
+      [V.samSent]: true,
+      [V.priyaReserved]: true, // and it stays sending until v11
+      [V.danaDeclines]: true, // one outcome, one status
+      [V.samRefers]: false, // the Marcus arm
+      [V.rosterSuperseded]: false, // the supersede — adds no edge and still moves the picture
+      [V.priyaFailed]: true, // sending -> failed, four versions after the reservation
+      [V.patPlanned]: false, // Pat's arm, after Priya's wait is dropped
+      [V.patReserved]: true, // active -> sending, and the fixture ends there
     });
   });
 
-  test("v3 -> v4 is the pair that proves rule 2: same shape, different statuses", () => {
-    const at3 = folded(3).graph;
-    const at4 = folded(4).graph;
-    expect([...at4.nodes.keys()]).toEqual([...at3.nodes.keys()]);
-    expect(at4.edges).toEqual(at3.edges);
+  test("a reserve and its record are the pair that proves rule 2", () => {
+    // Same shape, different statuses — and the strongest possible form of it, because these
+    // two versions are one email. The graph must not move while a send completes.
+    const before = folded(V.danaReserved).graph;
+    const after = folded(V.danaSent).graph;
+    expect([...after.nodes.keys()]).toEqual([...before.nodes.keys()]);
+    expect(after.edges).toEqual(before.edges);
 
-    const diff = diffGraphs(at3, at4);
+    const diff = diffGraphs(before, after);
     expect(diff.topologyStable).toBe(true);
-    expect(diff.statusChanged.length).toBeGreaterThan(0);
+    expect(diff.statusChanged).toEqual([
+      { id: "ask-dana-to-play-in-goal", from: "sending", to: "done" },
+    ]);
   });
 
   test("every version carries its own version numbers", () => {
@@ -73,11 +88,11 @@ describe("the topology table", () => {
 });
 
 describe("versions that change the shape", () => {
-  test("v1 reads the roster and emails nobody", () => {
+  test("the roster version reads the roster and emails nobody", () => {
     // Invariant 3(b) shapes this version: §6.7 rejects "a recipient existing only in the
     // proposing batch", so the roster has to land in a commit of its own before anything
     // may address the people in it. v1 adds no edges because it wires nothing yet.
-    const diff = step(1);
+    const diff = step(V.roster);
     expect(diff.addedNodes).toEqual([
       "confirm-roster-availability",
       "escalate-no-goalie-found",
@@ -88,8 +103,8 @@ describe("versions that change the shape", () => {
     expect(diff.statusChanged).toEqual([]);
   });
 
-  test("v2 is the approved plan: every arm at once, converging on the predicate", () => {
-    const diff = step(2);
+  test("the plan version is every arm at once, converging on the predicate", () => {
+    const diff = step(V.plan);
     expect(diff.addedNodes).toEqual([
       "ask-dana-to-play-in-goal",
       "wait-for-dana",
@@ -108,8 +123,8 @@ describe("versions that change the shape", () => {
     expect(diff.statusChanged).toEqual([]);
   });
 
-  test("v5 grows the Marcus arm off Sam's refusal", () => {
-    const diff = step(5);
+  test("Sam's refusal grows the Marcus arm", () => {
+    const diff = step(V.samRefers);
     expect(diff.addedNodes).toEqual(["check-marcus-is-eligible", "wait-for-eligibility-ruling"]);
     expect(diff.addedEdges).toEqual([
       { from: "check-marcus-is-eligible", to: "wait-for-eligibility-ruling", on: null },
@@ -121,8 +136,8 @@ describe("versions that change the shape", () => {
     expect(diff.topologyStable).toBe(false);
   });
 
-  test("v6 is a supersede: no new edge, no status moved, and still not stable", () => {
-    const diff = step(6);
+  test("the supersede adds no edge, moves no status, and is still not stable", () => {
+    const diff = step(V.rosterSuperseded);
     expect(diff.addedNodes).toEqual(["confirm-roster-availability-and-eligibility"]);
     expect(diff.addedEdges).toEqual([]);
     // The superseded node was already `done`, so superseding it moved nothing observable.
@@ -138,27 +153,40 @@ describe("versions that change the shape", () => {
     expect(diff.topologyStable).toBe(false);
   });
 
-  test("v7 asks Pat after Priya's address bounces", () => {
-    const diff = step(7);
+  test("the bounce is a status tick — the outbox closing the slot it issued", () => {
+    // Priya's send and the plan change it causes are TWO versions, and that is the outbox
+    // being honest about time: `effect record --outcome failed` closes the reservation the
+    // moment the 550 arrives, and what to do about it is a separate decision, made after.
+    const diff = step(V.priyaFailed);
+    expect(diff.addedNodes).toEqual([]);
+    expect(diff.statusChanged).toEqual([
+      { id: "ask-priya-to-play-in-goal", from: "sending", to: "failed" },
+    ]);
+    expect(diff.topologyStable).toBe(true);
+  });
+
+  test("Pat's arm is planned once Priya's is written off", () => {
+    const diff = step(V.patPlanned);
     expect(diff.addedNodes).toEqual(["ask-pat-to-play-in-goal", "wait-for-pat"]);
     expect(diff.addedEdges).toEqual([
       { from: "ask-pat-to-play-in-goal", to: "wait-for-pat", on: null },
       { from: "wait-for-pat", to: "goalie-confirmed", on: "satisfied" },
     ]);
     expect(diff.statusChanged).toEqual([
-      { id: "ask-priya-to-play-in-goal", from: "sending", to: "failed" },
       { id: "wait-for-priya", from: "active", to: "dropped" },
     ]);
     expect(diff.outcomeAdded).toEqual(["wait-for-priya"]);
   });
 
   test("a supersede with no replacement shows up as a drop, not as a supersede", () => {
-    // v7 supersedes `wait-for-priya` with no `by`, so `superseded_by` stays null and the
-    // only trace in the graph is the status going `dropped`. Reporting it under `superseded`
-    // would mean inventing a replacement that the log does not name.
-    const diff = step(7);
+    // That version supersedes `wait-for-priya` with no `by`, so `superseded_by` stays null
+    // and the only trace in the graph is the status going `dropped`. Reporting it under
+    // `superseded` would mean inventing a replacement that the log does not name.
+    const diff = step(V.patPlanned);
     expect(diff.superseded).toEqual([]);
-    expect(folded(7).graph.nodes.get("wait-for-priya")?.provenance.superseded_by).toBe(null);
+    expect(folded(V.patPlanned).graph.nodes.get("wait-for-priya")?.provenance.superseded_by).toBe(
+      null,
+    );
     expect(diff.statusChanged).toContainEqual({
       id: "wait-for-priya",
       from: "active",
@@ -169,13 +197,14 @@ describe("versions that change the shape", () => {
 
 describe("supersede, on its own", () => {
   test("a supersede alone unsticks the layout, though it adds nothing", () => {
-    const before = folded(5).graph;
+    const before = folded(V.samRefers).graph;
     const retired = before.nodes.get("confirm-roster-availability");
     expect(retired?.status.state).toBe("done");
     expect(retired?.provenance.superseded_by).toBe(null);
 
-    // v6's supersede with v6's `add_node` taken away: the roster step retired in favour of
-    // the eligibility check that v5 had just added, which is a node that already exists here.
+    // The supersede version with its own `add_node` taken away: the roster step retired in
+    // favour of the eligibility check the version before had just added, which already exists
+    // here — so the replacement is real without the batch having to create it.
     const after = applied(before, [
       {
         op: "supersede_node",
@@ -226,29 +255,30 @@ describe("supersede, on its own", () => {
 });
 
 describe("status ticks", () => {
-  test("v3 moves three tasks and nothing else", () => {
-    const diff = step(3);
+  test("a reservation moves one task to `sending` and nothing else", () => {
+    const diff = step(V.priyaReserved);
+    // `sending` is not terminal: the intent is fsynced and nobody knows the answer yet.
+    // Priya's stays exactly here for four versions, which is what makes it renderable.
     expect(diff.statusChanged).toEqual([
-      { id: "ask-dana-to-play-in-goal", from: "active", to: "done" },
-      { id: "ask-sam-to-play-in-goal", from: "active", to: "done" },
-      // Reserved and in flight. `sending` is not terminal: nobody knows the answer yet.
       { id: "ask-priya-to-play-in-goal", from: "active", to: "sending" },
     ]);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);
     expect(diff.superseded).toEqual([]);
-    // Two `record_output` ops in the same version. An output is not an outcome.
+    // A reservation is not an answer. An outcome is something a counterparty produced.
     expect(diff.outcomeAdded).toEqual([]);
     expect(diff.topologyStable).toBe(true);
   });
 
-  test("v4 records Dana's refusal against an unchanged shape", () => {
-    const diff = step(4);
+  test("Dana's refusal is recorded against an unchanged shape", () => {
+    const diff = step(V.danaDeclines);
     expect(diff.statusChanged).toEqual([{ id: "wait-for-dana", from: "active", to: "done" }]);
     expect(diff.outcomeAdded).toEqual(["wait-for-dana"]);
     expect(diff.topologyStable).toBe(true);
     // `declined` closes the wait, so the node is `done`. It did not fail; somebody answered.
-    expect(folded(4).graph.nodes.get("wait-for-dana")?.status.outcome?.verdict).toBe("declined");
+    expect(folded(V.danaDeclines).graph.nodes.get("wait-for-dana")?.status.outcome?.verdict).toBe(
+      "declined",
+    );
   });
 });
 
@@ -272,7 +302,7 @@ describe("the first paint", () => {
     const diff = diffGraphs(null, head);
     expect(diff.addedNodes).toHaveLength(14);
     expect(diff.addedEdges).toHaveLength(11);
-    expect(diff.toVersion).toBe(8);
+    expect(diff.toVersion).toBe(V.patReserved);
     expect(diff.topologyStable).toBe(false);
     // Additions in insertion order (rule 7), so the canvas can pin visual order to it.
     expect(diff.addedNodes[0]).toBe("confirm-roster-availability");
@@ -286,10 +316,10 @@ describe("the first paint", () => {
 });
 
 describe("diffs across more than one version", () => {
-  test("v2 -> v7 collapses five versions into one animation", () => {
-    const diff = diffGraphs(folded(2).graph, folded(7).graph);
-    expect(diff.fromVersion).toBe(2);
-    expect(diff.toVersion).toBe(7);
+  test("the plan against head collapses eleven versions into one animation", () => {
+    const diff = diffGraphs(folded(V.plan).graph, folded(V.patReserved).graph);
+    expect(diff.fromVersion).toBe(V.plan);
+    expect(diff.toVersion).toBe(V.patReserved);
     expect(diff.addedNodes).toEqual([
       "check-marcus-is-eligible",
       "wait-for-eligibility-ruling",
@@ -304,11 +334,18 @@ describe("diffs across more than one version", () => {
         by: "confirm-roster-availability-and-eligibility",
       },
     ]);
-    // Priya went active -> sending -> failed in between; the diff reports the endpoints.
+    // Priya went active -> sending -> failed across three separate versions; the diff
+    // reports the endpoints, which is the whole point of collapsing a range.
     expect(diff.statusChanged).toContainEqual({
       id: "ask-priya-to-play-in-goal",
       from: "active",
       to: "failed",
+    });
+    // Dana's two commits collapse the same way.
+    expect(diff.statusChanged).toContainEqual({
+      id: "ask-dana-to-play-in-goal",
+      from: "active",
+      to: "done",
     });
     expect(diff.outcomeAdded).toEqual(["wait-for-dana", "wait-for-sam", "wait-for-priya"]);
   });

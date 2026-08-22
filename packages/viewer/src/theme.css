@@ -28,10 +28,20 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "@xyflow/react/dist/style.css" layer(xyflow);
-@import "tailwindcss/utilities.css" layer(utilities);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
 
 /* The class scanner cannot see through a compile step run from `packages/viewer`, so the
-   sources are named rather than inferred. */
+   sources are named rather than inferred.
+
+   `source(none)` on the utilities import above is half of that, and it is the half that
+   matters. Without it Tailwind ALSO auto-detects sources from the package root, which quietly
+   made `test/` a source of class names — and its extractor is deliberately liberal about what
+   looks like one, so bare words in test prose became utilities: `.static`, `.grow` and
+   `.transition` were all in the shipped bundle, put there by sentences describing what a test
+   asserts. Dead CSS is the small half of the problem; the real half is that renaming a test
+   could change the product.
+
+   This path IS relative to this file, so it reads the `src/` tree it sits in. */
 @source "./**/*.{ts,tsx}";
 
 @theme {

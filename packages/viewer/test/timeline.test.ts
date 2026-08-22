@@ -28,7 +28,7 @@ import { REASON_CODES, foldLog } from "@kona/core";
 import { buildTimeline } from "../src/model/timeline.ts";
 import { diffGraphs } from "../src/model/diff.ts";
 import type { TimelineEntry } from "../src/model/types.ts";
-import { folded, logText } from "./fixture.ts";
+import { V, folded, logText } from "./fixture.ts";
 
 const TIMELINE = buildTimeline(folded().records);
 
@@ -66,11 +66,13 @@ function opRows(version: number): string[][] {
   return entry(version).ops.map((op) => [op.kind, op.node, op.detail]);
 }
 
-describe("A6 — nine versions, newest first, every one explained", () => {
-  test("v8 is at index 0 and v0 is last", () => {
-    expect(TIMELINE).toHaveLength(9);
-    expect(TIMELINE[0]?.version).toBe(8);
-    expect(TIMELINE.map((row) => row.version)).toEqual([8, 7, 6, 5, 4, 3, 2, 1, 0]);
+describe("A6 — every version, newest first, every one explained", () => {
+  test("head is at index 0 and genesis is last", () => {
+    expect(TIMELINE).toHaveLength(V.patReserved + 1);
+    expect(TIMELINE[0]?.version).toBe(V.patReserved);
+    expect(TIMELINE.map((row) => row.version)).toEqual(
+      Array.from({ length: V.patReserved + 1 }, (_, index) => V.patReserved - index),
+    );
   });
 
   test("every entry carries a non-empty why and a real reason code", () => {
@@ -78,15 +80,27 @@ describe("A6 — nine versions, newest first, every one explained", () => {
       expect(row.why.length).toBeGreaterThan(0);
       expect(REASON_CODES as readonly string[]).toContain(row.reasonCode);
     }
-    expect(entry(4).reasonCode).toBe("COUNTERPARTY_DECLINED");
-    expect(entry(4).why).toBe("Dana is away that week. Her arm cannot satisfy the quorum.");
-    expect(entry(7).reasonCode).toBe("CONTRADICTION");
+    expect(entry(V.danaDeclines).reasonCode).toBe("COUNTERPARTY_DECLINED");
+    expect(entry(V.danaDeclines).why).toBe(
+      "Dana is away that week. Her arm cannot satisfy the quorum.",
+    );
+    expect(entry(V.patPlanned).reasonCode).toBe("CONTRADICTION");
+    // §6.8 defaults the outbox's own commits to OTHER, and deliberately: the closed
+    // vocabulary describes why a PLAN changed, and none of it describes "I sent the message
+    // I was told to send". A wrong code is worse than an honest default.
+    expect(entry(V.danaReserved).reasonCode).toBe("OTHER");
   });
 
   test("actors render as kind, or kind plus id when the id says something new", () => {
-    expect(entry(0).actor).toBe("human ilya");
-    for (const version of [1, 2, 3, 4, 5, 6, 7]) {
-      expect(entry(version).actor).toBe("orchestrator");
+    expect(entry(V.genesis).actor).toBe("human ilya");
+    // The plan changes are the orchestrator's. Every send is the EXECUTOR's, and the
+    // timeline says so — which is the only place a reader can see that the thing which
+    // touched the world is not the thing which decided to.
+    for (const version of [V.roster, V.plan, V.danaDeclines, V.samRefers, V.patPlanned]) {
+      expect(`v${version}:${entry(version).actor}`).toBe(`v${version}:orchestrator`);
+    }
+    for (const version of [V.danaReserved, V.danaSent, V.priyaFailed, V.patReserved]) {
+      expect(`v${version}:${entry(version).actor}`).toBe(`v${version}:subagent executor`);
     }
   });
 
@@ -100,20 +114,22 @@ describe("A6 — nine versions, newest first, every one explained", () => {
     }
     // Nothing in this pursuit was committed in reply to an inbound event, and none of the
     // rationales carried the two optional halves. Absent, not empty-string, not "unknown".
-    expect(TIMELINE.map((row) => row.trigger)).toEqual(Array<null>(9).fill(null));
-    expect(entry(5).expectedEffect).toBeNull();
-    expect(entry(5).alternativesRejected).toEqual([]);
+    expect(TIMELINE.map((row) => row.trigger)).toEqual(
+      Array<null>(V.patReserved + 1).fill(null),
+    );
+    expect(entry(V.samRefers).expectedEffect).toBeNull();
+    expect(entry(V.samRefers).alternativesRejected).toEqual([]);
   });
 });
 
 describe("op details — the wording is the product", () => {
-  test("v1: an edge reads as what the TARGET requires", () => {
+  test("the roster version: an edge reads as what the TARGET requires", () => {
     // `{from: confirm-roster-availability, to: ask-dana-to-play-in-goal}` means the ask
     // requires the roster check. The row hangs off the ask, and names the roster check.
-    // v1 reads the roster and addresses nobody: invariant 3(b) rejects "a recipient
+    // It reads the roster and addresses nobody: invariant 3(b) rejects "a recipient
     // existing only in the proposing batch", so the record naming these people has to be
     // committed before any node may email one of them.
-    expect(opRows(1)).toEqual([
+    expect(opRows(V.roster)).toEqual([
       ["add_node", "confirm-roster-availability", "added task"],
       ["add_node", "escalate-no-goalie-found", "added task"],
       ["record_output", "confirm-roster-availability", "output availability"],
@@ -122,7 +138,7 @@ describe("op details — the wording is the product", () => {
   });
 
   test("a conditional edge names the resolution it fires on", () => {
-    const converging = opRows(2).filter(([kind]) => kind === "add_edge");
+    const converging = opRows(V.plan).filter(([kind]) => kind === "add_edge");
     expect(converging).toEqual([
       ["add_edge", "ask-dana-to-play-in-goal", "requires confirm-roster-availability"],
       ["add_edge", "wait-for-dana", "requires ask-dana-to-play-in-goal"],
@@ -137,30 +153,36 @@ describe("op details — the wording is the product", () => {
   test("an output names what was produced, never the value", () => {
     // The roster is a list of real people; the timeline says one was produced and leaves
     // the reading of it to somebody who opened the node.
-    expect(opRows(1).filter(([kind]) => kind === "record_output")).toEqual([
+    expect(opRows(V.roster).filter(([kind]) => kind === "record_output")).toEqual([
       ["record_output", "confirm-roster-availability", "output availability"],
     ]);
   });
 
-  test("v3: statuses read as transitions, including the one that is not terminal", () => {
-    expect(opRows(3)).toEqual([
-      ["set_status", "ask-dana-to-play-in-goal", "-> done"],
-      ["record_output", "ask-dana-to-play-in-goal", "output sent_message_id"],
-      ["set_status", "ask-sam-to-play-in-goal", "-> done"],
-      ["record_output", "ask-sam-to-play-in-goal", "output sent_message_id"],
+  test("a send reads as two transitions, and the first is not terminal", () => {
+    // The whole of §6.6, as two timeline rows. Nobody watching a pursuit has to be told what
+    // the outbox is; they can see the node sit in `sending` and then move.
+    expect(opRows(V.danaReserved)).toEqual([
+      ["set_status", "ask-dana-to-play-in-goal", "-> sending"],
+    ]);
+    expect(opRows(V.danaSent)).toEqual([["set_status", "ask-dana-to-play-in-goal", "-> done"]]);
+    // And the one that never got its second row until four versions later.
+    expect(opRows(V.priyaReserved)).toEqual([
       ["set_status", "ask-priya-to-play-in-goal", "-> sending"],
+    ]);
+    expect(opRows(V.priyaFailed)).toEqual([
+      ["set_status", "ask-priya-to-play-in-goal", "-> failed"],
     ]);
   });
 
-  test("v4: an outcome leads with the verdict and keeps the attrs a quorum counts on", () => {
-    expect(opRows(4)).toEqual([
+  test("an outcome leads with the verdict and keeps the attrs a quorum counts on", () => {
+    expect(opRows(V.danaDeclines)).toEqual([
       ["record_outcome", "wait-for-dana", "declined · role=goalie · reason=away that week"],
       ["set_status", "wait-for-dana", "-> done"],
     ]);
   });
 
-  test("v6: the supersede names its replacement", () => {
-    expect(opRows(6)).toEqual([
+  test("the supersede names its replacement", () => {
+    expect(opRows(V.rosterSuperseded)).toEqual([
       ["add_node", "confirm-roster-availability-and-eligibility", "added task"],
       [
         "supersede_node",
@@ -170,11 +192,10 @@ describe("op details — the wording is the product", () => {
     ]);
   });
 
-  test("v7: a supersede with no replacement says so, rather than naming nothing", () => {
+  test("a supersede with no replacement says so, rather than naming nothing", () => {
     // Priya's address bounced 550. Her wait is retired outright — `by` is absent, so
     // `superseded_by` stays null and the store drops the node instead.
-    expect(opRows(7)).toEqual([
-      ["set_status", "ask-priya-to-play-in-goal", "-> failed"],
+    expect(opRows(V.patPlanned)).toEqual([
       [
         "record_outcome",
         "wait-for-priya",
@@ -187,37 +208,40 @@ describe("op details — the wording is the product", () => {
       ["add_edge", "goalie-confirmed", "requires wait-for-pat on satisfied"],
     ]);
 
-    // The reservation moved to v8 of its own accord: it is now issued by `kona effect
-    // reserve` rather than hand-written, and the outbox appends its own version.
-    expect(opRows(8)).toEqual([["set_status", "ask-pat-to-play-in-goal", "-> sending"]]);
+    // Pat's reservation is a version of its own, after the plan that created his node. It
+    // has to be: `kona effect reserve` is the only thing that issues a slot, and it appends.
+    expect(opRows(V.patReserved)).toEqual([
+      ["set_status", "ask-pat-to-play-in-goal", "-> sending"],
+    ]);
   });
 
   test("genesis has no ops at all", () => {
-    expect(entry(0).ops).toEqual([]);
+    expect(entry(V.genesis).ops).toEqual([]);
   });
 });
 
 describe("each entry carries what its version did to the shape", () => {
-  test("only v3 and v4 are status ticks; v0 has nothing to compare against", () => {
-    expect(entry(0).diff).toBeNull();
-    const table = Object.fromEntries(
-      [1, 2, 3, 4, 5, 6, 7].map((v) => [v, entry(v).diff?.topologyStable]),
+  test("genesis has nothing to compare against, and the ticks are the sends", () => {
+    expect(entry(V.genesis).diff).toBeNull();
+    const stable = TIMELINE.filter((row) => row.diff?.topologyStable === true).map(
+      (row) => row.version,
     );
-    expect(table).toEqual({
-      1: false,
-      2: false,
-      3: true, // dispatches: statuses and outputs only
-      4: true, // Dana declines: one outcome, one status
-      5: false,
-      6: false, // a supersede adds no edge and still moves the picture
-      7: false,
-    });
+    expect(stable.toSorted((a, b) => a - b)).toEqual([
+      V.danaReserved,
+      V.danaSent,
+      V.samReserved,
+      V.samSent,
+      V.priyaReserved,
+      V.danaDeclines,
+      V.priyaFailed,
+      V.patReserved,
+    ]);
   });
 
-  test("v6's diff names the supersede and its target", () => {
-    const diff = entry(6).diff;
-    expect(diff?.fromVersion).toBe(5);
-    expect(diff?.toVersion).toBe(6);
+  test("the supersede's diff names the supersede and its target", () => {
+    const diff = entry(V.rosterSuperseded).diff;
+    expect(diff?.fromVersion).toBe(V.rosterSuperseded - 1);
+    expect(diff?.toVersion).toBe(V.rosterSuperseded);
     expect(diff?.addedNodes).toEqual(["confirm-roster-availability-and-eligibility"]);
     expect(diff?.addedEdges).toEqual([]);
     expect(diff?.superseded).toEqual([
@@ -228,8 +252,8 @@ describe("each entry carries what its version did to the shape", () => {
     ]);
   });
 
-  test("v4's diff moves a status and an outcome and nothing else", () => {
-    const diff = entry(4).diff;
+  test("Dana's refusal moves a status and an outcome and nothing else", () => {
+    const diff = entry(V.danaDeclines).diff;
     expect(diff?.addedNodes).toEqual([]);
     expect(diff?.addedEdges).toEqual([]);
     expect(diff?.statusChanged).toEqual([{ id: "wait-for-dana", from: "active", to: "done" }]);
@@ -240,7 +264,7 @@ describe("each entry carries what its version did to the shape", () => {
     // The shortcut this module takes, held to the answer it replaces. A quadratic re-fold is
     // what makes a viewer stall on a long log; being fast is only worth anything if it is also
     // right, and this is where that is checked.
-    for (const version of [1, 2, 3, 4, 5, 6, 7]) {
+    for (let version = 1; version <= V.patReserved; version += 1) {
       expect(entry(version).diff).toEqual(
         diffGraphs(folded(version - 1).graph, folded(version).graph),
       );

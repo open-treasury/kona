@@ -52,6 +52,18 @@ export interface GraphNode {
   status: {
     state: string;
     output?: Record<string, unknown> | null;
+    /**
+     * §6.6's record of what left. Present on every node, empty on most; a node that declares
+     * an `effect` and has moved bytes carries exactly one entry per slot it has spent.
+     */
+    effect_log?: {
+      effect_key: string;
+      payload_hash: string;
+      attempted_at: string;
+      completed_at: string | null;
+      outcome: "sent" | "failed" | null;
+      message_id: string | null;
+    }[];
   };
   provenance: { created_by_version: number; group?: string; superseded_by: string | null };
 }

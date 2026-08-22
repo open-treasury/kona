@@ -13,6 +13,17 @@ cd "${WORK}"
 ops() { cat > ops.json; }
 commit() { ${KONA} mutate --ops ops.json --base-version "$1" --why "$2" --reason-code "$3" "${@:4}" >/dev/null; }
 
+# §6.6's outbox, as two shell verbs. Every send here is three commits — reserve, (the bytes),
+# record — because that is the only order that survives a crash: append and fsync the intent
+# BEFORE anything leaves, so a machine that dies mid-send leaves a slot a human can be shown.
+# The fixture used to hand-write `set_status done` instead, which produced a log the CLI
+# itself could never emit.
+reserve() {
+  ${KONA} effect reserve "$1" --payload-hash "$2" --why "$3" --json \
+    | sed -n 's/.*"effect_key":"\([^"]*\)".*/\1/p'
+}
+record() { ${KONA} effect record "$1" --key "$2" --outcome "$3" --message-id "$4" --why "$5" >/dev/null; }
+
 cat > config.json <<'EOF'
 {
   "identity": {
@@ -50,7 +61,6 @@ ops <<'EOF'
  {"op":"add_node","label":"Ask Dana to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
           "inputs":[{"ref":"confirm-roster-availability.availability"}],
-          "outputs":[{"name":"sent_message_id","type":"string"}],
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
  {"op":"add_node","label":"Wait for Dana","type":"wait","scope":"goalies",
@@ -60,7 +70,7 @@ ops <<'EOF'
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
  {"op":"add_node","label":"Ask Sam to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Sam asking if he can play in goal Thursday.",
-          "outputs":[{"name":"sent_message_id","type":"string"}],"effect_class":"pivot",
+          "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#sam"}}},
  {"op":"add_node","label":"Wait for Sam","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Sam's reply.","effect_class":"pure",
@@ -69,7 +79,7 @@ ops <<'EOF'
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
  {"op":"add_node","label":"Ask Priya to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Priya asking if she can play in goal Thursday.",
-          "outputs":[{"name":"sent_message_id","type":"string"}],"effect_class":"pivot",
+          "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#priya"}}},
  {"op":"add_node","label":"Wait for Priya","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Priya's reply.","effect_class":"pure",
@@ -92,21 +102,16 @@ ops <<'EOF'
 EOF
 commit 1 "The roster named four; ask all three goalies in parallel rather than serially." NEW_CONSTRAINT
 
-# v3 — the sends go out. One is mid-flight when we look.
-ops <<'EOF'
-[
- {"op":"set_status","node":"ask-dana-to-play-in-goal","status":"done","evidence_ref":"<m-101@mail>"},
- {"op":"record_output","node":"ask-dana-to-play-in-goal","output_name":"sent_message_id",
-  "value":"<m-101@mail>","evidence_ref":"<m-101@mail>"},
- {"op":"set_status","node":"ask-sam-to-play-in-goal","status":"done","evidence_ref":"<m-102@mail>"},
- {"op":"record_output","node":"ask-sam-to-play-in-goal","output_name":"sent_message_id",
-  "value":"<m-102@mail>","evidence_ref":"<m-102@mail>"},
- {"op":"set_status","node":"ask-priya-to-play-in-goal","status":"sending","evidence_ref":"ek_priya_v2"}
-]
-EOF
-commit 2 "Dana and Sam dispatched; Priya's send is reserved and in flight." OTHER
+# v3..v7 — the sends go out. Dana's and Sam's complete; Priya's stops after the reservation
+# and stays open for four versions, which is CRASH WINDOW 2: a `sending` node whose slot is
+# fsynced, with nothing on disk able to say whether the bytes moved.
+DANA_KEY="$(reserve ask-dana-to-play-in-goal sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a "Dana is the only goalie the roster names")"
+record ask-dana-to-play-in-goal "${DANA_KEY}" sent "<m-101@mail>" "the mail server accepted it"
+SAM_KEY="$(reserve ask-sam-to-play-in-goal sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b "Sam has kept goal before and the roster names him")"
+record ask-sam-to-play-in-goal "${SAM_KEY}" sent "<m-102@mail>" "the mail server accepted it"
+PRIYA_KEY="$(reserve ask-priya-to-play-in-goal sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c "Priya is the third name on the roster")"
 
-# v4 — Dana declines. Her arm is dropped; the merge survives on the live arms.
+# v8 — Dana declines. Her arm is dropped; the merge survives on the live arms.
 ops <<'EOF'
 [
  {"op":"record_outcome","node":"wait-for-dana","verdict":"declined","evidence_ref":"<m-201@mail>",
@@ -114,9 +119,9 @@ ops <<'EOF'
  {"op":"set_status","node":"wait-for-dana","status":"done","evidence_ref":"<m-201@mail>"}
 ]
 EOF
-commit 3 "Dana is away that week. Her arm cannot satisfy the quorum." COUNTERPARTY_DECLINED
+commit 7 "Dana is away that week. Her arm cannot satisfy the quorum." COUNTERPARTY_DECLINED
 
-# v5 — Sam refers Marcus, who is not on the roster. The graph grows a node no v1 shape describes.
+# v9 — Sam refers Marcus, who is not on the roster. The graph grows a node no v1 shape describes.
 ops <<'EOF'
 [
  {"op":"record_outcome","node":"wait-for-sam","verdict":"declined","evidence_ref":"<m-202@mail>",
@@ -134,9 +139,9 @@ ops <<'EOF'
  {"op":"add_edge","from":"$3","to":"goalie-confirmed","condition":{"on":"accept"}}
 ]
 EOF
-commit 4 "Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human." NEW_CONSTRAINT
+commit 8 "Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human." NEW_CONSTRAINT
 
-# v6 — the roster step is superseded by a better one, and the old node is kept, not deleted.
+# v10 — the roster step is superseded by a better one, and the old node is kept, not deleted.
 ops <<'EOF'
 [
  {"op":"add_node","label":"Confirm roster availability and eligibility","type":"task","scope":"setup",
@@ -145,39 +150,42 @@ ops <<'EOF'
  {"op":"supersede_node","node":"confirm-roster-availability","by":"$0"}
 ]
 EOF
-commit 5 "The roster step missed eligibility, which is what let an unrostered referral through." MISSING_STEP
+commit 9 "The roster step missed eligibility, which is what let an unrostered referral through." MISSING_STEP
 
-# v7 — Priya's address bounced. The send failed, so the wait behind it is pointless:
-# superseding a still-live node drops it, and the store does that housekeeping itself.
+# v11 — Priya's address bounced. The reservation opened at v7 is CLOSED by the outbox rather
+# than by a hand-written status: what makes the slot unspendable again is the store closing
+# the slot it issued.
+record ask-priya-to-play-in-goal "${PRIYA_KEY}" failed "<bounce-550@mail>" "the address is dead: 550 5.1.1 user unknown"
+
+# v12 — the send failed, so the wait behind it is pointless: superseding a still-live node
+# drops it, and the store does that housekeeping itself.
 ops <<'EOF'
 [
- {"op":"set_status","node":"ask-priya-to-play-in-goal","status":"failed","evidence_ref":"<bounce-550@mail>"},
  {"op":"record_outcome","node":"wait-for-priya","verdict":"bounced","evidence_ref":"<bounce-550@mail>",
   "attrs":{"role":"goalie","smtp":"550 5.1.1 user unknown"}},
  {"op":"supersede_node","node":"wait-for-priya"},
  {"op":"add_node","label":"Ask Pat to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Pat asking if he can play in goal Thursday.",
-          "outputs":[{"name":"sent_message_id","type":"string"}],"effect_class":"pivot",
+          "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#pat"}}},
  {"op":"add_node","label":"Wait for Pat","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Pat's reply. Pat is often silent; the deadline is the plan.",
           "effect_class":"pure",
-          "deadline":{"after":"$3","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
+          "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_edge","from":"$3","to":"$4"},
- {"op":"add_edge","from":"$4","to":"goalie-confirmed","condition":{"on":"satisfied"}}
+ {"op":"add_edge","from":"$2","to":"$3"},
+ {"op":"add_edge","from":"$3","to":"goalie-confirmed","condition":{"on":"satisfied"}}
 ]
 EOF
-commit 6 "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too." CONTRADICTION
+commit 11 "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too." CONTRADICTION
 
-# v8 — Pat's invite goes through the OUTBOX rather than a hand-set status, so the fixture
-# carries a real open reservation: fsynced, sent-or-not-unknown, awaiting an answer.
-# This is the state §6.6 exists for, and a hand-written `sending` with an empty
-# effect_log would be a state the CLI can never actually produce.
-${KONA} effect reserve ask-pat-to-play-in-goal \
-  --payload-hash "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f0" \
-  --why "Pat is the last untried goalie and the deadline is Thursday" >/dev/null
+# v13 — and the fixture ENDS on an open reservation, deliberately. A handoff artefact whose
+# every node is settled teaches nothing about the state that actually costs you sleep: Pat's
+# slot is fsynced, the bytes may or may not have moved, and the honest answer is a human.
+reserve ask-pat-to-play-in-goal \
+  "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f0" \
+  "Pat is the last untried goalie and the deadline is Thursday" >/dev/null
 
 mkdir -p "${ROOT}/fixtures"
 cp .kona/mutations.jsonl "${ROOT}/fixtures/thursday.mutations.jsonl"

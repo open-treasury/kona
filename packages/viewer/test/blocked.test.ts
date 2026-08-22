@@ -21,7 +21,7 @@ import {
   satisfiesBlockingEdge,
 } from "@kona/core";
 import { blockedReason, readinessOf } from "../src/model/blocked.ts";
-import { folded, headVersion } from "./fixture.ts";
+import { V, folded, headVersion } from "./fixture.ts";
 
 const HEAD = headVersion();
 
@@ -67,8 +67,8 @@ function applied(graph: Graph, ops: CommittedOp[]): Graph {
 }
 
 describe("readinessOf", () => {
-  test("the fixture is the nine-version pursuit these tests were written against", () => {
-    expect(HEAD).toBe(8);
+  test("the fixture is the fourteen-version pursuit these tests were written against", () => {
+    expect(HEAD).toBe(V.patReserved);
   });
 
   test("an active node with no in-edges is ready", () => {
@@ -144,8 +144,10 @@ describe("blockedReason", () => {
     }
   });
 
-  test("a source still in flight: wait-for-pat behind Pat's send at v8", () => {
-    const graph = graphAt(8);
+  test("a source still in flight: wait-for-pat behind Pat's open reservation", () => {
+    // The fixture's ending, and the state rule 8's third colour exists for: the slot is
+    // fsynced, the bytes may or may not have moved, and nothing downstream may proceed.
+    const graph = graphAt(V.patReserved);
     const reason = reasonOf(graph, "wait-for-pat");
     expect(reason.causes).toHaveLength(1);
     expect(reason.causes[0]).toEqual({
@@ -247,9 +249,9 @@ describe("blockedReason", () => {
   });
 
   test("a status-only version changes the causes without changing the graph's shape", () => {
-    // v3 -> v4 adds no node and no edge; Dana simply declines.
-    const before = graphAt(3);
-    const after = graphAt(4);
+    // The step into Dana's refusal adds no node and no edge; she simply declines.
+    const before = graphAt(V.danaDeclines - 1);
+    const after = graphAt(V.danaDeclines);
     expect(after.edges).toEqual(before.edges);
     expect([...after.nodes.keys()]).toEqual([...before.nodes.keys()]);
 

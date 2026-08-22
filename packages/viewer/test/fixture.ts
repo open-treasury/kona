@@ -41,6 +41,49 @@ export function headVersion(): number {
 }
 
 /**
+ * The fixture's beats, by NAME rather than by number.
+ *
+ * Every version index in these tests used to be a literal, and regenerating the fixture then
+ * meant editing about a hundred and fifty of them across seven files — which is both tedious
+ * and the kind of edit that silently weakens a test when one gets it wrong. The story is
+ * stable; only its numbering moves. So the numbering lives here, once.
+ *
+ * `beats.test.ts` pins every name below against the log itself, so a regen that reorders the
+ * story fails in ONE place with a legible message rather than in thirty with arithmetic ones.
+ *
+ * Note how many versions the four sends take: two each — `effect reserve`, then `effect
+ * record` — because §6.6 will not let a send be one commit. Priya's never gets its second
+ * until v11, which is what leaves her node `sending` across four versions.
+ */
+export const V = {
+  // Widened to `number` on purpose — no `as const`. Literal types here would make
+  // `new Set([V.roster, V.plan])` a `Set<1 | 2>` and refuse every other version.
+  /** `kona init`: identity and effect budget, no ops. */
+  genesis: 0,
+  /** The roster is read and recorded, before anyone on it is contacted (invariant 3(b)). */
+  roster: 1,
+  /** The approved plan: three goalies asked at once, merging on a predicate. */
+  plan: 2,
+  danaReserved: 3,
+  danaSent: 4,
+  samReserved: 5,
+  samSent: 6,
+  /** Reserved and then left open for four versions — crash window 2, on purpose. */
+  priyaReserved: 7,
+  danaDeclines: 8,
+  /** Sam refuses and names Marcus, who is not on the roster. */
+  samRefers: 9,
+  /** The roster step is superseded by one that also checks eligibility. */
+  rosterSuperseded: 10,
+  /** The 550 comes back, and the outbox closes the slot it issued. */
+  priyaFailed: 11,
+  /** Priya's wait is dropped and Pat's arm is planned. */
+  patPlanned: 12,
+  /** Pat's slot is reserved and NOT closed. The fixture ends mid-flight, deliberately. */
+  patReserved: 13,
+};
+
+/**
  * A wall clock fixed to a moment in the middle of the story, so countdown assertions are
  * stable. v7 was observed at 2026-08-22T00:53:59Z; `goalie-confirmed` is due at
  * 2026-08-21T17:00:00Z and `wait-for-eligibility-ruling` at 2026-08-21T12:00:00Z, so both are

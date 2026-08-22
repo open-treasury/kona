@@ -156,8 +156,12 @@ export interface MutateRequest {
  * The only write path (§6.8). Ops go through a file rather than argv because a batch is
  * routinely larger than a shell's argument limit and because the file is the thing a human
  * can be shown when a commit is refused.
+ *
+ * Returns the version it committed, read back out of the binary rather than counted here.
+ * The caller still passes the `baseVersion` it BELIEVES head to be — that is the CAS, and
+ * a wrong belief exits 3 — but what it then narrates is what actually landed.
  */
-export async function mutate(cwd: string, request: MutateRequest): Promise<RunResult> {
+export async function mutate(cwd: string, request: MutateRequest): Promise<number> {
   const dir = await mkdtemp(join(tmpdir(), "kona-demo-ops-"));
   const opsPath = join(dir, "ops.json");
   try {
@@ -172,12 +176,65 @@ export async function mutate(cwd: string, request: MutateRequest): Promise<RunRe
       request.why,
       "--reason-code",
       request.reasonCode,
+      "--json",
       ...(request.actorId === undefined ? [] : ["--actor-id", request.actorId]),
     ];
-    return await runOk(cwd, argv);
+    const { stdout } = await runOk(cwd, argv);
+    return (JSON.parse(stdout) as { version: number }).version;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/* ── the outbox (§6.6) ───────────────────────────────────────────────────────────────── */
+
+/**
+ * Step 1: append the intent and fsync, BEFORE a byte moves.
+ *
+ * Returns the `effect_key` — the slot's name, a function of `(node, created_by_version)` and
+ * NOT of the payload, so the same node reserved twice for the same bytes is the same slot
+ * rather than a second email. The hash is what proves the bytes; passing the wrong one is
+ * refused with `EFFECT_PAYLOAD_MISMATCH` rather than silently sent.
+ */
+export async function effectReserve(
+  cwd: string,
+  nodeId: string,
+  hash: string,
+  why: string,
+): Promise<string> {
+  const { stdout } = await runOk(cwd, [
+    "effect", "reserve", nodeId,
+    "--payload-hash", hash,
+    "--why", why,
+    "--json",
+  ]);
+  return (JSON.parse(stdout) as { effect_key: string }).effect_key;
+}
+
+/**
+ * Step 3: the world answered. `sent` moves the node to `done`, `failed` to `failed`, and
+ * either way the reservation is closed — which is what stops the slot being re-reserved.
+ */
+export async function effectRecord(
+  cwd: string,
+  nodeId: string,
+  key: string,
+  outcome: "sent" | "failed",
+  messageId: string,
+  why: string,
+): Promise<void> {
+  await runOk(cwd, [
+    "effect", "record", nodeId,
+    "--key", key,
+    "--outcome", outcome,
+    "--message-id", messageId,
+    "--why", why,
+  ]);
+}
+
+/** The bytes, hashed the way `kona` writes them into the reservation. */
+export function payloadHash(body: string): string {
+  return `sha256:${new Bun.CryptoHasher("sha256").update(body).digest("hex")}`;
 }
 
 /**

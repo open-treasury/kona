@@ -20,16 +20,26 @@
  *
  * | v | | arm sizes after |
  * |---|---|---|
- * | 5 | Sam's referral is wired, pulling the Marcus nodes into Sam's arm | sam 2 -> 4 |
- * | 8 | Pat's invitation lands; his wait is armed | unchanged |
- * | 9 | a human rules Marcus eligible, and only then may he be emailed | sam 4 -> 6 |
- * | 10 | Pat stays silent; the deadline fires and a follow-up sprouts | pat 2 -> 3 |
- * | 11 | Marcus confirms; the goalie predicate is satisfiable again | — |
+ * | 9 | Sam's referral is wired, pulling the Marcus nodes into Sam's arm | sam 2 -> 4 |
+ * | 14 | Pat's invitation lands; his wait is armed | unchanged |
+ * | 15 | a human rules Marcus eligible, and only then may he be emailed | sam 4 -> 6 |
+ * | 16 | Pat stays silent; the deadline fires and a follow-up sprouts | pat 2 -> 3 |
+ * | 19 | Marcus confirms; the goalie predicate is satisfiable again | — |
  *
  * Which ends at `dana 2 · priya 2 · pat 3 · sam 6` — three pairwise different, produced
  * because the arms genuinely diverged rather than because anything was padded to make a test
- * pass. Note the first divergence lands at **v5**, not v8: the referral edge below starts it,
- * so the fixture's own last version already carries two distinct arm sizes.
+ * pass. Note the first divergence lands at **v9**, well before the run leaves the fixture's
+ * story: the referral edge below starts it.
+ *
+ * ## Why the version numbers are larger than the beats
+ *
+ * There are nineteen versions and eleven beats, because **every send is three commits, not
+ * one** — `effect reserve`, then the bytes, then `effect record` (§6.6). That ordering is the
+ * durability story and it is not a detail the rig may skip: an earlier version of this file
+ * called `provider.send` directly and hand-wrote `set_status done`, which meant the artefact
+ * whose job is to demonstrate the product never touched the product's most dangerous code.
+ * The `baseVersion` literals below stay hand-written for the same reason they always were —
+ * they are this script's model of the log, and a drift exits 3 rather than passing quietly.
  *
  * ## The one edge the fixture is missing
  *
@@ -40,23 +50,22 @@
  *
  * ## The gate, and what it is not
  *
- * Marcus is named at v5 and cannot be emailed until v9, after a human rules. That is the shape
+ * Marcus is named at v9, ruled on at v15, and emailed only at v17 — after a human rules. That is the shape
  * invariant 3(b) demands — "a recipient existing only in the proposing batch is rejected" —
  * and §6.9's one gate: "The plan changes freely; the world does not; and nobody new enters the
  * world without a human."
  *
- * **The store does not enforce this yet.** `validate.ts` runs `checkInvariant1` and nothing
- * else, so a node addressed to an unevidenced counterparty commits happily today. There is a
- * test in `demo/test/divergence.test.ts` pinning that, which will go red when 3(b) lands.
- * Until then the beat is the plan's shape, and narrating it as something the binary refused
- * would be a lie.
+ * **The store enforces this.** `validate.ts` resolves every `recipient_ref` against
+ * PRE-COMMIT head, so the batch that invents Marcus and emails him in one breath is refused
+ * with `UNEVIDENCED_RECIPIENT`. What makes Marcus contactable at all is Sam naming him in a
+ * reply that has a message id — evidence somebody outside the model put there.
  */
 
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { MailboxProvider, SendReceipt } from "../mailbox/port.ts";
+import type { MailboxProvider } from "../mailbox/port.ts";
 import { MailboxError, canScriptRejections } from "../mailbox/port.ts";
 import { steppingClock } from "../mailbox/clock.ts";
 import { MemoryMailboxProvider } from "../mailbox/memory.ts";
@@ -79,14 +88,42 @@ export interface RunOptions {
   narrate?: boolean;
 }
 
+/**
+ * A slot the store has issued and fsynced, waiting for bytes to move.
+ *
+ * It exists because §6.6's steps 1 and 3 are not always adjacent: Priya's reservation is
+ * opened at v7 and closed at v11, and everything the delivery needs has to survive the gap.
+ */
+interface Reserved {
+  nodeId: string;
+  who: ReturnType<typeof persona>;
+  envelope: Parameters<MailboxProvider["send"]>[0];
+  /** What `kona effect reserve` named this slot. `effect record` refuses any other key. */
+  key: string;
+}
+
 export interface RunResult {
   cwd: string;
   head: GraphJson;
   v1: GraphJson;
   assertions: Assertion[];
   events: SimulatedEvent[];
-  /** Every send the run made, with the provider and realm each was handled by (§6.11). */
-  sends: { node: string; to: string; provider: string; sandbox_or_real: string }[];
+  /**
+   * Every send the run made, with the provider and realm each was handled by (§6.11) — and
+   * the outbox slot it was spent from.
+   *
+   * `effect_key` and `payload_hash` are here so a reader can check the two halves against
+   * each other: the store approved a hash, and these are the bytes that left. A rig that went
+   * back to calling `provider.send` directly could not fill either field.
+   */
+  sends: {
+    node: string;
+    to: string;
+    provider: string;
+    sandbox_or_real: string;
+    effect_key: string;
+    payload_hash: string;
+  }[];
 }
 
 export async function runDivergence(options: RunOptions): Promise<RunResult> {
@@ -105,12 +142,17 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   });
 
   /**
-   * Send the invitation a node stands for.
+   * STEP 1 of §6.6 — compose the invitation, and reserve the slot BEFORE a byte moves.
    *
    * `Reply-To` carries the correlation token for THIS node, fully expanded — §6.9 is explicit
    * that "a template variable that reaches a counterparty can never correlate".
+   *
+   * The reservation is what makes the ordering literal: `kona effect reserve` appends the
+   * intent and fsyncs it, so a crash after this point leaves a `sending` node with an open
+   * reservation — a thing a human can be shown — rather than a graph that says nothing while
+   * an email is in flight.
    */
-  const invite = async (nodeId: string, slug: Parameters<typeof persona>[0]): Promise<Outbound> => {
+  const prepare = async (nodeId: string, slug: Parameters<typeof persona>[0]): Promise<Reserved> => {
     const who = persona(slug);
     // ASK THE BINARY. §6.5 puts the correlation derivation in `kona`, and until `kona
     // brief` shipped this rig derived it itself from a quarantined stand-in. Reading it
@@ -131,16 +173,62 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         "— Ilya",
       reply_to: replyTo,
     };
-    const receipt = await provider.send(envelope);
+    const key = await kona.effectReserve(
+      cwd,
+      nodeId,
+      kona.payloadHash(envelope.body_text),
+      `inviting ${who.display_name} to play in goal on Thursday`,
+    );
+    // The brief an executor reads and the reservation the store issues must name the SAME
+    // slot, or the guard guards a key nobody holds. Both derive it from
+    // `(node, created_by_version)`; this is the only place both are in one hand to compare.
+    if (nodeBrief.effect_key !== key) {
+      throw new Error(
+        `kona brief called '${nodeId}' slot ${String(nodeBrief.effect_key)} and effect reserve ` +
+          `issued ${key} — the duplicate-send guard is guarding the wrong key`,
+      );
+    }
+    say(`    ⊙ ${nodeId}: reserved ${key}, fsynced — nothing has been sent yet`);
+    return { nodeId, who, envelope, key };
+  };
+
+  /**
+   * STEP 2 and 3 — hand the bytes over, then record what the world did with them.
+   *
+   * Separate from `prepare` because Priya's send is the beat where those two steps come apart:
+   * her slot is reserved four versions before anyone tries to deliver it, and what closes the
+   * reservation is a refusal rather than a message id.
+   */
+  const deliver = async (reserved: Reserved): Promise<Outbound> => {
+    const receipt = await provider.send(reserved.envelope);
+    await kona.effectRecord(
+      cwd,
+      reserved.nodeId,
+      reserved.key,
+      "sent",
+      receipt.message_id,
+      `${receipt.provider} accepted it as ${receipt.message_id}`,
+    );
     sends.push({
-      node: nodeId,
-      to: who.address,
+      node: reserved.nodeId,
+      to: reserved.who.address,
       provider: receipt.provider,
       sandbox_or_real: receipt.sandbox_or_real,
+      effect_key: reserved.key,
+      payload_hash: kona.payloadHash(reserved.envelope.body_text),
     });
-    say(`    → ${nodeId}: sent to ${who.address}, reply-to ${envelope.reply_to}`);
-    return { envelope, receipt };
+    say(
+      `    → ${reserved.nodeId}: sent to ${reserved.who.address}, ` +
+        `reply-to ${reserved.envelope.reply_to}`,
+    );
+    return { envelope: reserved.envelope, receipt };
   };
+
+  /** The whole dance, for the sends that go through on the first attempt. */
+  const invite = async (
+    nodeId: string,
+    slug: Parameters<typeof persona>[0],
+  ): Promise<Outbound> => deliver(await prepare(nodeId, slug));
 
   await kona.init(cwd, "ilya", {
     identity: {
@@ -156,7 +244,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   say(`kona init ${cwd}`);
 
   // ── v1 ── the approved plan. Dana is the only goalie on the roster.
-  await kona.mutate(cwd, {
+  const vRoster = await kona.mutate(cwd, {
     baseVersion: 0,
     why: "Read the roster before contacting anyone on it.",
     reasonCode: "MISSING_STEP",
@@ -185,10 +273,10 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "set_status", node: "$0", status: "done", evidence_ref: "roster.csv#v3" },
     ],
   });
-  say("v1  read the roster: four names, from the club sheet");
+  say(`v${vRoster}  read the roster: four names, from the club sheet`);
 
   // ── v2 ── the roster came back with four names. Fan out, converge on a predicate.
-  await kona.mutate(cwd, {
+  const vPlan = await kona.mutate(cwd, {
     baseVersion: 1,
     why: "The roster named four; ask all three goalies in parallel rather than serially.",
     reasonCode: "NEW_CONSTRAINT",
@@ -234,38 +322,28 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "add_edge", from: "$5", to: "$6", condition: { on: "satisfied" } },
     ],
   });
-  say("v2  the approved plan: ask all three goalies, converge on a predicate");
+  say(`v${vPlan}  the approved plan: ask all three goalies, converge on a predicate`);
   // The baseline the divergence assertions measure against: every arm identical, and every
   // recipient already named by the roster committed at v1.
   const v1 = asGraph(await kona.graph(cwd));
 
-  // ── v3 ── the sends go out. Priya's is reserved but not yet dispatched (§6.6's outbox
-  //          order: reserve and fsync BEFORE handing bytes to the world).
+  // ── v3..v7 ── the sends go out, each one three commits: reserve, bytes, record.
+  //
+  // Priya stops after the reservation. That is not a shortcut — it is CRASH WINDOW 2, held
+  // open on purpose for four versions: a node in `sending` with an open slot, no message id,
+  // and nothing on disk able to say whether the bytes moved. `kona resume` surfaces exactly
+  // this for a human rather than guessing, and the run comes back to it at v11.
   const danaOut = await invite("ask-dana-to-play-in-goal", "dana");
   const samOut = await invite("ask-sam-to-play-in-goal", "sam");
-  await kona.mutate(cwd, {
-    baseVersion: 2,
-    why: "Dana and Sam dispatched; Priya's send is reserved and in flight.",
-    reasonCode: "OTHER",
-    ops: [
-      ...dispatched("ask-dana-to-play-in-goal", danaOut.receipt),
-      ...dispatched("ask-sam-to-play-in-goal", samOut.receipt),
-      {
-        op: "set_status",
-        node: "ask-priya-to-play-in-goal",
-        status: "sending",
-        evidence_ref: "ek_priya_v3",
-      },
-    ],
-  });
-  say("v3  Dana and Sam dispatched; Priya reserved and in flight");
+  const priyaReserved = await prepare("ask-priya-to-play-in-goal", "priya");
+  say("v3-v7  Dana and Sam dispatched; Priya's slot is reserved and still open");
 
-  // ── v4 ── Dana declines. The premise breaks: the only goalie is out.
+  // ── v8 ── Dana declines. The premise breaks: the only goalie is out.
   const danaReply = await replyAs(provider, danaOut, "dana");
   events.push(danaReply);
   const danaEvidence = await evidenceFromMailbox(provider, danaOut, danaReply);
-  await kona.mutate(cwd, {
-    baseVersion: 3,
+  const vDana = await kona.mutate(cwd, {
+    baseVersion: 7,
     why: "Dana is away that week. Her arm cannot satisfy the quorum.",
     reasonCode: "COUNTERPARTY_DECLINED",
     ops: [
@@ -279,14 +357,14 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "set_status", node: "wait-for-dana", status: "done", evidence_ref: danaEvidence },
     ],
   });
-  say("v4  Dana declines — away that week. The only goalie is gone");
+  say(`v${vDana}  Dana declines — away that week. The only goalie is gone`);
 
-  // ── v5 ── Sam declines and names someone the plan never heard of.
+  // ── v9 ── Sam declines and names someone the plan never heard of.
   const samReply = await replyAs(provider, samOut, "sam");
   events.push(samReply);
   const samEvidence = await evidenceFromMailbox(provider, samOut, samReply);
-  await kona.mutate(cwd, {
-    baseVersion: 4,
+  const vSam = await kona.mutate(cwd, {
+    baseVersion: 8,
     why: "Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human.",
     reasonCode: "NEW_CONSTRAINT",
     ops: [
@@ -337,11 +415,11 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "add_edge", from: "wait-for-sam", to: "$2", condition: { on: "satisfied" } },
     ],
   });
-  say("v5  Sam declines but refers MARCUS, who is not on the roster");
+  say(`v${vSam}  Sam declines but refers MARCUS, who is not on the roster`);
 
-  // ── v6 ── the step that let an unrostered referral through is superseded, not rewritten.
-  await kona.mutate(cwd, {
-    baseVersion: 5,
+  // ── v10 ── the step that let an unrostered referral through is superseded, not rewritten.
+  const vSupersede = await kona.mutate(cwd, {
+    baseVersion: 9,
     why: "The roster step missed eligibility, which is what let an unrostered referral through.",
     reasonCode: "MISSING_STEP",
     ops: [
@@ -359,20 +437,25 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "supersede_node", node: "confirm-roster-availability", by: "$0" },
     ],
   });
-  say("v6  the roster step is superseded by one that also checks eligibility");
+  say(`v${vSupersede}  the roster step is superseded by one that also checks eligibility`);
 
-  // ── v7 ── Priya's address is stale.
+  // ── v11 ── Priya's address is stale, and her four-version-old reservation is closed.
   //
   // Where the provider can refuse, it refuses, and the rejection travels the same path a real
   // one would: `send` throws and NOTHING is recorded as sent. Where it cannot — Mailpit is a
   // catch-all and accepts every address there is — the run says so out loud rather than
   // narrating a bounce that did not happen.
+  //
+  // Either way `kona effect record --outcome failed` is what moves the node to `failed`. The
+  // hand-written `set_status failed` this replaced was the store being TOLD an outcome; this
+  // is the store closing the slot it issued, which is the only thing that makes the node
+  // un-re-reservable.
   const priyaAddress = persona("priya").address;
   let priyaBounce: string;
   if (canScriptRejections(provider)) {
     provider.rejectRecipient(priyaAddress, PRIYA_BOUNCE.code, PRIYA_BOUNCE.diagnostic);
     priyaBounce = await expectRejection(
-      () => invite("ask-priya-to-play-in-goal", "priya"),
+      () => deliver(priyaReserved),
       (error) => {
         say(`    ✗ ${priyaAddress} refused by ${provider.name}: ${PRIYA_BOUNCE.diagnostic}`);
         return `smtp://${error.smtp_code ?? PRIYA_BOUNCE.code}#${PRIYA_BOUNCE.enhanced}`;
@@ -385,17 +468,21 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         " so this 550 is STAGED, not transported. No mail was sent to Priya.",
     );
   }
-  await kona.mutate(cwd, {
-    baseVersion: 6,
+  await kona.effectRecord(
+    cwd,
+    priyaReserved.nodeId,
+    priyaReserved.key,
+    "failed",
+    priyaBounce,
+    `the address is dead — ${PRIYA_BOUNCE.diagnostic}`,
+  );
+  say("v11 Priya's reservation is closed as failed; the slot can never be spent again");
+
+  const vPat = await kona.mutate(cwd, {
+    baseVersion: 11,
     why: "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too.",
     reasonCode: "CONTRADICTION",
     ops: [
-      {
-        op: "set_status",
-        node: "ask-priya-to-play-in-goal",
-        status: "failed",
-        evidence_ref: priyaBounce,
-      },
       {
         op: "record_outcome",
         node: "wait-for-priya",
@@ -408,41 +495,31 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       waitNode(
         "Wait for Pat",
         "Await Pat's reply. Pat is often silent; the deadline is the plan.",
-        "$3",
+        "$2",
       ),
-      { op: "add_edge", from: "$3", to: "$4" },
-      { op: "add_edge", from: "$4", to: "goalie-confirmed", condition: { on: "satisfied" } },
-      { op: "set_status", node: "$3", status: "sending", evidence_ref: "ek_pat_v7" },
+      { op: "add_edge", from: "$2", to: "$3" },
+      { op: "add_edge", from: "$3", to: "goalie-confirmed", condition: { on: "satisfied" } },
     ],
   });
-  say("v7  Priya bounces 550; her wait is dropped, and Pat's arm is planned");
+  say(`v${vPat}  Priya bounces 550; her wait is dropped, and Pat's arm is planned`);
 
-  // ONLY NOW may Pat be emailed. The node has to exist before anything is sent for it —
-  // §6.6's order is append, fsync, THEN the side effect, and `kona effect reserve` is what
-  // makes that literal. The reservation moves the node to `sending` with a real key; the
-  // hand-written `ek_pat_v7` this replaced was a slot the outbox had never issued.
+  // ── v13, v14 ── ONLY NOW may Pat be emailed. The node has to exist before anything is sent
+  // for it, and `kona effect reserve` is what makes §6.6's order literal: append, fsync, THEN
+  // the side effect. The reservation moves the node to `sending` with a key the store issued;
+  // the hand-written `ek_pat_v7` this replaced was a slot the outbox had never heard of.
   const patOut = await invite("ask-pat-to-play-in-goal", "pat");
-  say("v8  Pat is asked");
+  say("v13-v14  Pat is asked; his wait is armed and the deadline is now the plan");
 
   // ═══ past the fixture ═══════════════════════════════════════════════════════════════
   // Everything above is `fixtures/thursday.mutations.jsonl`, live. Everything below is where
   // the arms stop matching each other.
 
-  // ── v8 ── Pat's invitation actually lands. The outbox's record step.
-  await kona.mutate(cwd, {
-    baseVersion: 7,
-    why: "Pat's invitation is out; his wait is armed and the deadline is now the plan.",
-    reasonCode: "OTHER",
-    ops: dispatched("ask-pat-to-play-in-goal", patOut.receipt),
-  });
-  say("v8  Pat's invitation lands; his wait is armed");
-
-  // ── v9 ── the gate. A human rules on the unrostered player, and ONLY THEN may he be
+  // ── v15 ── the gate. A human rules on the unrostered player, and ONLY THEN may he be
   //          emailed. Invariant 3(b): a recipient must resolve to an entity already in the
   //          graph carrying an `evidence_ref`.
   const ruling = "ruling://ilya/2026-08-20#marcus-eligible";
-  await kona.mutate(cwd, {
-    baseVersion: 8,
+  const vRuling = await kona.mutate(cwd, {
+    baseVersion: 14,
     why: "Ilya ruled Marcus eligible as Sam's registered substitute, which is what lets us contact him at all.",
     reasonCode: "NEW_CONSTRAINT",
     ops: [
@@ -474,13 +551,13 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "add_edge", from: "$5", to: "goalie-confirmed", condition: { on: "satisfied" } },
     ],
   });
-  say("v9  a human rules Marcus eligible — and only now may he be emailed");
+  say(`v${vRuling}  a human rules Marcus eligible — and only now may he be emailed`);
 
-  // ── v10 ── Pat's deadline passes. The deliberately boring arm grows the one thing silence
+  // ── v16 ── Pat's deadline passes. The deliberately boring arm grows the one thing silence
   //           can produce: a follow-up.
   events.push(silence(patOut, "pat"));
-  await kona.mutate(cwd, {
-    baseVersion: 9,
+  const vChase = await kona.mutate(cwd, {
+    baseVersion: 15,
     why: "Pat has not answered and his deadline passed; chase once before writing the slot off.",
     reasonCode: "DEADLINE_PASSED",
     ops: [
@@ -504,7 +581,6 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         scope: "goalies",
         spec: {
           instruction: "Pat did not answer the first ask. Send one short follow-up, then stop.",
-          outputs: [{ name: "sent_message_id", type: "string" }],
           effect_class: "pivot",
           effect: { channel: "email", recipient_ref: persona("pat").recipient_ref },
         },
@@ -512,19 +588,18 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "add_edge", from: "wait-for-pat", to: "$2", condition: { on: "timeout" } },
     ],
   });
-  say("v10 Pat stays silent; the deadline fires and a follow-up sprouts");
+  say(`v${vChase} Pat stays silent; the deadline fires and a follow-up sprouts`);
 
-  // ── v11 ── Marcus confirms. The predicate is satisfiable again.
+  // ── v17..v19 ── Marcus confirms. The predicate is satisfiable again.
   const marcusOut = await invite("ask-marcus-to-play-in-goal", "marcus");
   const marcusReply = await replyAs(provider, marcusOut, "marcus");
   events.push(marcusReply);
   const marcusEvidence = await evidenceFromMailbox(provider, marcusOut, marcusReply);
-  await kona.mutate(cwd, {
-    baseVersion: 10,
+  const vMarcus = await kona.mutate(cwd, {
+    baseVersion: 18,
     why: "Marcus confirmed, so the goalie predicate is satisfiable from an arm that did not exist at v1.",
     reasonCode: "QUORUM_MET",
     ops: [
-      ...dispatched("ask-marcus-to-play-in-goal", marcusOut.receipt),
       {
         op: "record_outcome",
         node: "wait-for-marcus",
@@ -535,7 +610,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "set_status", node: "wait-for-marcus", status: "done", evidence_ref: marcusEvidence },
     ],
   });
-  say("v11 Marcus confirms — from an arm that had no node and no template at v1");
+  say(`v${vMarcus} Marcus confirms — from an arm that had no node and no template at v1`);
 
   const head = asGraph(await kona.graph(cwd));
   const assertions = assertDivergentArms(head, v1);
@@ -563,7 +638,15 @@ function node(
   return { op: "add_node", label, type, scope, spec };
 }
 
-/** An invitation node. Every one carries a pivot effect addressed to an evidenced recipient. */
+/**
+ * An invitation node. Every one carries a pivot effect addressed to an evidenced recipient.
+ *
+ * It declares **no outputs**, and that is the outbox landing rather than an omission. These
+ * nodes used to declare `sent_message_id` and record it with `record_output` — a second copy
+ * of a string the `effect_log` already holds beside the key and the payload hash that prove
+ * it. Two places to read the same fact is two places that can disagree, and §6.6 already
+ * names which one is the record of a send.
+ */
 function askNode(
   name: string,
   slug: Parameters<typeof persona>[0],
@@ -572,7 +655,6 @@ function askNode(
   const who = persona(slug);
   return node(`Ask ${name} to play in goal`, "task", who.slug === "marcus" ? "marcus" : "goalies", {
     instruction: `Email ${name} asking if they can play in goal Thursday.`,
-    outputs: [{ name: "sent_message_id", type: "string" }],
     effect_class: "pivot",
     effect: { channel: "email", recipient_ref: who.recipient_ref },
     ...extra,
@@ -606,20 +688,6 @@ function waitNode(
       ],
     },
   });
-}
-
-/** §6.6's record step: the bytes moved, and here is the id that proves it. */
-function dispatched(nodeId: string, receipt: SendReceipt): Record<string, unknown>[] {
-  return [
-    { op: "set_status", node: nodeId, status: "done", evidence_ref: receipt.message_id },
-    {
-      op: "record_output",
-      node: nodeId,
-      output_name: "sent_message_id",
-      value: receipt.message_id,
-      evidence_ref: receipt.message_id,
-    },
-  ];
 }
 
 /**
