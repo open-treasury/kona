@@ -1,10 +1,11 @@
 /**
  * The cast — spec §6.11, plan T7.3.
  *
- * **Six players plus a rival captain**, cut down from thirty in `plan.md` §0.5 on the
- * grounds that "the claim is divergence, not volume, and a collapsed container of thirty
- * looks identical to one of six". Nothing here scales with cast size; adding names back is
- * a data change.
+ * **Six players plus a rival captain**, cut down from thirty by `plan.md` §0.5. `spec.md`
+ * §6.11 gives the count and the reason in one line — "6 players + a rival captain. The claim
+ * is divergence, not volume" — and the beads issue for T7.3 adds the rest of it: "a collapsed
+ * container of thirty looks identical to one of six". Nothing here scales with cast size;
+ * adding names back is a data change.
  *
  * ## The mailbox arithmetic this encodes
  *

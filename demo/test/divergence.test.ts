@@ -16,11 +16,17 @@ import { MemoryMailboxProvider } from "../mailbox/memory.ts";
 import type { InboundMessage, MailboxProvider } from "../mailbox/port.ts";
 import * as kona from "../kona.ts";
 import { arms, asGraph, assertDivergentArms, recordedRoster } from "../script/assertions.ts";
+import type { GraphJson, GraphNode } from "../script/assertions.ts";
 import { runDivergence } from "../script/divergence.ts";
 import type { RunResult } from "../script/divergence.ts";
 import { persona } from "../personas/cast.ts";
 
 const T0 = "2026-08-20T09:00:00.000Z";
+
+/** Blank a node's recorded output, so the graph carries no roster at all. */
+function stripOutput(node: GraphNode): GraphNode {
+  return Object.assign({}, node, { status: Object.assign({}, node.status, { output: null }) });
+}
 
 /** Deliver a reply to an address that is not the node's correlation tag. */
 function misroute(message: InboundMessage): InboundMessage {
@@ -224,6 +230,22 @@ describe("the divergence run", () => {
   test("the run reproduces — twice over, the same topology and the same message ids", async () => {
     const [first, second] = await Promise.all([run(), run()]);
     expect(shapeOfRun(second)).toEqual(shapeOfRun(first));
+  });
+
+  test("(b) fails closed when no roster was recorded", async () => {
+    // The hazard is an absent fact read as a permissive one: with an empty roster, every
+    // addressed counterparty is trivially "absent" from it, so the assertion would pass at its
+    // loudest exactly when it knows least — and would name Dana as the off-roster witness.
+    const result = await run();
+    const rosterless: GraphJson = {
+      ...result.head,
+      nodes: result.head.nodes.map(stripOutput),
+    };
+    expect(recordedRoster(rosterless)).toEqual([]);
+
+    const b = assertDivergentArms(rosterless, result.v1).find((a) => a.id === "b");
+    expect(b?.passed).toBe(false);
+    expect(b?.witness).toContain("no roster was recorded");
   });
 
   test("a provider whose pollThread returns nothing FAILS the run", async () => {

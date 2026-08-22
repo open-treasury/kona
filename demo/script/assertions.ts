@@ -197,12 +197,29 @@ function checkA(head: GraphJson, v1: GraphJson): Assertion {
 
 /** (b) a counterparty absent from the v1 roster. */
 function checkB(head: GraphJson): Assertion {
+  const claim = "a counterparty absent from the v1 roster";
   const roster = new Set(recordedRoster(head));
   const addressed = addressedCounterparties(head);
+
+  // FAIL CLOSED on an empty roster. Otherwise every addressed counterparty is trivially
+  // "absent" from it and (b) goes green declaring Dana off-roster — the assertion passing at
+  // its loudest exactly when it knows least. §6.4 holds readiness to the same rule, and this
+  // is the same hazard: an absent fact read as a permissive one.
+  if (roster.size === 0) {
+    return {
+      id: "b",
+      claim,
+      passed: false,
+      witness:
+        "no roster was recorded, so there is nothing to be absent from — refusing to pass" +
+        " on an empty set rather than calling every counterparty off-roster",
+    };
+  }
+
   const offRoster = [...addressed].filter(([who]) => !roster.has(who));
   return {
     id: "b",
-    claim: "a counterparty absent from the v1 roster",
+    claim,
     passed: offRoster.length > 0,
     witness:
       offRoster.length === 0
