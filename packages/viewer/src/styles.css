@@ -1105,6 +1105,9 @@
   .bg-foreground {
     background-color: var(--color-foreground);
   }
+  .bg-primary {
+    background-color: var(--color-primary);
+  }
   .bg-status-done-ink {
     background-color: var(--color-status-done-ink);
   }
@@ -1387,6 +1390,9 @@
     .hover\:bg-accent:hover {
       background-color: var(--color-accent);
     }
+    .hover\:bg-carbon-8:hover {
+      background-color: var(--color-carbon-8);
+    }
     .hover\:bg-carbon-40:hover {
       background-color: var(--color-carbon-40);
     }
@@ -1400,6 +1406,10 @@
   .focus-visible\:outline-1:focus-visible {
     outline-style: var(--tw-outline-style);
     outline-width: 1px;
+  }
+  .focus-visible\:outline-2:focus-visible {
+    outline-style: var(--tw-outline-style);
+    outline-width: 2px;
   }
   .focus-visible\:outline-primary:focus-visible {
     outline-color: var(--color-primary);

@@ -26,14 +26,21 @@ export interface TimelineProps {
   entries: readonly TimelineEntry[];
   /** The version on the canvas — always head, and marked so the newest row is not just first. */
   headVersion: number;
+  /** The version whose change is held highlighted on the canvas, or null for none. */
+  pinnedVersion: number | null;
+  onPin: (version: number | null) => void;
 }
 
 function Entry({
   entry,
   isHead,
+  pinned,
+  onPin,
 }: {
   entry: TimelineEntry;
   isHead: boolean;
+  pinned: boolean;
+  onPin: () => void;
 }): React.ReactElement {
   const gloss = reasonGloss(entry.reasonCode);
   const [open, setOpen] = useState(false);
@@ -51,8 +58,11 @@ function Entry({
       )}
     >
       {/* `aria-current` and the accent rule are the only things that single out head, and both
-          are descriptions rather than offers. There is nothing here to press. */}
-      <div aria-current={isHead ? "true" : undefined} className="px-3 py-2.5">
+          are descriptions rather than offers. The one thing to press is the version chip. */}
+      <div
+        aria-current={isHead ? "true" : undefined}
+        className={cn("px-3 py-2.5", pinned && "bg-carbon-4")}
+      >
         {/*
           Who, and when — the way an activity feed says it, because that is what this is. It
           led with `v13` and a right-aligned ISO string, which is the ordering a database would
@@ -63,7 +73,32 @@ function Entry({
           <span>·</span>
           <span className="shrink-0">{formatStamp(entry.observedAt)}</span>
           <span className="flex-1" />
-          <span className="shrink-0 tabular-nums">v{entry.version}</span>
+          {/*
+            Press it to highlight what that version touched, ON THE HEAD CANVAS. It does not
+            put an earlier graph there — `viewing`, the "as it stood at v8" banner and the
+            layout jump are gone and stay gone. This answers "which of these nodes did v8
+            touch", which is a question about the graph already on screen.
+
+            The chip and not the row, because the row already contains the `+ N ops` toggle
+            and a button inside a button is not a thing.
+          */}
+          <button
+            type="button"
+            onClick={onPin}
+            aria-pressed={pinned}
+            title={
+              pinned
+                ? "stop highlighting this version"
+                : `highlight what v${String(entry.version)} changed`
+            }
+            className={cn(
+              "shrink-0 cursor-pointer rounded-sm px-1 tabular-nums",
+              "hover:bg-carbon-8 focus-visible:outline-2 focus-visible:outline-primary",
+              pinned && "bg-primary text-primary-foreground",
+            )}
+          >
+            v{entry.version}
+          </button>
         </div>
 
         {/*
@@ -175,7 +210,12 @@ function Entry({
   );
 }
 
-export function Timeline({ entries, headVersion }: TimelineProps): React.ReactElement {
+export function Timeline({
+  entries,
+  headVersion,
+  pinnedVersion,
+  onPin,
+}: TimelineProps): React.ReactElement {
   // No panel header. The thing that opened this said `timeline`, and its tooltip carries the
   // §6.3 explanation — a title bar underneath repeating the word, plus a count the entries
   // already are, would be the panel's most valuable row spent restating its own name.
@@ -186,7 +226,15 @@ export function Timeline({ entries, headVersion }: TimelineProps): React.ReactEl
           <p className="p-7 text-center font-mono text-[11px] text-carbon-40">no mutations yet</p>
         ) : (
           entries.map((entry) => (
-            <Entry key={entry.version} entry={entry} isHead={entry.version === headVersion} />
+            <Entry
+              key={entry.version}
+              entry={entry}
+              isHead={entry.version === headVersion}
+              pinned={entry.version === pinnedVersion}
+              onPin={() => {
+                onPin(entry.version === pinnedVersion ? null : entry.version);
+              }}
+            />
           ))
         )}
       </ScrollArea>

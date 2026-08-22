@@ -94,9 +94,28 @@ EOF
   fi
 }
 
+# A stale binary is worse than a missing one: the container gets an old store with the current
+# skill, and the mismatch shows up as the agent's claims being refused mid-run. That happened —
+# `in_flight` shipped in the skill while the container still held a binary that only knew
+# `sending` — and it cost a two-hour Sonnet A/B that was testing a product nobody was running.
+#
+# So the check is freshness, not existence: rebuild whenever anything the binary is compiled
+# from, or anything uploaded beside it, is newer than the binary.
 require_binaries() {
-  if [[ ! -f "${EVAL_ROOT}/dist/kona-linux-x64" ]]; then
+  local bin="${EVAL_ROOT}/dist/kona-linux-x64"
+  if [[ ! -f "${bin}" ]]; then
     echo "REFUSED NO_BINARY  run eval/bin/build-kona.sh first" >&2
+    exit 1
+  fi
+  local newer
+  newer="$(find "${REPO_ROOT}/packages" "${EVAL_ROOT}/skills" \
+    -name '*.ts' -o -name '*.md' -o -name '*.json' 2>/dev/null \
+    | while read -r f; do [[ "${f}" -nt "${bin}" ]] && echo "${f}"; done | head -3)"
+  if [[ -n "${newer}" ]]; then
+    echo "REFUSED STALE_BINARY  eval/dist/kona-linux-x64 is older than:" >&2
+    echo "${newer}" | sed 's/^/    /' >&2
+    echo "  The container would run an old store with the current skill. Rebuild:" >&2
+    echo "    eval/bin/build-kona.sh" >&2
     exit 1
   fi
 }

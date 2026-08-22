@@ -19,7 +19,7 @@ import { buildPursuit } from "./model/pursuit.ts";
 import { buildGraphView } from "./model/view.ts";
 import { createLayoutCache } from "./layout/dagre.ts";
 import { Canvas } from "./graph/Canvas.tsx";
-import { useFresh } from "./graph/useFresh.ts";
+import { freshFromDiff, useFresh } from "./graph/useFresh.ts";
 import { useTweenedPositions } from "./graph/useTween.ts";
 import type { Point } from "./graph/useTween.ts";
 import { Timeline } from "./panels/Timeline.tsx";
@@ -45,6 +45,9 @@ export function App(): React.ReactElement {
   const feed = useLogFeed();
   const now = useNow();
   const [selected, setSelected] = useState<string | null>(null);
+  // Which version's change is held highlighted on the canvas. Null is the normal state:
+  // the newest arrival flashes and fades, and nothing is pinned.
+  const [pinnedVersion, setPinnedVersion] = useState<number | null>(null);
   // §6.10 rule 5 calls this panel the differentiator, so defaulting it CLOSED is a real
   // trade: the canvas gets the whole window, and the reason the graph looks like this is one
   // click away rather than in front of you. The header button is worded rather than a bare
@@ -81,7 +84,22 @@ export function App(): React.ReactElement {
     () => shown.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
     [shown],
   );
-  const fresh = useFresh(shownEntry?.diff ?? null);
+  const flash = useFresh(shownEntry?.diff ?? null);
+
+  // A pin outranks the flash. `useFresh` answers "what just arrived" and decays; a pinned
+  // version answers "what did v8 touch" and has to stay put while the reader looks from the
+  // row to the canvas. The canvas takes one highlight set and does not care which it is.
+  const pinnedDiff = useMemo(
+    () => shown.timeline.find((entry) => entry.version === pinnedVersion)?.diff ?? null,
+    [shown, pinnedVersion],
+  );
+  const fresh = pinnedDiff === null ? flash : freshFromDiff(pinnedDiff);
+
+  // A pinned version can be scrolled off the end of a truncated timeline, or belong to a log
+  // that has since been replaced. Drop the pin rather than highlight nothing and look broken.
+  useEffect(() => {
+    if (pinnedVersion !== null && pinnedDiff === null) setPinnedVersion(null);
+  }, [pinnedVersion, pinnedDiff]);
 
   // A node can be selected and then time-travelled out of existence.
   useEffect(() => {
@@ -227,7 +245,12 @@ export function App(): React.ReactElement {
             )}
             {timelineOpen && (
               <div className="flex min-h-0 flex-1 flex-col">
-                <Timeline entries={shown.timeline} headVersion={shown.graph.version} />
+                <Timeline
+                  entries={shown.timeline}
+                  headVersion={shown.graph.version}
+                  pinnedVersion={pinnedVersion}
+                  onPin={setPinnedVersion}
+                />
               </div>
             )}
           </aside>

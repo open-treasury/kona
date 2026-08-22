@@ -53,3 +53,28 @@ export function useFresh(diff: GraphDiff | null, holdMs: number = FLASH_MS): Fre
 
   return fresh;
 }
+
+/**
+ * The same highlight, held rather than decayed — for a version the reader PINNED.
+ *
+ * `useFresh` answers "what just arrived", so it fades: a node added three versions ago must
+ * stop glowing or everything glows and nothing is highlighted. Pinning asks a different
+ * question — "what did v8 touch" — and the answer has to stay on screen while the reader
+ * looks from the row to the canvas and back.
+ *
+ * Wider than the flash, too. The flash shows what a version ADDED, because that is what
+ * arriving means. A pinned version is being read, and "changed" includes a status tick, a
+ * recorded outcome and a supersede — versions that add nothing at all still did something,
+ * and a pin that highlighted nothing for them would look broken.
+ */
+export function freshFromDiff(diff: GraphDiff): Fresh {
+  return {
+    nodes: new Set([
+      ...diff.addedNodes,
+      ...diff.statusChanged.map((change) => change.id),
+      ...diff.outcomeAdded,
+      ...diff.superseded.map((entry) => entry.id),
+    ]),
+    edges: new Set(diff.addedEdges.map(edgeKeyString)),
+  };
+}
