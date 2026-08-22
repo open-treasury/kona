@@ -790,11 +790,17 @@
   .mx-3\.5 {
     margin-inline: calc(var(--spacing) * 3.5);
   }
+  .mt-0\.5 {
+    margin-top: calc(var(--spacing) * 0.5);
+  }
   .mt-1 {
     margin-top: var(--spacing);
   }
   .mt-1\.5 {
     margin-top: calc(var(--spacing) * 1.5);
+  }
+  .mt-2 {
+    margin-top: calc(var(--spacing) * 2);
   }
   .mb-3 {
     margin-bottom: calc(var(--spacing) * 3);
@@ -1177,9 +1183,6 @@
     line-height: var(--tw-leading, var(--text-ui-xs--line-height));
     letter-spacing: var(--tw-tracking, var(--text-ui-xs--letter-spacing));
   }
-  .text-\[9\.5px\] {
-    font-size: 9.5px;
-  }
   .text-\[10\.5px\] {
     font-size: 10.5px;
   }
@@ -1237,9 +1240,6 @@
   .text-muted-foreground {
     color: var(--color-muted-foreground);
   }
-  .text-primary {
-    color: var(--color-primary);
-  }
   .text-status-active-ink {
     color: var(--color-status-active-ink);
   }
@@ -1282,6 +1282,18 @@
   .tabular-nums {
     --tw-numeric-spacing: tabular-nums;
     font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
+  }
+  .underline {
+    text-decoration-line: underline;
+  }
+  .decoration-border {
+    text-decoration-color: var(--color-border);
+  }
+  .decoration-dotted {
+    text-decoration-style: dotted;
+  }
+  .underline-offset-2 {
+    text-underline-offset: 2px;
   }
   .opacity-60 {
     opacity: 60%;
