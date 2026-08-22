@@ -1,0 +1,188 @@
+/**
+ * The whole application, and deliberately the only stateful thing in it.
+ *
+ * There are exactly three pieces of state here: the text of the log (owned by the feed), the
+ * wall clock, and two pieces of pure UI — which node is selected and which version is being
+ * looked at. Everything else on screen is a pure function of those. That is what "the viewer
+ * holds zero authoritative state" means operationally: kill the process, restart it, and the
+ * view is identical, because there was never anything here to lose.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { useLogFeed } from "./feed/useLog.ts";
+import { useNow } from "./feed/useNow.ts";
+import { buildPursuit } from "./model/pursuit.ts";
+import { buildGraphView } from "./model/view.ts";
+import { createLayoutCache } from "./layout/dagre.ts";
+import { Canvas } from "./graph/Canvas.tsx";
+import { useFresh } from "./graph/useFresh.ts";
+import { useTweenedPositions } from "./graph/useTween.ts";
+import type { Point } from "./graph/useTween.ts";
+import { Timeline } from "./panels/Timeline.tsx";
+import { Inspector } from "./panels/Inspector.tsx";
+import { cn } from "./lib/cn.ts";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip.tsx";
+
+/**
+ * The feed light. `open` and `lost` are `EventSource`'s words, not a reader's — what a reader
+ * wants to know is whether the picture in front of them is still following the file. `lost`
+ * renders as *reconnecting* because that is what is actually happening: EventSource retries on
+ * its own with a backoff, so there is nothing for anybody to do about it.
+ */
+const FEED: Record<string, { dot: string; label: string }> = {
+  connecting: { dot: "bg-status-dropped-ink", label: "connecting" },
+  open: { dot: "bg-status-done-ink animate-breathe", label: "live" },
+  lost: { dot: "bg-status-failed-ink", label: "reconnecting" },
+};
+
+const NOTICE = "px-3.5 py-1.5 font-mono text-[11px] border-b border-border";
+
+export function App(): React.ReactElement {
+  const feed = useLogFeed();
+  const now = useNow();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<number | null>(null);
+
+  // Structure is memoized on the log text and the view on the clock, separately. Re-folding a
+  // whole log once a second to move a countdown would be this viewer's own version of Burr
+  // #834: the right answer at the wrong cost, and it would first be felt at the fan-out.
+  const head = useMemo(() => buildPursuit(feed.text), [feed.text]);
+
+  // Time travel folds a whole `PursuitView`, not just a graph. Pairing a truncated graph with
+  // HEAD's completion index is the subtle version of the bug rule 6 exists to avoid: scrubbing
+  // to v2 would render `wait-for-dana` counting down from a clock that `ask-dana` does not
+  // start until v3 — a deadline borrowed from the reader's future. `buildPursuit` builds the
+  // index from the records it actually folded, so the two can never come apart.
+  const shown = useMemo(
+    () =>
+      viewing === null || viewing >= head.graph.version ? head : buildPursuit(feed.text, viewing),
+    [feed.text, head, viewing],
+  );
+
+  const view = useMemo(
+    () => buildGraphView(shown.graph, shown.completionTime, now),
+    [shown, now],
+  );
+
+  // One cache for the process lifetime. §6.10 rule 2: the layout is recomputed when the
+  // topology signature changes and at no other time, so a status tick cannot move a node.
+  const layoutCache = useRef(createLayoutCache());
+  const layout = useMemo(() => layoutCache.current(shown.graph), [shown]);
+
+  const target = useMemo<ReadonlyMap<string, Point>>(() => {
+    const points = new Map<string, Point>();
+    for (const [id, box] of layout.boxes) points.set(id, { x: box.x, y: box.y });
+    return points;
+  }, [layout]);
+
+  const positions = useTweenedPositions(target);
+
+  const shownEntry = useMemo(
+    () => head.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
+    [head, shown],
+  );
+  const fresh = useFresh(shownEntry?.diff ?? null);
+
+  // A node can be selected and then time-travelled out of existence.
+  useEffect(() => {
+    if (selected !== null && !view.byId.has(selected)) setSelected(null);
+  }, [view, selected]);
+
+  const selectedView = selected === null ? null : (view.byId.get(selected) ?? null);
+  const travelling = shown.graph.version !== head.graph.version;
+  const damaged = head.damaged;
+
+  return (
+    <TooltipProvider>
+      <div className="grid h-full grid-cols-[minmax(0,1fr)_380px] grid-rows-[44px_minmax(0,1fr)]">
+        <header className="col-span-full flex items-center gap-4 border-b border-border bg-background px-4 shadow-nav">
+          <span className="text-[15px] font-semibold tracking-tight">Kona</span>
+          <span className="text-ui-xs text-carbon-40 uppercase">Workflow graph</span>
+          <span className="flex-1" />
+          <span className="font-mono text-[11px] text-muted-foreground">
+            v<b className="font-semibold text-foreground">{shown.graph.version}</b>
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help items-center gap-1.5 text-ui-xs text-muted-foreground uppercase">
+                <span
+                  className={cn("size-1.5 rounded-full", FEED[feed.state]?.dot ?? "bg-carbon-40")}
+                />
+                {FEED[feed.state]?.label ?? feed.state}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              the file-watch stream from the pursuit&apos;s <code>mutations.jsonl</code> — the
+              viewer&apos;s only source. While it is live, every append reaches this canvas.
+            </TooltipContent>
+          </Tooltip>
+        </header>
+
+        <main className="relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] border-r border-border">
+          {damaged.length > 0 && (
+            <p className={cn(NOTICE, "bg-error-bg text-status-failed-ink")}>
+              {damaged.length} damaged record(s): {damaged[0]?.reason} at line {damaged[0]?.line}
+            </p>
+          )}
+          {head.tornTail && (
+            <p className={cn(NOTICE, "bg-warning-bg text-status-sending-ink")}>
+              torn final line — the expected shape of a crash, not damage. Folded without it.
+            </p>
+          )}
+          {travelling && (
+            <p
+              className={cn(
+                NOTICE,
+                "flex items-center gap-2.5 bg-warning-bg text-status-sending-ink",
+              )}
+            >
+              <span>
+                viewing v{shown.graph.version} as it stood — read-only. Head is v{head.graph.version}.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewing(null);
+                }}
+                className="cursor-pointer rounded-[3px] border border-current px-1.5 text-[10px]"
+              >
+                back to head
+              </button>
+            </p>
+          )}
+
+          <Canvas
+            graph={shown.graph}
+            view={view}
+            positions={positions}
+            fresh={fresh}
+            selected={selected}
+            onSelect={setSelected}
+          />
+
+          {selectedView !== null && (
+            <Inspector
+              graph={shown.graph}
+              view={selectedView}
+              onClose={() => {
+                setSelected(null);
+              }}
+            />
+          )}
+        </main>
+
+        <aside className="grid min-h-0 grid-rows-[minmax(0,1fr)] bg-background">
+          <Timeline
+            entries={head.timeline}
+            headVersion={head.graph.version}
+            viewing={shown.graph.version}
+            onView={(version) => {
+              setViewing(version === head.graph.version ? null : version);
+            }}
+          />
+        </aside>
+      </div>
+    </TooltipProvider>
+  );
+}

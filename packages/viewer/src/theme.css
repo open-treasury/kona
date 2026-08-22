@@ -1,0 +1,310 @@
+/*
+ * The Tailwind source. `bun run css` compiles this to `src/styles.css`, which is what
+ * `main.tsx` imports and what Bun bundles.
+ *
+ * **Why a compile step rather than a bundler plugin.** Tailwind v4 reaches Bun through
+ * `bun-plugin-tailwind`, which `Bun.serve` loads from `bunfig.toml` — and resolves relative to
+ * the *current working directory*. `kona view` runs from whatever pursuit directory the
+ * operator is standing in, where there is no `bunfig.toml` and no `node_modules`, so the
+ * plugin is not found and the stylesheet ships as raw `@tailwind` directives: a completely
+ * unstyled viewer, at the moment somebody is watching. Measured, not assumed — `Bun.serve`
+ * reports `Cannot find package 'bun-plugin-tailwind' from ''`. Compiling to plain CSS makes
+ * the bundle a function of the repository rather than of the operator's shell.
+ *
+ * **The palette is OpenTreasury's**, ported from `packages/ui/src/styles.css` in that repo:
+ * carbon ink on white, the carbon alpha ladder for borders and hovers, the named shadow
+ * ladder, the 4/6/8 radius scale, and the tag palette — tinted `lch(92 …)` backgrounds
+ * carrying foreground text, never white on a saturated fill. Kona's five statuses map onto
+ * that palette rather than inventing a sixth vocabulary of colour.
+ *
+ * **Layer order is declared, not inherited.** Tailwind's preflight resets `svg`, `button` and
+ * the box model, and React Flow's stylesheet depends on several of those defaults. Giving
+ * xyflow its own layer between `base` and `components` lets preflight run first and lets our
+ * own component classes still win.
+ */
+
+@layer theme, base, xyflow, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "@xyflow/react/dist/style.css" layer(xyflow);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* The class scanner cannot see through a compile step run from `packages/viewer`, so the
+   sources are named rather than inferred. */
+@source "./**/*.{ts,tsx}";
+
+@theme {
+  /*
+   * Type. DM Sans and Crimson Pro, self-hosted from `@fontsource-variable/*` and imported in
+   * `main.tsx` so **Bun** resolves the woff2 files and rewrites their URLs — not from Google's
+   * CDN, which §6.10 rule 9 forbids outright. The serif is not decoration: the timeline's
+   * `why` is the one place a human wrote a sentence, and setting it in the serif is what
+   * separates their reasoning from the machine's op list beneath it.
+   */
+  --font-sans: "DM Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Crimson Pro Variable", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* The UI label: uppercase, tiny, widely tracked. Every panel header and chip uses it. */
+  --text-ui: 0.75rem;
+  --text-ui--line-height: 1.2;
+  --text-ui--letter-spacing: 0.05em;
+  --text-ui-xs: 0.5625rem;
+  --text-ui-xs--line-height: 1.2;
+  --text-ui-xs--letter-spacing: 0.07em;
+
+  --color-carbon: #020d23;
+  --color-carbon-muted: #212b44;
+  --color-carbon-60: rgb(2 13 35 / 60%);
+  --color-carbon-40: rgb(2 13 35 / 40%);
+  --color-carbon-8: rgb(2 13 35 / 8%);
+  --color-carbon-4: rgb(2 13 35 / 4%);
+  --color-titanium: #f7f4f3;
+
+  --color-background: #ffffff;
+  --color-foreground: var(--color-carbon);
+  --color-card: #ffffff;
+  --color-muted: var(--color-titanium);
+  --color-muted-foreground: var(--color-carbon-60);
+  --color-border: var(--color-carbon-8);
+  --color-accent: var(--color-carbon-8);
+  --color-primary: #1634ef;
+
+  /* The semantic triads, straight from the kit. `bold` is the readable text/rule colour, `bg`
+     the tinted fill a chip sits on. */
+  --color-cobalt-bold: #152d80;
+  --color-emerald-bold: #1d683f;
+  --color-ochre-bold: #995e05;
+  --color-sienna-bold: #ad4010;
+  --color-error: lch(50 80 29);
+  --color-error-bg: lch(94.759 3.672 17.122);
+  --color-success: #1d683f;
+  --color-success-bg: #e8f5ce;
+  --color-warning: #995e05;
+  --color-warning-bg: #fefce8;
+
+  --color-tag-cobalt-bg: lch(92 30 265);
+  --color-tag-emerald-bg: lch(92 28 145);
+  --color-tag-ochre-bg: lch(92 28 75);
+  --color-tag-sienna-bg: lch(92 30 40);
+
+  /*
+   * The five statuses (§6.2 froze them), each mapped onto the kit rather than given a new hue.
+   * `-fill` is the chip's tinted background, `-ink` the text and the card's left rule.
+   *
+   * `sending` is ochre deliberately: §6.2 makes it NOT terminal — it means the real world's
+   * answer is unknown — so it must read as unfinished, not as progress.
+   */
+  --color-status-active-fill: var(--color-tag-cobalt-bg);
+  --color-status-active-ink: var(--color-cobalt-bold);
+  --color-status-sending-fill: var(--color-tag-ochre-bg);
+  --color-status-sending-ink: var(--color-ochre-bold);
+  --color-status-done-fill: var(--color-success-bg);
+  --color-status-done-ink: var(--color-success);
+  --color-status-failed-fill: var(--color-error-bg);
+  --color-status-failed-ink: var(--color-error);
+  --color-status-dropped-fill: var(--color-titanium);
+  --color-status-dropped-ink: var(--color-carbon-60);
+
+  /*
+   * §6.10 rule 8's three wait colours, plus the three states that are not about waiting.
+   * `resolved` is the success green ONLY for a wait that actually succeeded; one that is
+   * terminal without satisfying anything gets `failed`, or the card would contradict the
+   * blocked reason rendered directly beneath it.
+   */
+  --color-wait-resolved: var(--color-success);
+  --color-wait-awaiting: var(--color-ochre-bold);
+  --color-wait-blown: var(--color-error);
+  --color-wait-failed: var(--color-error);
+  --color-wait-unarmed: var(--color-carbon-40);
+  --color-wait-dropped: var(--color-carbon-40);
+
+  /* The canvas furniture. React Flow paints edges, dots and handles itself, so each of these
+     would otherwise be a hex literal in a different file. */
+  --color-edge: var(--color-carbon-40);
+  --color-edge-dead: var(--color-carbon-8);
+  --color-dots: rgb(2 13 35 / 10%);
+
+  --shadow-minimal: 0 1px 2px rgb(2 13 35 / 7%);
+  --shadow-subtle: 0 0 8px rgb(2 13 35 / 8%), 0 0 20px rgb(2 13 35 / 2%);
+  --shadow-standard: 0 0 20px -6px rgb(2 13 35 / 24%), 0 0 0 1px rgb(2 13 35 / 6%);
+  --shadow-nav: 0 1px 0 rgb(2 13 35 / 8%);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.25s ease;
+  --transition-medium: 0.35s ease;
+
+  /* The tween is 460ms in `useTween.ts`; the flash outlives it so the eye lands on the new
+     subtree after the motion has stopped. */
+  --animate-flash: flash 1500ms ease-out;
+  --animate-breathe: breathe 2.4s ease-in-out infinite;
+  --animate-draw: draw 1500ms ease-out;
+}
+
+@keyframes flash {
+  0% {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px --alpha(var(--color-primary) / 35%);
+  }
+  60% {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 8px --alpha(var(--color-primary) / 0%);
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes draw {
+  from {
+    stroke: var(--color-primary);
+    stroke-width: 3;
+  }
+}
+
+@layer base {
+  /*
+   * Tailwind v4 changed the DEFAULT border colour from grey-200 to `currentColor`, so a bare
+   * `border` utility — which every shadcn and Radix component uses — paints a hairline in the
+   * element's TEXT colour. This is the compat rule the kit ships; it lives in `base`, so an
+   * explicit border utility still wins from `utilities`.
+   */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border);
+  }
+
+  :root {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+   * Tailwind v4's preflight sets `cursor: default` on buttons. Restoring it once here beats
+   * sprinkling `cursor-pointer` on every clickable thing and forgetting it on the next one.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
+/*
+ * React Flow's own chrome. These are the handful of selectors the library owns and Tailwind
+ * classes cannot reach — it renders the canvas, the edges, the minimap and the controls
+ * itself. Everything Kona renders is a utility class in a component.
+ */
+@layer components {
+  .react-flow {
+    background: var(--color-titanium);
+  }
+
+  .react-flow__edge-path {
+    stroke: var(--color-edge);
+    stroke-width: 1.5;
+  }
+
+  /* React Flow only exposes `className` on a plain edge — data on `edge.data` never reaches
+     the DOM — so edge state has to ride in as class names. */
+  .react-flow__edge.e-dead .react-flow__edge-path {
+    stroke: var(--color-carbon-8);
+    stroke-dasharray: 3 4;
+  }
+
+  .react-flow__edge.e-sat .react-flow__edge-path {
+    stroke: var(--color-success);
+    stroke-width: 2;
+  }
+
+  .react-flow__edge.e-fresh .react-flow__edge-path {
+    animation: var(--animate-draw);
+  }
+
+  .react-flow__edge-text {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    fill: var(--color-carbon-60);
+  }
+
+  .react-flow__edge-textbg {
+    fill: var(--color-titanium);
+  }
+
+  .react-flow__edge.e-dead .react-flow__edge-text {
+    fill: var(--color-carbon-40);
+  }
+
+  /* The graph is read-only, so a handle is decoration: small, dim, and never a drop target. */
+  .react-flow__handle {
+    width: 5px;
+    height: 5px;
+    min-width: 0;
+    min-height: 0;
+    border: none;
+    background: var(--color-carbon-40);
+  }
+
+  .react-flow__attribution {
+    display: none;
+  }
+
+  /* The library ships light-mode chrome that is nearly right and the wrong white. */
+  .react-flow__minimap {
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-subtle);
+  }
+
+  .react-flow__minimap-mask {
+    fill: --alpha(var(--color-titanium) / 80%);
+    stroke: none;
+  }
+
+  .react-flow__minimap-node {
+    stroke: none;
+  }
+
+  .react-flow__controls {
+    box-shadow: var(--shadow-subtle);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .react-flow__controls-button {
+    background: var(--color-background);
+    border-bottom: 1px solid var(--color-border);
+    fill: var(--color-carbon-60);
+  }
+
+  .react-flow__controls-button:hover {
+    background: var(--color-carbon-4);
+    fill: var(--color-foreground);
+  }
+}

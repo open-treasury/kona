@@ -24,6 +24,16 @@
         "src/**/*.ts!",
         "test/**/*.ts"
       ]
+    },
+    "packages/viewer": {
+      "entry": [
+        "index.html",
+        "src/main.tsx"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}!",
+        "test/**/*.ts"
+      ]
     }
   }
 }

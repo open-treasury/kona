@@ -27,7 +27,16 @@
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/consistent-return": "off",
     "typescript/no-unnecessary-type-assertion": "error",
-    "typescript/no-unnecessary-type-conversion": "error"
+    "typescript/no-unnecessary-type-conversion": "error",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": [
+          "**/*.css",
+          "@fontsource-variable/**"
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     ".claude",
