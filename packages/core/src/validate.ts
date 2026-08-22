@@ -163,6 +163,38 @@ function nodeTypeOf(pre: Graph, ops: readonly CommittedOp[], id: string): string
 }
 
 /**
+ * A claim is exclusive, or it is only advice.
+ *
+ * `in_flight` takes a node off the frontier so nobody else picks it up — but CAS does not
+ * enforce that, and it is worth being precise about why, because it looks like it should.
+ * CAS rejects a commit written against a STALE head. A second agent reading AFTER the first
+ * claim commits sees a perfectly current head, and its claim passes: measured, two claims on
+ * one node, both exit 0. The graph then cannot even say who holds it, because `evidence_ref`
+ * lives in the op and not in the folded status.
+ *
+ * So the rule is a transition rule: **`active -> in_flight` is legal; `in_flight ->
+ * in_flight` is not.** It `refuse()`s rather than `violate()`s — this is not a fourth
+ * invariant, and the spec's three are three.
+ *
+ * Deliberately NOT extended to the other transitions out of `in_flight`: recording an
+ * outcome, finishing, superseding, and `resume`'s repair back to `active` all stay legal, or
+ * a claimed node could never be released by anybody.
+ */
+function checkClaimExclusivity(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
+  for (const [index, op] of ops.entries()) {
+    if (op.op !== "set_status" || op.status !== "in_flight") continue;
+    if (pre.nodes.get(op.node)?.status.state !== "in_flight") continue;
+    return refuse(
+      "ALREADY_CLAIMED",
+      `'${op.node}' is already in flight — somebody else claimed it and has not finished. ` +
+        "Take another node from `kona next`, or run `kona resume` if you believe the holder is gone",
+      { node: op.node, op_index: index },
+    );
+  }
+  return ok(null);
+}
+
+/**
  * §6.2 — "Every out-edge of a `wait` must carry a condition — otherwise an ignored or
  * timed-out wait clears a plain edge and a pivot fires unapproved."
  *
@@ -635,6 +667,9 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
   // as an id and never the source's type, which is in head or in an earlier op of this batch.
   const conditioned = checkWaitEdgeConditions(input.graph, normalized.value);
   if (!conditioned.ok) return conditioned;
+
+  const claims = checkClaimExclusivity(input.graph, normalized.value);
+  if (!claims.ok) return claims;
 
   const recipients = checkRecipientRefs(input.graph, normalized.value);
   if (!recipients.ok) return recipients;

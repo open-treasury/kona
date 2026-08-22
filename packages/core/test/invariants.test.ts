@@ -1096,3 +1096,47 @@ describe("hardening — the remaining branches of invariant 2's plumbing", () =>
     );
   });
 });
+
+describe("a claim is exclusive, not advice", () => {
+  // CAS is not the guard here, and that is the whole point of the rule. CAS rejects a commit
+  // written against a STALE head; a second agent reading AFTER the first claim lands sees a
+  // current head and sails through. Measured before the check existed: two claims, both
+  // exit 0, and a graph that could not say who held the node.
+  const claimed = commit(seeded([task("Read the schemas", { effect_class: "pure" })]), [
+    { op: "set_status", node: "read-the-schemas", status: "in_flight", evidence_ref: "claim:A" },
+  ]);
+
+  test("a second claim on a claimed node is refused by name", () => {
+    const r = rejection(
+      attempt(claimed, [
+        { op: "set_status", node: "read-the-schemas", status: "in_flight", evidence_ref: "claim:B" },
+      ]),
+    );
+    expect(r.reason).toBe("ALREADY_CLAIMED");
+    expect(r.node).toBe("read-the-schemas");
+  });
+
+  test("claiming an ACTIVE node is exactly what the rule permits", () => {
+    const graph = seeded([task("Read the schemas", { effect_class: "pure" })]);
+    accepted(
+      attempt(graph, [
+        { op: "set_status", node: "read-the-schemas", status: "in_flight", evidence_ref: "claim:A" },
+      ]),
+    );
+  });
+
+  test("the holder can still finish — every other exit from in_flight stays legal", () => {
+    // The rule bites on in_flight -> in_flight and nothing else. If it caught the exits too,
+    // a claimed node could never be released by anybody, including resume.
+    accepted(
+      attempt(claimed, [
+        { op: "set_status", node: "read-the-schemas", status: "done", evidence_ref: "log#1" },
+      ]),
+    );
+    accepted(
+      attempt(claimed, [
+        { op: "set_status", node: "read-the-schemas", status: "active", evidence_ref: "resume:stale-claim" },
+      ]),
+    );
+  });
+});
