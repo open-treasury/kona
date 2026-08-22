@@ -75,7 +75,9 @@ export function App(): React.ReactElement {
     return points;
   }, [layout]);
 
-  const positions = useTweenedPositions(target);
+  // The snap key is the version the reader ASKED for. It changes only when they scrub, never
+  // when the file grows, which is exactly the line between "the graph moved" and "I moved".
+  const positions = useTweenedPositions(target, String(viewing));
 
   const shownEntry = useMemo(
     () => head.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
