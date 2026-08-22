@@ -57,7 +57,7 @@ export interface RejectionRecord {
   rejection: Rejection;
 }
 
-export function serializeRejection(record: RejectionRecord): string {
+function serializeRejection(record: RejectionRecord): string {
   return `${JSON.stringify(record)}\n`;
 }
 

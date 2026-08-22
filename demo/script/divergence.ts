@@ -64,7 +64,6 @@ import { MailpitProvider } from "../mailbox/mailpit.ts";
 import { KONA_MAILBOX, firstPassRoster, persona } from "../personas/cast.ts";
 import type { Outbound, SimulatedEvent } from "../personas/simulator.ts";
 import { PRIYA_BOUNCE, replyAddressOf, replyAs, silence } from "../personas/simulator.ts";
-import { correlationAddress, konaAddress } from "./brief-standin.ts";
 import * as kona from "../kona.ts";
 import type { Assertion, GraphJson } from "./assertions.ts";
 import { asGraph, assertDivergentArms } from "./assertions.ts";
@@ -101,7 +100,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
   const sends: RunResult["sends"] = [];
 
   const konaBox = await provider.provision({
-    address: konaAddress(),
+    address: `${KONA_MAILBOX.local}@${KONA_MAILBOX.domain}`,
     display_name: KONA_MAILBOX.display_name,
   });
 
@@ -113,6 +112,15 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
    */
   const invite = async (nodeId: string, slug: Parameters<typeof persona>[0]): Promise<Outbound> => {
     const who = persona(slug);
+    // ASK THE BINARY. §6.5 puts the correlation derivation in `kona`, and until `kona
+    // brief` shipped this rig derived it itself from a quarantined stand-in. Reading it
+    // here is what makes "the demo works" and "the system works" the same statement — a
+    // rig with its own copy of the rule can pass while the product is broken.
+    const nodeBrief = await kona.brief(cwd, nodeId);
+    const replyTo = nodeBrief.correlation?.reply_to;
+    if (replyTo === undefined) {
+      throw new Error(`kona brief gave '${nodeId}' no correlation address; it sends nothing`);
+    }
     const envelope = {
       from: konaBox,
       to: [who.address],
@@ -121,7 +129,7 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         `Hi ${who.display_name.split(" ")[0] ?? who.display_name},\n\n` +
         "We're a player short for Thursday. Can you make it? A yes or no is plenty.\n\n" +
         "— Ilya",
-      reply_to: correlationAddress(nodeId),
+      reply_to: replyTo,
     };
     const receipt = await provider.send(envelope);
     sends.push({
@@ -134,7 +142,17 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
     return { envelope, receipt };
   };
 
-  await kona.init(cwd, "ilya");
+  await kona.init(cwd, "ilya", {
+    identity: {
+      mailbox: `${KONA_MAILBOX.local}@${KONA_MAILBOX.domain}`,
+      display_name: KONA_MAILBOX.display_name,
+      signature: "— Ilya",
+      authority:
+        "You may ask whether someone can play on Thursday and record their answer. " +
+        "You may NOT commit funds, move the date or the venue, or contact anyone this brief does not name.",
+    },
+    effect_budget: 12,
+  });
   say(`kona init ${cwd}`);
 
   // ── v1 ── the approved plan. Dana is the only goalie on the roster.
@@ -366,7 +384,6 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
         " so this 550 is STAGED, not transported. No mail was sent to Priya.",
     );
   }
-  const patOut = await invite("ask-pat-to-play-in-goal", "pat");
   await kona.mutate(cwd, {
     baseVersion: 6,
     why: "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too.",
@@ -397,7 +414,14 @@ export async function runDivergence(options: RunOptions): Promise<RunResult> {
       { op: "set_status", node: "$3", status: "sending", evidence_ref: "ek_pat_v7" },
     ],
   });
-  say("v7  Priya bounces 550; her wait is dropped, and Pat is asked");
+  say("v7  Priya bounces 550; her wait is dropped, and Pat's arm is planned");
+
+  // ONLY NOW may Pat be emailed. The node has to exist before anything is sent for it —
+  // §6.6's order is append, fsync, THEN the side effect, and `kona effect reserve` is what
+  // makes that literal. The reservation moves the node to `sending` with a real key; the
+  // hand-written `ek_pat_v7` this replaced was a slot the outbox had never issued.
+  const patOut = await invite("ask-pat-to-play-in-goal", "pat");
+  say("v8  Pat is asked");
 
   // ═══ past the fixture ═══════════════════════════════════════════════════════════════
   // Everything above is `fixtures/thursday.mutations.jsonl`, live. Everything below is where

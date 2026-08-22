@@ -89,8 +89,58 @@ export async function runOk(cwd: string, argv: readonly string[]): Promise<RunRe
   return result;
 }
 
-export async function init(cwd: string, actorId: string): Promise<void> {
-  await runOk(cwd, ["init", "--actor-id", actorId]);
+/**
+ * The identity `kona brief` speaks as. Written onto the GENESIS RECORD by `kona init
+ * --config`, because §6.1 allows `.kona/` no config file and §6.7 requires the pursuit to
+ * be reconstructible from the log alone.
+ *
+ * `brief` REFUSES without one — an executor cannot speak for somebody the graph cannot
+ * name — so a rig that skipped this could not dispatch a single node.
+ */
+export interface PursuitIdentity {
+  mailbox: string;
+  display_name: string;
+  signature: string;
+  authority: string;
+}
+
+export async function init(
+  cwd: string,
+  actorId: string,
+  config?: { identity: PursuitIdentity; effect_budget?: number },
+): Promise<void> {
+  if (config === undefined) {
+    await runOk(cwd, ["init", "--actor-id", actorId]);
+    return;
+  }
+  const path = join(cwd, "kona-config.json");
+  await Bun.write(path, JSON.stringify(config));
+  await runOk(cwd, ["init", "--actor-id", actorId, "--config", path]);
+}
+
+/**
+ * `kona brief <node>` — the correlation token, the identity, and the fail-closed
+ * preconditions, from the binary that owns them.
+ *
+ * NOT `runOk`: `brief` exits non-zero when the preconditions are not met, and it still
+ * prints the whole brief. That is the point of it — the caller is meant to read WHY it is
+ * not dispatchable, not just learn that it is not.
+ */
+export interface Brief {
+  node: { id: string; label: string; type: string };
+  identity: PursuitIdentity;
+  correlation: { reply_to: string; subject_tag: string } | null;
+  effect_key: string | null;
+  preconditions_satisfied: { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
+  disclosure: { disclosable: string[]; withheld: string[] };
+}
+
+export async function brief(cwd: string, nodeId: string): Promise<Brief> {
+  const result = await run(cwd, ["brief", nodeId, "--json"]);
+  if (result.stdout.trim().length === 0) {
+    throw new KonaError(["brief", nodeId], result.code, result.stderr);
+  }
+  return JSON.parse(result.stdout) as Brief;
 }
 
 export interface MutateRequest {

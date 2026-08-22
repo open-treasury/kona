@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import type { Rejection } from "@kona/core";
 import { SCHEMA_VERSION } from "@kona/core";
-import { KONA_DIR, LOCK_FILE, LOG_FILE, konaPaths } from "../src/paths.ts";
+import { KONA_DIR, LOCK_FILE, LOG_FILE, REJECTIONS_FILE, konaPaths } from "../src/paths.ts";
 import { NETWORK_PATH_MARKERS, detectNetworkFilesystem } from "../src/netfs.ts";
 import {
   EXIT_INVARIANT_VIOLATION,
@@ -27,7 +27,20 @@ describe("the .kona layout is two files and no snapshot", () => {
   });
 
   test("the names are the ones the spec fixes", () => {
-    expect([KONA_DIR, LOG_FILE, LOCK_FILE]).toEqual([".kona", "mutations.jsonl", "lock"]);
+    expect([KONA_DIR, LOG_FILE, LOCK_FILE, REJECTIONS_FILE]).toEqual([
+      ".kona",
+      "mutations.jsonl",
+      "lock",
+      "rejections.jsonl",
+    ]);
+  });
+
+  test("rejections sit beside the log, and are not the log", () => {
+    // The graph is `fold(mutations.jsonl)` and nothing else. A third file that fold reads
+    // would be a second system of record; this one is memory.
+    const paths = konaPaths("/pursuits/thursday");
+    expect(paths.rejections).toBe(join("/pursuits/thursday", KONA_DIR, REJECTIONS_FILE));
+    expect(paths.rejections).not.toBe(paths.log);
   });
 });
 
