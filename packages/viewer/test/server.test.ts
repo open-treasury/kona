@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldLog } from "@kona/core";
@@ -228,6 +228,142 @@ describe("GET /api/events — the watch half of the read contract", () => {
       expect(payload.text).toBe(logText());
     });
   });
+});
+
+/**
+ * A cursor over one open SSE stream, handing back the payload of each `event: log` frame.
+ *
+ * "The next thing the server said" is not "the next chunk that arrived": a frame ends at a
+ * blank line and may be split across reads, and a keepalive is a bare comment carrying no
+ * message at all. This buffers until a whole frame is there and steps over anything that is
+ * not a log.
+ */
+function logFrames(stream: ReadableStream<Uint8Array>): {
+  next: () => Promise<string>;
+  cancel: () => Promise<void>;
+} {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  async function next(): Promise<string> {
+    for (;;) {
+      const boundary = buffer.indexOf("\n\n");
+      if (boundary === -1) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error("the stream ended before the next log frame arrived");
+        buffer += decoder.decode(chunk.value, { stream: true });
+        continue;
+      }
+      const lines = buffer.slice(0, boundary).split("\n");
+      buffer = buffer.slice(boundary + 2);
+      if (lines[0] !== "event: log") continue;
+
+      const payload = JSON.parse((lines[1] ?? "").replace(/^data: /, "")) as { text?: unknown };
+      if (typeof payload.text !== "string") throw new Error("a log frame with no text in it");
+      return payload.text;
+    }
+  }
+
+  return {
+    next,
+    cancel: async () => {
+      try {
+        await reader.cancel();
+      } catch {
+        // The socket is already gone — which is the thing under test below, and reporting it
+        // a second time out of a `finally` would bury the assertion that caught it first.
+      }
+    },
+  };
+}
+
+/** Past the ten-second cliff with room to spare, and short enough to still be a test. */
+const IDLE_HOLD_MS = 12_000;
+
+describe("an idle /api/events stream — the connection has to outlive the silence", () => {
+  /**
+   * The slowest test in this repository by an order of magnitude, on purpose: a ten-second
+   * cliff can only be observed by standing past it.
+   *
+   * `Bun.serve` closes an idle connection after ten seconds unless it is told not to, and an
+   * SSE feed between mutations is idle by definition — nobody appends to a pursuit while
+   * somebody is explaining the graph it already shows. `idleTimeout: 0` is the whole of the
+   * fix and nothing else here would notice it changing back, because every other test in this
+   * file finishes in milliseconds and the teardown lands long after the last assertion.
+   *
+   * What the regression costs is quiet, which is what makes it worth twelve seconds. The
+   * browser reconnects, so it still looks like it works; what the room actually sees is the
+   * status pill dropping to `reconnecting` on a ten-second loop, and a window between the
+   * teardown and the reconnect in which the append the viewer exists to show lands with
+   * nobody watching. `KEEPALIVE_MS` is 25s — on the wrong side of the cliff — so the
+   * heartbeat cannot mask it either.
+   *
+   * The timeout is deliberately far larger than the wait, so a loaded machine makes this slow
+   * rather than red.
+   */
+  test("holds past ten seconds of silence and still delivers the append that follows", async () => {
+    // A real pursuit, one mutation short of the fixture's head. What gets appended below is
+    // the fixture's own last line, so the mutation the stream has to deliver is one the
+    // binary actually wrote rather than a line invented for the occasion.
+    const full = logText();
+    const lastBreak = full.trimEnd().lastIndexOf("\n");
+    const beforeHead = full.slice(0, lastBreak + 1);
+    const headLine = full.slice(lastBreak + 1);
+    const priorVersion = foldLog(beforeHead).graph.version;
+    expect(priorVersion).toBeLessThan(headVersion());
+
+    const base = mkdtempSync(join(tmpdir(), "kona-viewer-idle-"));
+    const root = join(base, "pursuit");
+    const log = join(root, ".kona", "mutations.jsonl");
+    mkdirSync(join(root, ".kona"), { recursive: true });
+    writeFileSync(log, beforeHead);
+
+    const served = await serveViewer({ root, port: 0 });
+    const response = await fetch(at(served, "/api/events"));
+    const stream = response.body;
+    if (stream === null) throw new Error("the event stream arrived with no body");
+    const frames = logFrames(stream);
+    try {
+      // Connected, and following this pursuit — not an empty canvas waiting for a change.
+      const opening = await frames.next();
+      expect(opening).toBe(beforeHead);
+      expect(foldLog(opening).graph.version).toBe(priorVersion);
+      // The mutation this test is about has genuinely not happened yet.
+      expect(opening).not.toContain(headLine);
+
+      // Now do nothing whatsoever. No request, no append, nothing that a timeout could count
+      // as traffic — the connection has to survive on its own terms or not at all.
+      await Bun.sleep(IDLE_HOLD_MS);
+
+      appendFileSync(log, headLine);
+
+      // Read until the picture changes. `fs.watch` fires more than once per logical change and
+      // every frame carries the whole log, so a byte-identical re-send is noise the design
+      // explicitly allows for; what has to arrive is a frame that says something new.
+      let arrived = opening;
+      while (arrived === opening) {
+        arrived = await frames.next().catch((error: unknown) => {
+          const cause = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `the live feed died during ${IDLE_HOLD_MS}ms of silence, so the mutation appended ` +
+              `after it was never delivered — this is the demo going quiet mid-sentence, not a ` +
+              `slow test. Look at \`idleTimeout\` in the \`Bun.serve\` config, which is the one ` +
+              `thing standing between an SSE stream and Bun's ten-second idle cliff. ` +
+              `Underlying: ${cause}`,
+          );
+        });
+      }
+
+      // Still the whole log every time, and now the whole log is the pursuit at head.
+      expect(arrived).toBe(full);
+      expect(foldLog(arrived).graph.version).toBe(headVersion());
+    } finally {
+      await frames.cancel();
+      await served.stop();
+      rmSync(base, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe("a pursuit that is not there yet", () => {
