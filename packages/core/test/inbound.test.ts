@@ -85,7 +85,18 @@ describe("which addresses are worth polling", () => {
       task("Escalate"),
       wait("Quorum", {
         on_timeout: "$0",
-        match: { kind: "predicate", conditions: [{ kind: "predicate", on: "satisfied" }] },
+        match: {
+          kind: "predicate",
+          conditions: [
+            {
+              kind: "predicate",
+              on: "satisfied",
+              // A predicate wait must carry one: without it nothing counts against the wait
+              // and invariant 2 can never judge it satisfiable.
+              predicate: { count: { verdict: "confirmed", attrs: { role: "goalie" } }, op: ">=", n: 1 },
+            },
+          ],
+        },
       }),
     ]);
     expect(waitAddresses(graph, MAILBOX)).toEqual([]);

@@ -173,6 +173,65 @@ export function resolutionOf(node: Node): EdgeCondition | null {
 }
 
 /**
+ * Can this edge NEVER fire? The complement of *pending*, not of `isEdgeSatisfied`: an edge
+ * whose source is still open is neither satisfied nor dead, and treating the two as
+ * complements is how a live branch gets dropped.
+ *
+ * Deadness is monotone, which is what makes the op-delta trigger in `resolveBranches` exact.
+ * Terminality is permanent (invariant 1 refuses `set_status` on a head-terminal node) and a
+ * resolution is frozen once non-null (`status.outcome` is the FIRST resolving entry, so a
+ * later reply cannot change it).
+ */
+export function isEdgeDead(graph: Graph, edge: Edge): boolean {
+  const source = graph.nodes.get(edge.from);
+  if (source === undefined) return false;
+  // Still open: it may yet resolve either way.
+  if (!isNodeTerminal(source)) return false;
+  // §6.4 — "an in-edge whose SOURCE is dropped". The only status the spec names.
+  if (source.status.state === "dropped") return true;
+  // §6.2 keeps `failed` distinct from `dropped`: "tried, didn't work" is a human's to look
+  // at. It can never satisfy, so the subtree stalls — loudly, under a visibly failed node,
+  // which is better than the store silently deleting work someone is about to repair.
+  if (source.status.state === "failed") return false;
+  // A plain edge is cleared by any `done` source (§6.4 readiness), so it is never dead.
+  if (edge.condition === undefined) return false;
+  const resolution = resolutionOf(source);
+  // `done` with no resolving outcome yet: `set_status` at v10 and `record_outcome` at v11 is
+  // a legal two-commit sequence, and the window between them must not kill the branch.
+  if (resolution === null) return false;
+  return resolution !== edge.condition.on;
+}
+
+/**
+ * Is this node on an arm that can never fire? Every in-edge dead, or from a node that is
+ * itself arm-dead — the same least fixpoint the cascade in `branch.ts` walks.
+ *
+ * Readiness needs this and dropping cannot supply it. The cascade deliberately does NOT
+ * rewrite a node that is already terminal, or one that is `sending`, so those nodes sit on a
+ * dead arm wearing a live-looking status forever. Their plain out-edges then read as
+ * SATISFIED, and under `merge: "any"` one of them alone is enough to put a shared descendant
+ * on the frontier — where §6.8 says appearing "is what gets it dispatched, pivot send
+ * included". A `sending` node completing later makes no edge newly dead, so no commit-time
+ * derivation could ever catch that case; it has to be answered when readiness is computed.
+ *
+ * A root is never arm-dead: blocking on nothing is not the same as being cut off.
+ */
+export function isArmDead(graph: Graph, id: string): boolean {
+  return armDead(graph, id, new Set());
+}
+
+function armDead(graph: Graph, id: string, seen: Set<string>): boolean {
+  // A cycle is mutual dependency, not proof of death. Returning false keeps the predicate
+  // conservative and, more importantly, keeps it total: `add_edge` refuses only a self-edge
+  // and an exact duplicate, so nothing stops a cycle existing.
+  if (seen.has(id)) return false;
+  const ins = inEdges(graph, id);
+  if (ins.length === 0) return false;
+  seen.add(id);
+  return ins.every((edge) => isEdgeDead(graph, edge) || armDead(graph, edge.from, seen));
+}
+
+/**
  * §6.4 — "Readiness fails safe." A node is ready iff it is not dropped and every blocking
  * in-edge has a terminal-SUCCESS source whose condition is true.
  *
@@ -188,10 +247,44 @@ export function isEdgeSatisfied(graph: Graph, edge: Edge): boolean {
   return resolutionOf(source) === edge.condition.on;
 }
 
+/**
+ * §6.4 — "An in-edge whose SOURCE is dropped is excluded from merge evaluation: it neither
+ * satisfies nor blocks." That exclusion and the "readiness does not inherit it" sentence in
+ * the next paragraph cannot both hold literally for a node with more than one in-edge, and
+ * the shipped fixture is the proof: at head, `goalie-confirmed` carries a `satisfied`-
+ * conditioned in-edge from `wait-for-priya`, which `supersede_node` dropped. Nothing can
+ * un-drop a terminal node and no op removes an edge, so under the literal reading that join
+ * is unreachable **forever** — silently, since `readyFrontier` just omits it.
+ *
+ * So the exclusion applies, and the guarantee the second sentence exists for is delivered by
+ * the zero-live clause instead: a node whose in-edges are ALL dropped is not ready either.
+ * The second node on an untaken branch still never lands on the frontier, which is the
+ * failure ("pivot send included") that sentence was written to prevent.
+ *
+ * The exclusion is `state === "dropped"` and nothing else. `failed` is deliberately not
+ * excluded (§6.2: "tried, didn't work" ≠ "we stopped wanting this") — a subtree stuck under
+ * a visibly failed node is a human's to look at, not the store's to delete.
+ */
 export function isReady(graph: Graph, node: Node): boolean {
   if (node.status.state !== "active") return false;
   if (node.provenance.superseded_by !== null) return false;
-  return inEdges(graph, node.id).every((edge) => isEdgeSatisfied(graph, edge));
+  const ins = inEdges(graph, node.id);
+  // A root blocks on nothing and is ready. Tested before the merge branch, because
+  // `some` over an empty array is `false` and would strand every `merge: "any"` root.
+  if (ins.length === 0) return true;
+  // Dropped, or on an arm that can never fire. The second is not redundant: the cascade
+  // leaves a terminal or `sending` node on a dead arm exactly as it found it, so `dropped`
+  // alone would let one of those satisfy a `merge: "any"` join on a branch nobody took.
+  const live = ins.filter(
+    (edge) =>
+      graph.nodes.get(edge.from)?.status.state !== "dropped" && !isArmDead(graph, edge.from),
+  );
+  // §6.4 — "one with ZERO live in-edges routes to `on_timeout` and never hangs." Routing is
+  // the wait engine's job (T3.1); what readiness owes is to never call it ready.
+  if (live.length === 0) return false;
+  return node.spec.merge === "any"
+    ? live.some((edge) => isEdgeSatisfied(graph, edge))
+    : live.every((edge) => isEdgeSatisfied(graph, edge));
 }
 
 /** §6.8 — the ready frontier. Computed, never stored. */

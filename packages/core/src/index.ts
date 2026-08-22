@@ -14,4 +14,5 @@ export * from "./inbound.ts";
 export * from "./apply.ts";
 export * from "./normalize.ts";
 export * from "./fold.ts";
+export * from "./branch.ts";
 export * from "./validate.ts";
