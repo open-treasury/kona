@@ -1,0 +1,253 @@
+/**
+ * The read contract, exercised against a real directory on a real filesystem.
+ *
+ * There is nothing to mock here that would be worth mocking: the whole value of this module is
+ * that it behaves correctly against the two things the OS actually does — coalesce and repeat
+ * watch events, and replace a file by renaming over it. A fake `fs` would agree with whatever
+ * we believed while writing it, which is exactly the belief under test.
+ */
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { foldLog } from "@kona/core";
+import { LOG_RELATIVE_PATH, findPursuitRoot, readLog, watchLog } from "../src/server/logFeed.ts";
+import { headVersion, logText } from "./fixture.ts";
+
+let base: string;
+let root: string;
+let log: string;
+
+beforeEach(() => {
+  base = mkdtempSync(join(tmpdir(), "kona-logfeed-"));
+  root = join(base, "pursuit");
+  mkdirSync(join(root, ".kona"), { recursive: true });
+  log = join(root, LOG_RELATIVE_PATH);
+  writeFileSync(log, "");
+});
+
+afterEach(() => {
+  rmSync(base, { recursive: true, force: true });
+});
+
+/**
+ * Long enough for the events from the setup writes above to have been delivered before a test
+ * subscribes. Without it a watcher can open onto a notification about a write it never saw,
+ * and the burst count is off by one for reasons that have nothing to do with debouncing.
+ */
+function quiet(): Promise<void> {
+  return Bun.sleep(200);
+}
+
+describe("findPursuitRoot", () => {
+  test("walks up from a nested subdirectory, the way git finds .git", () => {
+    const deep = join(root, "notes", "drafts", "thursday");
+    mkdirSync(deep, { recursive: true });
+
+    expect(findPursuitRoot(deep)).toBe(root);
+    expect(findPursuitRoot(root)).toBe(root);
+  });
+
+  test("returns null rather than throwing when there is no pursuit above", () => {
+    const orphan = mkdtempSync(join(tmpdir(), "kona-orphan-"));
+    try {
+      expect(findPursuitRoot(orphan)).toBeNull();
+    } finally {
+      rmSync(orphan, { recursive: true, force: true });
+    }
+  });
+
+  test("stops at the nearest pursuit, not the outermost", () => {
+    const inner = join(root, "sub", "inner");
+    mkdirSync(join(inner, ".kona"), { recursive: true });
+    writeFileSync(join(inner, LOG_RELATIVE_PATH), "");
+
+    expect(findPursuitRoot(join(inner, "deeper"))).toBe(inner);
+  });
+});
+
+describe("readLog", () => {
+  test("round-trips the fixture log byte for byte", async () => {
+    const text = logText();
+    writeFileSync(log, text);
+
+    const read = await readLog(root);
+    expect(read).toBe(text);
+    // Not just the same bytes: the same pursuit. The fixture folds to its own head version.
+    expect(foldLog(read).graph.version).toBe(headVersion());
+  });
+
+  test("reads a log named directly, which is how KONA_LOG points at the fixture", async () => {
+    const text = logText();
+    writeFileSync(log, text);
+
+    expect(await readLog(log)).toBe(text);
+  });
+
+  test("rejects when the log is unreadable — not the same fact as an empty pursuit", async () => {
+    const empty = join(base, "nothing-here");
+    mkdirSync(empty);
+
+    await expect(readLog(empty)).rejects.toThrow();
+  });
+});
+
+describe("watchLog", () => {
+  test("collapses a burst of appends into one callback", async () => {
+    await quiet();
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+    const unsubscribe = watchLog(root, bump, 200);
+    try {
+      await Bun.sleep(50);
+      appendFileSync(log, '{"v":1}\n');
+      await Bun.sleep(20);
+      appendFileSync(log, '{"v":2}\n');
+      await Bun.sleep(20);
+      appendFileSync(log, '{"v":3}\n');
+      await Bun.sleep(500);
+
+      expect(fired).toBe(1);
+      // And the callback is a nudge, not a payload: the reader goes back to the file.
+      expect(await readLog(root)).toBe('{"v":1}\n{"v":2}\n{"v":3}\n');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("fires again after the window — the debounce delays, it does not swallow", async () => {
+    await quiet();
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+    const unsubscribe = watchLog(root, bump, 40);
+    try {
+      await Bun.sleep(50);
+      appendFileSync(log, '{"v":1}\n');
+      await Bun.sleep(300);
+      appendFileSync(log, '{"v":2}\n');
+      await Bun.sleep(300);
+
+      expect(fired).toBe(2);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("sees an atomic replace, which a watch on the file itself would miss", async () => {
+    await quiet();
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+    const unsubscribe = watchLog(root, bump, 60);
+    try {
+      await Bun.sleep(50);
+      const staging = join(root, ".kona", "mutations.jsonl.tmp");
+      writeFileSync(staging, '{"v":9}\n');
+      renameSync(staging, log);
+      await Bun.sleep(400);
+
+      expect(fired).toBeGreaterThanOrEqual(1);
+      expect(await readLog(root)).toBe('{"v":9}\n');
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("the default window is short enough to feel live and long enough to coalesce", async () => {
+    await quiet();
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+    const unsubscribe = watchLog(root, bump);
+    try {
+      await Bun.sleep(50);
+      appendFileSync(log, '{"v":1}\n');
+      await Bun.sleep(5);
+      appendFileSync(log, '{"v":2}\n');
+      await Bun.sleep(400);
+
+      expect(fired).toBe(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("a pursuit that does not exist yet is a no-op watch, not a crash", async () => {
+    // `kona view` before `kona init`, or a path somebody typed wrong. `fs.watch` throws for
+    // this synchronously, and `serveViewer` calls it before `Bun.serve` — so a throw that got
+    // out would kill the process with an fs stack, and the 500 that exists to explain exactly
+    // this case would never be reachable on exactly this case.
+    const missing = join(base, "no-pursuit-here");
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+
+    const unsubscribe = watchLog(missing, bump, 40);
+    try {
+      mkdirSync(join(missing, ".kona"), { recursive: true });
+      writeFileSync(join(missing, LOG_RELATIVE_PATH), '{"v":0}\n');
+      await Bun.sleep(300);
+
+      // Nothing is watching, and the claim is only that this did not throw. A pursuit created
+      // after the viewer started reaches the canvas on the next connect — `/api/events` reads
+      // the log when a stream opens — not by itself.
+      expect(fired).toBe(0);
+      expect(await readLog(missing)).toBe('{"v":0}\n');
+    } finally {
+      // And tearing down a watch that was never opened has to be safe, or the caller needs to
+      // know which kind of unsubscribe it is holding.
+      unsubscribe();
+    }
+  });
+
+  test("unsubscribing stops the callback and releases the watch", async () => {
+    await quiet();
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+    const unsubscribe = watchLog(root, bump, 40);
+    await Bun.sleep(50);
+    appendFileSync(log, '{"v":1}\n');
+    await Bun.sleep(300);
+    expect(fired).toBe(1);
+
+    unsubscribe();
+    appendFileSync(log, '{"v":2}\n');
+    await Bun.sleep(300);
+    expect(fired).toBe(1);
+  });
+
+  test("an append inside the window after unsubscribing never lands", async () => {
+    await quiet();
+    let fired = 0;
+    const bump = () => {
+      fired += 1;
+    };
+    const unsubscribe = watchLog(root, bump, 150);
+    await Bun.sleep(50);
+    appendFileSync(log, '{"v":1}\n');
+    await Bun.sleep(30);
+    // Mid-debounce: the timer is armed and has not run. Tearing down has to disarm it, or a
+    // stopped server still pushes one last frame into a closed stream.
+    unsubscribe();
+    await Bun.sleep(400);
+
+    expect(fired).toBe(0);
+  });
+});

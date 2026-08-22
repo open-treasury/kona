@@ -74,10 +74,35 @@ writes one stderr line beginning with a symbolic reason.
 packages/core/    types, vocabularies, the 6 ops, invariants, fold.
                   ZERO deps. PURE: no fs, no clock, no model.
 packages/kona/    .kona/ layout, lock + CAS, the verbs. The only thing that writes.
+packages/viewer/  React Flow + dagre over the log. Depends on core ONLY — it cannot
+                  reach the store, because it does not depend on the package that is one.
 ```
 
 The dependency graph enforces what prose can only assert: `core` has no `node:fs` import
-to make, so exactly one package writes bytes.
+to make, so exactly one package writes bytes, and `viewer` has no `@kona/cli` to import.
+
+## The viewer
+
+```bash
+cd packages/viewer && bun run dev     # falls back to fixtures/ when there is no pursuit here
+KONA_ROOT=/tmp/thursday bun run dev   # or point it at one
+```
+
+Localhost only, read-only, zero outbound calls. It reads **the log** and folds it with `core`'s
+own `foldLog`, which is the same function `kona graph --json` calls — so it cannot drift, and
+`packages/viewer/test/contract.test.ts` asserts the projection byte-for-byte against
+`fixtures/thursday.graph.json`. The mutation timeline needs `rationale`, which the graph
+projection does not carry; that is why the viewer reads the log rather than the projection.
+
+Append a version to a pursuit it is watching and the topology re-ranks, tweens and flashes the
+new subtree. A **status-only** version moves nothing: dagre is memoized on a topology signature,
+not on `graph_version`, which bumps on a status tick too.
+
+The stylesheet is compiled, not plugged in: `bun run css` turns `src/theme.css` into the
+committed `src/styles.css`. `bun-plugin-tailwind` resolves relative to the working directory,
+and `kona view` runs from the operator's pursuit directory, where there is no `bunfig.toml` —
+the plugin would silently not be found and the viewer would render unstyled. A test recompiles
+and compares, so the committed file cannot drift.
 
 ## The purity gate
 
@@ -103,10 +128,10 @@ bun run typecheck:purity   # TS2591: Cannot find name 'process'
 
 | | |
 |---|---|
-| `bun run typecheck` | TypeScript 7.0.2, three projects including the purity gate |
+| `bun run typecheck` | TypeScript 7.0.2, four projects including the purity gate |
 | `bun run lint` | oxlint 1.79 with type-aware rules |
 | `bun run knip` | unused files, exports, dependencies |
-| `bun test` | 325 tests |
+| `bun test` | 570 tests |
 | `bun run mutate` | StrykerJS 10, three tiers with per-area floors |
 
 ## Toolchain notes — TypeScript 7 breaks things, and here is how
