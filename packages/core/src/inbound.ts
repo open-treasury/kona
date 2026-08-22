@@ -28,6 +28,7 @@
  */
 
 import type { Graph, Node } from "./graph.ts";
+import type { WaitCondition } from "./schema.ts";
 import type { EdgeCondition } from "./vocab.ts";
 import { armedWaits } from "./deadline.ts";
 import { deriveCorrelation } from "./correlation.ts";
@@ -73,25 +74,21 @@ export interface InboundMatch {
   late: boolean;
 }
 
-interface WaitCondition {
-  kind: string;
-  on: EdgeCondition;
-  from?: string;
-  in_reply_to?: string[];
-}
-
-function conditionsOf(node: Node): WaitCondition[] {
-  const match = node.spec.match;
-  if (typeof match !== "object" || match === null) return [];
-  const conditions = (match as { conditions?: unknown }).conditions;
-  return Array.isArray(conditions) ? (conditions as WaitCondition[]) : [];
+/**
+ * A wait's or-group conditions, or none if it is not a wait.
+ *
+ * `spec.match` is already precisely typed — `nodeSpecSchema` gives it a shape and
+ * `MutationRecordSchema` re-parses every historical line on every fold, so a match block that
+ * is not an object cannot reach here. This used to re-narrow it by hand against a looser
+ * local type, and mutation testing measured the cost: eleven unkillable mutants across two
+ * four-line helpers, all of them guards against a shape the parser cannot admit.
+ */
+function conditionsOf(node: Node): readonly WaitCondition[] {
+  return node.spec.match?.conditions ?? [];
 }
 
 function matchKindOf(node: Node): string | null {
-  const match = node.spec.match;
-  if (typeof match !== "object" || match === null) return null;
-  const kind = (match as { kind?: unknown }).kind;
-  return typeof kind === "string" ? kind : null;
+  return node.spec.match?.kind ?? null;
 }
 
 /** Every message id this wait has already acted on. The dedupe set, for free. */

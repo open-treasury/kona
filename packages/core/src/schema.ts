@@ -6,6 +6,18 @@
  * Every object is `strictObject`: an unrecognised key is a rejection, not a silent drop.
  * A typo'd `recipient_refs` that parsed as "no recipient" would walk straight past
  * invariant 3(b).
+ *
+ * ## What mutation testing reports here, and why most of it stays
+ *
+ * A third of this file is zod error TEXT — `"node id must match …"`, `"every wait requires a
+ * deadline (§6.2)"` — plus zod's own `code` and `path` fields. Mutants that blank those
+ * strings survive, and deliberately: §6.8 makes the symbolic REASON the API and zod's message
+ * merely the detail behind it. Pinning the wording would be testing the phrasing of an error
+ * rather than the fact of one, and would break on every zod upgrade for no gain.
+ *
+ * The mutants worth killing here are the ones that change what the parser ACCEPTS, and they
+ * are tested in `contracts.test.ts` — the anchors on `/^\$\d+$/` and `/^\d+[smhd]$/`, which
+ * unanchored would let `goalie$0` be a batch ref and `48hours` be a duration.
  */
 
 import { z } from "zod";
@@ -125,8 +137,33 @@ const WaitMatchSchema = z.strictObject({
     .min(1, "a wait with no conditions can never resolve"),
   /** Derived from the node id by the store; absent when authored. */
   correlation: z.string().optional(),
+  /**
+   * DECLARED BY §6.5 AND READ BY NOTHING. Recorded here rather than quietly carried.
+   *
+   * The spec's wait example carries `"memory": true` and never says what it means. No code
+   * reads it, so the default below is arbitrary and mutation testing correctly reports
+   * flipping it as a surviving mutant — there is no behaviour for it to change.
+   *
+   * It stays because removing it would be a RETROACTIVE tightening: this is a
+   * `strictObject`, `MutationRecordSchema` re-parses every historical line on every fold, and
+   * every wait in every committed log carries the field. Dropping it would turn those lines
+   * into `UNPARSEABLE_RECORD` — and because the expected version is computed from the last
+   * SUCCESSFUL record, one refused line cascades the rest of the log into
+   * `VERSION_DISCONTINUITY` and the pursuit becomes unreadable forever.
+   *
+   * So: accepted, defaulted, unread, and now written down.
+   */
   memory: z.boolean().default(true),
 });
+
+/**
+ * One arm of a wait's or-group (§6.5), derived from the parser rather than restated beside it.
+ *
+ * Exported because consumers were writing their own looser copy and then narrowing back down
+ * to it by hand. That is two hand-kept shapes and, measured, eleven mutants no test could
+ * kill — guards against a match block the parser cannot admit in the first place.
+ */
+export type WaitCondition = z.infer<typeof WaitMatchSchema>["conditions"][number];
 
 function nodeSpecSchema<R extends z.ZodType>(ref: R) {
   return z.strictObject({

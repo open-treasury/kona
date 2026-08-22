@@ -51,9 +51,7 @@ function awaitingWaits(graph: Graph, node: Node): Node[] {
     // Only an EVENT wait takes mail. A predicate wait is judged from the graph and a human
     // wait from a person; neither has an inbox, and addressing a reply to one would be a
     // reply nothing reads.
-    const match = target.spec.match;
-    const kind = typeof match === "object" && match !== null ? (match as { kind?: unknown }).kind : null;
-    return kind === "event" ? [target] : [];
+    return target.spec.match?.kind === "event" ? [target] : [];
   });
 }
 

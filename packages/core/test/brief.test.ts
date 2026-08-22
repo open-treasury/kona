@@ -431,6 +431,73 @@ describe("the disclosure contract is exact", () => {
   });
 });
 
+describe("the checks PASS as well as fail, which is the half that was untested", () => {
+  /**
+   * Mutation testing found both of these by deleting something and watching nothing break.
+   *
+   * `checkDependencies`'s `.filter(edge => !isEdgeSatisfied(...))` could be removed entirely
+   * and every test still passed — which means no test had a node whose in-edge was actually
+   * SATISFIED. Every one of them was blocked. And `ok: spent < budget` could be replaced with
+   * `ok: false` unnoticed, because nothing asserted an effect node passing its budget check.
+   *
+   * Both are the same shape of gap, and it is the dangerous shape: a fail-closed gate whose
+   * OPEN path nobody exercises is a gate that could be closed forever and look correct. The
+   * probes measured that exact failure — an invariant rejecting correct work five times in
+   * ten — so "it refuses the bad thing" is only half a test.
+   */
+  const satisfied = commit(
+    rostered(["dana"], [task("Roster"), pivot("Ask Dana"), wait("Wait for Dana")]),
+    [
+      { op: "add_edge", from: "roster", to: "ask-dana" },
+      { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
+      {
+        op: "record_output",
+        node: "roster",
+        output_name: "reply",
+        value: "dana",
+        evidence_ref: "roster.csv#v3",
+      },
+      { op: "set_status", node: "roster", status: "done", evidence_ref: "roster.csv#v3" },
+    ] as AuthoredOp[],
+  );
+
+  test("a satisfied in-edge does not block, and says so", () => {
+    const check = checkNamed(satisfied, "ask-dana", "dependencies_satisfied");
+    expect(check.ok).toBe(true);
+    expect(check.detail).toBe("every blocking in-edge has a terminal-success source");
+  });
+
+  test("an effect node with budget left passes the budget check", () => {
+    const check = checkNamed(satisfied, "ask-dana", "budget_remaining");
+    expect(check.ok).toBe(true);
+    expect(check.detail).toBe("0 of 12 irreversible sends used");
+  });
+
+  test("and the whole brief is dispatchable — every check green at once", () => {
+    // The state an executor is actually handed. Nothing in this suite asserted it existed.
+    const brief = briefOf(satisfied, "ask-dana");
+    expect(brief.preconditions_satisfied.checks.filter((check) => !check.ok)).toEqual([]);
+    expect(brief.preconditions_satisfied.ok).toBe(true);
+    expect(brief.correlation?.reply_to).toBe("ilya+kona-wait-for-dana@example.com");
+  });
+
+  test("the budget check goes red exactly at the cap, not after it", () => {
+    // `spent < budget`, not `<=`. At 1 of 1 the next send is the one over the line, and a
+    // cap that lets the last one through is a cap set one higher than anybody approved.
+    const oneLeft = checkNamed(satisfied, "ask-dana", "budget_remaining", {
+      identity: IDENTITY,
+      effect_budget: 1,
+    });
+    expect(oneLeft.ok).toBe(true);
+    const none = checkNamed(satisfied, "ask-dana", "budget_remaining", {
+      identity: IDENTITY,
+      effect_budget: 0,
+    });
+    expect(none.ok).toBe(false);
+    expect(none.detail).toBe("0 of 0 irreversible sends used");
+  });
+});
+
 describe("each check says what it looked at, not just whether it passed", () => {
   test.each([
     ["node_live", "state 'active'"],
