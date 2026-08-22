@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Graph } from "@kona/core";
 import { isReady, readyFrontier } from "@kona/core";
-import { viewEdges } from "../src/model/edges.ts";
+import { flowTerminals, viewEdges } from "../src/model/edges.ts";
 import { folded, headVersion } from "./fixture.ts";
 
 const FOLD = folded();
@@ -136,5 +136,60 @@ describe("viewEdges", () => {
       timeout: expect.any(Number),
       supersedes: expect.any(Number),
     });
+  });
+});
+
+describe("flowTerminals", () => {
+  test("a start has nothing before it", () => {
+    const { starts } = flowTerminals(GRAPH);
+    expect(starts.size).toBeGreaterThan(0);
+    for (const id of starts) {
+      expect(GRAPH.edges.some((e) => e.to === id)).toBe(false);
+    }
+  });
+
+  test("the escalation is an END, not a start — the timeout arcs are what make it one", () => {
+    // Without counting timeout routes as flow it has no in-edge at all and would read as the
+    // place the pursuit begins, which is the exact opposite of what it is.
+    const { starts, ends } = flowTerminals(GRAPH);
+    expect(GRAPH.edges.some((e) => e.to === "escalate-no-goalie-found")).toBe(false);
+    expect(starts.has("escalate-no-goalie-found")).toBe(false);
+    expect(ends.has("escalate-no-goalie-found")).toBe(true);
+  });
+
+  test("no wait is ever an end — §6.4 gives every one of them somewhere to go", () => {
+    const { ends } = flowTerminals(GRAPH);
+    for (const node of GRAPH.nodes.values()) {
+      if (node.type !== "wait") continue;
+      if (node.provenance.superseded_by !== null) continue;
+      expect(ends.has(node.id)).toBe(false);
+    }
+  });
+
+  test("a superseded node is neither — it was replaced, not reached", () => {
+    const { starts, ends } = flowTerminals(GRAPH);
+    const retired = [...GRAPH.nodes.values()].filter((n) => n.provenance.superseded_by !== null);
+    expect(retired.length).toBeGreaterThan(0);
+    for (const node of retired) {
+      expect(starts.has(node.id)).toBe(false);
+      expect(ends.has(node.id)).toBe(false);
+    }
+  });
+
+  test("the supersede chain does not count as flow", () => {
+    // The REPLACEMENT has a supersede arc pointing at it and no dependency in-edge, so
+    // counting lineage as flow would stop it being a start.
+    const replacement = [...GRAPH.nodes.values()].find(
+      (n) => n.provenance.supersedes !== null && n.provenance.superseded_by === null,
+    );
+    if (replacement === undefined) throw new Error("the fixture lost its supersede chain");
+    expect(GRAPH.edges.some((e) => e.to === replacement.id)).toBe(false);
+    expect(flowTerminals(GRAPH).starts.has(replacement.id)).toBe(true);
+  });
+
+  test("every version has at least one start — a pursuit has to begin somewhere", () => {
+    for (let v = 1; v <= headVersion(); v++) {
+      expect(flowTerminals(folded(v).graph).starts.size).toBeGreaterThan(0);
+    }
   });
 });

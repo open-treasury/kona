@@ -220,6 +220,25 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
       <Handle type="target" position={Position.Left} isConnectable={false} />
 
       <div className="flex min-w-0 items-center gap-2">
+        {/*
+          The activity diagram's initial node, and it is notation rather than data — no node is
+          invented for it, the marker rides on the real card that starts the flow. Muted on
+          purpose: it is a fact about the SHAPE of the pursuit, and it must not compete with
+          the status glyph beside it, which is a fact about the work.
+        */}
+        {view.isStart && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label="start"
+                className="size-1.5 shrink-0 rounded-full bg-carbon-40"
+              />
+            </TooltipTrigger>
+            <TooltipContent>
+              where the pursuit starts — nothing has to happen before this one
+            </TooltipContent>
+          </Tooltip>
+        )}
         <StatusGlyph status={node.status.state} />
         {node.type === "wait" && (
           <Tooltip>
@@ -250,6 +269,32 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
           >
             {trailing}
           </span>
+        )}
+        {/*
+          The activity diagram's final node — a ring around a dot — with the one caveat that
+          makes Kona different written into the tooltip. §6.1 mutates the topology mid-run, so
+          this is NOT "finished": it is "nothing depends on this at v13", and a leaf today grows
+          children tomorrow. Claiming finality on a canvas whose whole argument is that plans
+          change would be the most expensive kind of wrong.
+        */}
+        {view.isEnd && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                aria-label="end"
+                // No `ml-auto`: the label carries `flex-1` and has already eaten the slack, so
+                // the marker simply follows whatever the row ends with.
+                className="ml-1.5 flex size-2.5 shrink-0 items-center justify-center rounded-full border border-carbon-40"
+              >
+                <span className="size-1 rounded-full bg-carbon-40" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              nothing depends on this at v{node.status.observed_at_version} — not
+              &ldquo;finished&rdquo;. The topology changes mid-run, so a leaf now can grow
+              children in the next version.
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
 

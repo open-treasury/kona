@@ -119,3 +119,50 @@ export function viewEdges(graph: Graph): ViewEdge[] {
 
   return out;
 }
+
+
+/**
+ * Where the pursuit starts, and where it currently stops.
+ *
+ * The activity-diagram vocabulary — a filled dot for the initial node, a ringed dot for the
+ * final one — maps onto Kona with **one honest exception, and it is the interesting one.**
+ * There is no final state. §6.1 makes the graph a fold over an append-only log whose topology
+ * changes mid-run, so a node with nothing depending on it today grows children tomorrow; that
+ * is the entire claim, not an edge case. `end` therefore means "nothing depends on this **at
+ * this version**", and the marker says exactly that rather than "finished".
+ *
+ * Computed over FLOW, which is dependencies plus timeout routes and NOT the supersede chain:
+ *
+ *   - a timeout arc is flow. Without it the escalation — the target of every wait in the
+ *     pursuit — reads as a *start*, because nothing depends on it, which is the opposite of
+ *     what it is.
+ *   - a supersede link is lineage, not flow. Counting it would make a retired node look like a
+ *     step on the way somewhere.
+ *
+ * A superseded node is neither. It has been replaced, and calling the thing you stopped doing
+ * a "start" is worse than saying nothing about it.
+ */
+export interface Terminals {
+  starts: ReadonlySet<string>;
+  ends: ReadonlySet<string>;
+}
+
+export function flowTerminals(graph: Graph): Terminals {
+  const hasIn = new Set<string>();
+  const hasOut = new Set<string>();
+
+  for (const edge of viewEdges(graph)) {
+    if (edge.kind === "supersedes") continue;
+    hasOut.add(edge.from);
+    hasIn.add(edge.to);
+  }
+
+  const starts = new Set<string>();
+  const ends = new Set<string>();
+  for (const node of graph.nodes.values()) {
+    if (node.provenance.superseded_by !== null) continue;
+    if (!hasIn.has(node.id)) starts.add(node.id);
+    if (!hasOut.has(node.id)) ends.add(node.id);
+  }
+  return { starts, ends };
+}
