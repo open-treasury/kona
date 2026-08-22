@@ -188,10 +188,38 @@ export function isEdgeSatisfied(graph: Graph, edge: Edge): boolean {
   return resolutionOf(source) === edge.condition.on;
 }
 
+/**
+ * §6.4 — "An in-edge whose SOURCE is dropped is excluded from merge evaluation: it neither
+ * satisfies nor blocks." That exclusion and the "readiness does not inherit it" sentence in
+ * the next paragraph cannot both hold literally for a node with more than one in-edge, and
+ * the shipped fixture is the proof: at head, `goalie-confirmed` carries a `satisfied`-
+ * conditioned in-edge from `wait-for-priya`, which `supersede_node` dropped. Nothing can
+ * un-drop a terminal node and no op removes an edge, so under the literal reading that join
+ * is unreachable **forever** — silently, since `readyFrontier` just omits it.
+ *
+ * So the exclusion applies, and the guarantee the second sentence exists for is delivered by
+ * the zero-live clause instead: a node whose in-edges are ALL dropped is not ready either.
+ * The second node on an untaken branch still never lands on the frontier, which is the
+ * failure ("pivot send included") that sentence was written to prevent.
+ *
+ * The exclusion is `state === "dropped"` and nothing else. `failed` is deliberately not
+ * excluded (§6.2: "tried, didn't work" ≠ "we stopped wanting this") — a subtree stuck under
+ * a visibly failed node is a human's to look at, not the store's to delete.
+ */
 export function isReady(graph: Graph, node: Node): boolean {
   if (node.status.state !== "active") return false;
   if (node.provenance.superseded_by !== null) return false;
-  return inEdges(graph, node.id).every((edge) => isEdgeSatisfied(graph, edge));
+  const ins = inEdges(graph, node.id);
+  // A root blocks on nothing and is ready. Tested before the merge branch, because
+  // `some` over an empty array is `false` and would strand every `merge: "any"` root.
+  if (ins.length === 0) return true;
+  const live = ins.filter((edge) => graph.nodes.get(edge.from)?.status.state !== "dropped");
+  // §6.4 — "one with ZERO live in-edges routes to `on_timeout` and never hangs." Routing is
+  // the wait engine's job (T3.1); what readiness owes is to never call it ready.
+  if (live.length === 0) return false;
+  return node.spec.merge === "any"
+    ? live.some((edge) => isEdgeSatisfied(graph, edge))
+    : live.every((edge) => isEdgeSatisfied(graph, edge));
 }
 
 /** §6.8 — the ready frontier. Computed, never stored. */
