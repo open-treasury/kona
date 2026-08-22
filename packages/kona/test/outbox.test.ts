@@ -129,6 +129,9 @@ describe("reserve", () => {
     expect(reservation.rationale.why).toBe("sending the invite");
     expect(reservation.actor.kind).toBe("subagent");
     expect(reservation.outcome).toBeNull();
+    // The field always exists, even where the verb offers no way to supply it.
+    expect(reservation.rationale.alternatives_rejected).toEqual([]);
+    expect(reservation.rationale.reason_code).toBe("OTHER");
   });
 });
 

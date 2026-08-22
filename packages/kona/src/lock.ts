@@ -74,7 +74,8 @@ async function writeLock(path: string, info: LockInfo): Promise<() => Promise<vo
   } finally {
     // Whether or not the link took, the staging name is no longer needed: on success it
     // is a second name for the same inode, and removing it leaves the lock in place.
-    await rm(staging, { force: true });
+    // `writeFile` above succeeded, so it exists — there is nothing to force.
+    await rm(staging);
   }
   return async () => {
     await rm(path, { force: true });

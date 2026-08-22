@@ -297,3 +297,105 @@ describe("config lives on the genesis record", () => {
     expect(pursuitConfig([record(0, []), { ...record(1, []), config: CONFIG }])).toEqual({});
   });
 });
+
+describe("the disclosure contract is exact", () => {
+  test("what may be disclosed, in full", () => {
+    // Pinned by literal rather than by membership. Silently dropping a field from either
+    // list changes what an executor is allowed to put in front of a counterparty, and no
+    // "contains" assertion would notice.
+    expect(DISCLOSURE.disclosable).toEqual([
+      "instruction",
+      "inputs",
+      "correlation.reply_to",
+      "correlation.subject_tag",
+      "identity",
+    ]);
+  });
+
+  test("what may not, in full", () => {
+    expect(DISCLOSURE.withheld).toEqual([
+      "deadline",
+      "on_timeout",
+      "graph_structure",
+      "rationale",
+      "effect_key",
+      "sibling_nodes",
+      "budget",
+    ]);
+  });
+
+  test("every entry is a real field name, not an empty slot", () => {
+    for (const field of [...DISCLOSURE.disclosable, ...DISCLOSURE.withheld]) {
+      expect(field.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("each check says what it looked at, not just whether it passed", () => {
+  test.each([
+    ["node_live", "state 'active'"],
+    ["dependencies_satisfied", "every blocking in-edge has a terminal-success source"],
+    ["inputs_resolved", "every input resolves to a recorded output"],
+    ["effect_slot_unfired", "no send recorded"],
+    ["correlation_expanded", "node sends nothing, so it needs no reply address"],
+    ["budget_remaining", "node sends nothing"],
+  ])("%s on a clean pure node reads '%s'", (name, detail) => {
+    expect(checkNamed(seeded([task("A")]), "a", name).detail).toBe(detail);
+  });
+
+  test("a sent node says so plainly", () => {
+    const key = "ek_1";
+    const sent = commit(
+      commit(seeded([pivot("Ask Dana")]), [
+        { op: "set_status", node: "ask-dana", status: "sending", evidence_ref: encodeReserveEvidence(key, "h") },
+      ]),
+      [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
+    );
+    expect(checkNamed(sent, "ask-dana", "effect_slot_unfired").detail).toBe(
+      "this node has already moved bytes",
+    );
+  });
+
+  test("an effect node names the address replies will correlate to", () => {
+    expect(checkNamed(seeded([pivot("Ask Dana")]), "ask-dana", "correlation_expanded").detail).toBe(
+      "replies correlate to ilya+kona-ask-dana@example.com",
+    );
+  });
+
+  test("a superseded node is described as superseded, not merely inactive", () => {
+    const graph = commit(seeded([task("A")]), [task("A prime"), { op: "supersede_node", node: "a", by: "$0" }]);
+    expect(checkNamed(graph, "a", "node_live").detail).toContain("superseded");
+  });
+
+  test("TWO unresolved inputs are listed separately, not run together", () => {
+    const graph = commit(seeded([task("Roster")]), [
+      task("Ask", { inputs: [{ ref: "ghost.a" }, { ref: "roster.b" }] }),
+    ]);
+    const detail = checkNamed(graph, "ask", "inputs_resolved").detail;
+    expect(detail).toContain("; ");
+    expect(detail.split("; ")).toHaveLength(2);
+  });
+
+  test("a node declaring several outputs resolves a ref to ANY of them", () => {
+    // `some`, not `every`: a producer with two declared outputs must satisfy a ref to
+    // either one. Reading it as `every` would reject every multi-output node.
+    const base = commit(
+      seeded([task("Roster", { outputs: [{ name: "a", type: "string" }, { name: "b", type: "string" }] })]),
+      [task("Ask", { inputs: [{ ref: "roster.b" }] })],
+    );
+    const graph = commit(base, [
+      { op: "record_output", node: "roster", output_name: "b", value: 1, evidence_ref: "e" },
+    ]);
+    expect(checkNamed(graph, "ask", "inputs_resolved").ok).toBe(true);
+  });
+
+  test("blocked-on details list each blocker", () => {
+    const graph = commit(seeded([task("A"), task("B"), task("C")]), [
+      { op: "add_edge", from: "a", to: "c" },
+      { op: "add_edge", from: "b", to: "c" },
+    ]);
+    expect(checkNamed(graph, "c", "dependencies_satisfied").detail).toBe(
+      "waiting on 'a'; waiting on 'b'",
+    );
+  });
+});

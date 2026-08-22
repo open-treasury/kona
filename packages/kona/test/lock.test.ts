@@ -178,3 +178,57 @@ describe("two writers can never both hold it", () => {
     expect(readdirSync(h.dir)).toEqual(["lock"]);
   });
 });
+
+describe("only EEXIST means 'someone else has it'", () => {
+  test("any other failure propagates rather than being read as contention", async () => {
+    // A missing directory is a bug in the caller, not a busy lock. Swallowing it would
+    // make every write report a stale lock against a path that cannot exist, and tell the
+    // operator to delete a file that was never there.
+    let thrown: unknown;
+    try {
+      await acquireLock(join(h.dir, "no-such-dir", "lock"), fixedClock(T0), 1);
+    } catch (error) {
+      thrown = error;
+    }
+    expect((thrown as { code?: string } | undefined)?.code).toBe("ENOENT");
+  });
+});
+
+describe("the refusal names the holder, or says it cannot", () => {
+  test("a readable holder is named", async () => {
+    await acquireLock(lockPath, fixedClock(T0), 99);
+    const outcome = await acquireLock(lockPath, fixedClock(T0), 100);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.message).toContain("pid 99");
+    expect(outcome.message).toContain(`since ${T0}`);
+  });
+
+  test("an unreadable one says 'unknown' rather than printing undefined", async () => {
+    writeFileSync(lockPath, "{not json");
+    const outcome = await acquireLock(lockPath, fixedClock(T0), 100);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.message).toContain("pid unknown");
+    expect(outcome.message).toContain("since unknown");
+    expect(outcome.message).not.toContain("undefined");
+  });
+
+  test("a half-written one is unknown too — a partial record is not a holder", async () => {
+    // Both fields are required to believe a lockfile. Trusting a pid without a timestamp
+    // would print `since undefined` at the operator and, worse, treat a live writer's
+    // half-flushed lock as identifiable.
+    writeFileSync(lockPath, JSON.stringify({ pid: 99 }));
+    const outcome = await acquireLock(lockPath, fixedClock(T0), 100);
+    if (outcome.ok) throw new Error("unreachable");
+    expect(outcome.message).toContain("pid unknown");
+    expect(outcome.message).not.toContain("undefined");
+  });
+
+  test("the lock never exists without its contents", async () => {
+    // Written to a staging name and linked into place, so a peer can never read an empty
+    // lock and conclude that a live writer has crashed.
+    const outcome = await acquireLock(lockPath, fixedClock(T0), 99);
+    if (!outcome.ok) throw new Error("unreachable");
+    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toEqual({ pid: 99, started_at: T0 });
+    expect(readdirSync(h.dir)).toEqual(["lock"]);
+  });
+});

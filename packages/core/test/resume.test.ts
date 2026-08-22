@@ -318,3 +318,33 @@ describe("the escape route must still be runnable", () => {
     ]);
   });
 });
+
+describe("settledAt looks at the right node", () => {
+  test("another node going terminal does not count", () => {
+    const records = [
+      stampedRecord(1, [{ op: "set_status", node: "other", status: "done", evidence_ref: "e" }], T0),
+    ];
+    expect(settledAt(records, "invite")).toBeNull();
+  });
+
+  test("it finds the target among several transitions in one record", () => {
+    const records = [
+      stampedRecord(
+        1,
+        [
+          { op: "set_status", node: "other", status: "done", evidence_ref: "e" },
+          { op: "set_status", node: "invite", status: "done", evidence_ref: "e" },
+        ],
+        LATER,
+      ),
+    ];
+    expect(settledAt(records, "invite")).toBe(LATER);
+  });
+
+  test("a non-status op for the right node does not count either", () => {
+    const records = [
+      stampedRecord(1, [{ op: "record_outcome", node: "invite", verdict: "confirmed", evidence_ref: "e" }], T0),
+    ];
+    expect(settledAt(records, "invite")).toBeNull();
+  });
+});

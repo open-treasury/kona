@@ -11,20 +11,16 @@ import type { Deadline, MutationRecord } from "./schema.ts";
 import type { Graph, Node } from "./graph.ts";
 import { isTerminal } from "./vocab.ts";
 
+const UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+type Unit = keyof typeof UNIT_MS;
+
 const DURATION = /^(\d+)([smhd])$/;
-const UNIT_MS: Record<string, number> = {
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-};
 
 export function parseDuration(duration: string): number | null {
   const match = DURATION.exec(duration);
-  if (match === null) return null;
-  const amount = Number(match[1]);
-  const unit = UNIT_MS[match[2] ?? ""];
-  return unit === undefined ? null : amount * unit;
+  // The pattern already restricts the unit to the four keys, so there is no unknown-unit
+  // branch to get wrong — and no unreachable one to pretend is a check.
+  return match === null ? null : Number(match[1]) * UNIT_MS[match[2] as Unit];
 }
 
 /**
@@ -34,9 +30,7 @@ export function parseDuration(duration: string): number | null {
  * not invent times. The record that moved it is where the time lives.
  */
 export function settledAt(records: readonly MutationRecord[], nodeId: string): string | null {
-  for (let index = records.length - 1; index >= 0; index--) {
-    const record = records[index];
-    if (record === undefined) continue;
+  for (const record of records.toReversed()) {
     for (const op of record.ops) {
       if (op.op === "set_status" && op.node === nodeId && isTerminal(op.status)) {
         return record.occurred_at;

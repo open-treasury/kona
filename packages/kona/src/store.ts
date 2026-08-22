@@ -37,8 +37,11 @@ export function serializeRecord(record: MutationRecord): string {
  */
 export async function dropTornTail(paths: KonaPaths, text: string): Promise<void> {
   const withoutFinalNewline = text.replace(/\n$/, "");
-  const lastBreak = withoutFinalNewline.lastIndexOf("\n");
-  const kept = lastBreak === -1 ? "" : withoutFinalNewline.slice(0, lastBreak + 1);
+  // `lastIndexOf` returns -1 when there is no earlier line, and `slice(0, 0)` is "" — so
+  // the whole-file case needs no branch of its own.
+  const kept = withoutFinalNewline.slice(0, withoutFinalNewline.lastIndexOf("\n") + 1);
+  // BYTES, not characters. Rationales carry em dashes and accented names, and truncating
+  // by string length would cut mid-character and corrupt the record before the tear.
   await truncate(paths.log, Buffer.byteLength(kept, "utf8"));
 }
 
