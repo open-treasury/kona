@@ -1451,6 +1451,19 @@
     stroke: var(--color-carbon-8);
     stroke-dasharray: 3 4;
   }
+  .react-flow__edge.e-timeout .react-flow__edge-path {
+    stroke: var(--color-ochre-bold);
+    stroke-width: 1.25;
+    stroke-dasharray: 5 4;
+    opacity: 0.45;
+  }
+  .react-flow__edge.e-supersedes .react-flow__edge-path {
+    stroke: var(--color-carbon-40);
+    stroke-width: 1.25;
+    stroke-dasharray: 1 4;
+    stroke-linecap: round;
+    opacity: 0.7;
+  }
   .react-flow__edge.e-sat .react-flow__edge-path {
     stroke: var(--color-success);
     stroke-width: 2;

@@ -10,9 +10,10 @@
 import { useMemo } from "react";
 import { Background, Controls, ReactFlow } from "@xyflow/react";
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
-import type { Edge, Graph } from "@kona/core";
-import { isEdgeSatisfied, isTerminal } from "@kona/core";
+import type { Graph } from "@kona/core";
 import type { GraphView } from "../model/types.ts";
+import type { ViewEdge } from "../model/edges.ts";
+import { viewEdges } from "../model/edges.ts";
 import { edgeKeyString } from "../model/diff.ts";
 import { NODE_SIZE } from "../layout/dagre.ts";
 import type { Fresh } from "./useFresh.ts";
@@ -30,28 +31,29 @@ export interface CanvasProps {
 }
 
 /**
- * An edge is dead when its source can never satisfy it: the source is terminal without
- * succeeding, or it succeeded but fired a different condition. Drawing those the same as a
- * live dependency is how a reader ends up believing a fan-out still has four arms when two of
- * them are already closed.
+ * React Flow puts `className` on the edge's `<g>`, which is the only styling hook it offers a
+ * plain (non-custom) edge. Data on `edge.data` never reaches the DOM, so the state has to ride
+ * in as class names.
+ *
+ * The three kinds are meant to be told apart WITHOUT reading a label: a dependency is a solid
+ * line because it gates something, a timeout route is dashed amber because it is an escape
+ * hatch that has not fired, and a supersede is a faint dotted aside because it is lineage
+ * rather than flow. A reader should be able to see which lines the pursuit is waiting on by
+ * squinting at it.
  */
-function edgeIsDead(graph: Graph, edge: Edge): boolean {
-  const source = graph.nodes.get(edge.from);
-  if (source === undefined) return true;
-  return isTerminal(source.status.state) && !isEdgeSatisfied(graph, edge);
-}
-
-/**
- * React Flow puts `className` on the edge's `<g>`, which is the only styling hook it offers
- * a plain (non-custom) edge. Data on `edge.data` never reaches the DOM, so the state has to
- * ride in as class names.
- */
-function edgeClass(graph: Graph, edge: Edge, fresh: boolean): string {
-  const parts = ["e"];
-  if (edgeIsDead(graph, edge)) parts.push("e-dead");
-  else if (isEdgeSatisfied(graph, edge)) parts.push("e-sat");
+function edgeClass(edge: ViewEdge, fresh: boolean): string {
+  const parts = ["e", `e-${edge.kind}`];
+  if (edge.kind === "requires") {
+    if (edge.dead) parts.push("e-dead");
+    else if (edge.satisfied) parts.push("e-sat");
+  }
   if (fresh) parts.push("e-fresh");
   return parts.join(" ");
+}
+
+/** Only a dependency is worth labelling; the other two say what they are by how they look. */
+function edgeLabel(edge: ViewEdge): string | undefined {
+  return edge.kind === "requires" ? (edge.condition ?? undefined) : undefined;
 }
 
 export function Canvas({
@@ -100,22 +102,28 @@ export function Canvas({
 
   const edges = useMemo<FlowEdge[]>(
     () =>
-      graph.edges.map((edge) => {
-        const key = edgeKeyString({
-          from: edge.from,
-          to: edge.to,
-          on: edge.condition?.on ?? null,
-        });
-        return {
-          id: key,
+      viewEdges(graph).map((edge) => {
+        const flow: FlowEdge = {
+          id: edge.id,
           source: edge.from,
           target: edge.to,
-          ...(edge.condition === undefined ? {} : { label: edge.condition.on }),
-          className: edgeClass(graph, edge, fresh.edges.has(key)),
+          className: edgeClass(
+            edge,
+            // Only a dependency flashes. The diff reports added dependencies, and a supersede
+            // arc appearing is already announced by the card it points at.
+            edge.kind === "requires" &&
+              fresh.edges.has(edgeKeyString({ from: edge.from, to: edge.to, on: edge.condition })),
+          ),
           animated: false,
           deletable: false,
           selectable: false,
         };
+        // Assigned rather than spread: `exactOptionalPropertyTypes` refuses an explicit
+        // `label: undefined`, and a conditional spread inside `map` is what oxlint's
+        // `no-map-spread` is about.
+        const label = edgeLabel(edge);
+        if (label !== undefined) flow.label = label;
+        return flow;
       }),
     [graph, fresh],
   );

@@ -250,6 +250,27 @@
     stroke-dasharray: 3 4;
   }
 
+  /*
+   * The two arcs that are NOT dependencies. §6.2 keeps them on the node rather than in the
+   * edge list — `spec.on_timeout` and `provenance.superseded_by` — and a canvas that drew only
+   * `graph.edges` left the escalation and every retired node looking stranded. They are drawn
+   * so that neither can be mistaken for something that gates work: a dependency is solid.
+   */
+  .react-flow__edge.e-timeout .react-flow__edge-path {
+    stroke: var(--color-ochre-bold);
+    stroke-width: 1.25;
+    stroke-dasharray: 5 4;
+    opacity: 0.45;
+  }
+
+  .react-flow__edge.e-supersedes .react-flow__edge-path {
+    stroke: var(--color-carbon-40);
+    stroke-width: 1.25;
+    stroke-dasharray: 1 4;
+    stroke-linecap: round;
+    opacity: 0.7;
+  }
+
   .react-flow__edge.e-sat .react-flow__edge-path {
     stroke: var(--color-success);
     stroke-width: 2;

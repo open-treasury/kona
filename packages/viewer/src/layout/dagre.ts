@@ -16,6 +16,7 @@
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { EdgeLabel, GraphLabel, NodeLabel } from "@dagrejs/dagre";
 import type { Graph, NodeType } from "@kona/core";
+import { viewEdges } from "../model/edges.ts";
 
 /** A placed node, in React Flow's coordinates: `x`/`y` are the TOP-LEFT corner. */
 export interface NodeBox {
@@ -75,13 +76,20 @@ export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: numbe
  * `observed_at_version` and the graph version. Those are exactly what a status tick moves, and
  * a status tick must not move a node.
  *
+ * `on_timeout` is in for the same reason `superseded_by` is: the canvas draws it, so it is part
+ * of the picture. It is safe to fold in because `spec` is written once by `add_node` and no
+ * other op touches it — a status tick cannot move it, which is the only property this signature
+ * has to protect.
+ *
  * Node ids are `[a-z0-9][a-z0-9-]*` (§6.2), so `:`, `>` and a newline cannot occur inside one
  * and the encoding needs no escaping to stay unambiguous.
  */
 export function topologySignature(graph: Graph): string {
   const parts: string[] = [];
   for (const node of graph.nodes.values()) {
-    parts.push(`n:${node.id}:${node.type}:${node.provenance.superseded_by ?? ""}`);
+    parts.push(
+      `n:${node.id}:${node.type}:${node.provenance.superseded_by ?? ""}:${node.spec.on_timeout ?? ""}`,
+    );
   }
   for (const edge of graph.edges) {
     parts.push(`e:${edge.from}>${edge.to}>${edge.condition?.on ?? ""}`);
@@ -125,7 +133,11 @@ function runDagre(graph: Graph, signature: string): Layout {
     // every later layout reads.
     g.setNode(node.id, { ...NODE_SIZE[node.type] });
   }
-  for (const edge of graph.edges) {
+  // Every edge the canvas will DRAW, not just the dependencies — `viewEdges` is the one
+  // answer to "what is in the picture", so ranking and drawing cannot disagree. An arc that
+  // dagre never saw gets routed across the whole canvas to reach a node the layout did not
+  // know it was attached to.
+  for (const edge of viewEdges(graph)) {
     // `setEdge` mints any endpoint it does not already know, and a minted node has no size:
     // dagre would place a phantom and shove the real boxes around it. A dangling edge is a
     // shape the model already names (`BlockedCause.kind === "missing"`), so it is skipped here
