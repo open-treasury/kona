@@ -58,8 +58,8 @@ export interface Layout {
  * `fitView`'s legibility floor now shows about sixteen arms rather than ten (kona-e6-8h7.10).
  */
 export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: number }>> = {
-  task: { width: 268, height: 62 },
-  wait: { width: 268, height: 82 },
+  task: { width: 300, height: 62 },
+  wait: { width: 300, height: 82 },
 };
 
 /**
