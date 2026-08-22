@@ -63,7 +63,7 @@ describe("refusals name the node and the op", () => {
 
   test("a duplicate node id", () => {
     const r = refuses(PAIR, [
-      { op: "add_node", id: "a", label: "A", type: "task", spec: { instruction: "x", inputs: [], outputs: [], effect_class: "pure", max_reattempts: 3 } },
+      { op: "add_node", id: "a", label: "A", type: "task", spec: { instruction: "x", inputs: [], outputs: [], effect_class: "pure" } },
     ]);
     expect(r.message).toBe("node 'a' already exists");
     expect(r.node).toBe("a");

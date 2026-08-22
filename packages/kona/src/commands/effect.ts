@@ -104,13 +104,11 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
       return { refused: EXIT_OK };
     }
 
-    // §6.6's restart budget (`max_reattempts`) is deliberately NOT enforced here, because
-    // as the ops stand it cannot fire. `attemptCount` only grows with a distinct
-    // effect_key, and the key is a function of (node, created_by_version) — so one node
-    // has exactly one slot. A failed send makes the node terminal and invariant 1 forbids
-    // reopening it, which means the only retry is supersede-with-a-replacement: a NEW node,
-    // a new key, and its own budget. A guard here would be unreachable code implying a
-    // protection that does not exist. See kona-e3-3zc.3.
+    // There is no per-node retry budget, and deliberately so: one node has exactly one
+    // slot, because the key is a function of (node, created_by_version). Retrying means
+    // superseding and replacing — a NEW node with a NEW key — which is a graph mutation
+    // the model has to justify. What bounds a runaway loop is therefore invariant 3(a),
+    // the pursuit-wide send budget, not anything here.
 
     if (node.status.state !== "active") {
       io.err(`REFUSED NOT_DISPATCHABLE '${node.id}' is '${node.status.state}', not active`);

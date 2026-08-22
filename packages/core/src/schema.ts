@@ -140,7 +140,6 @@ function nodeSpecSchema<R extends z.ZodType>(ref: R) {
     obviated_if: z
       .strictObject({ wait: ref, satisfied: z.boolean() })
       .optional(),
-    max_reattempts: z.number().int().min(0).max(10).default(3),
     /** Required on every wait (§6.2) — enforced by the refinement below, not by optionality. */
     deadline: DeadlineSchema.optional(),
     /** Where a blown deadline routes. §6.4: zero live in-edges routes here and never hangs. */

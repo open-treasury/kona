@@ -14,7 +14,6 @@ const ADD_A = record(1, [
       inputs: [],
       outputs: [{ name: "reply", type: "string" }],
       effect_class: "pure",
-      max_reattempts: 3,
     },
   },
 ]);
@@ -24,7 +23,7 @@ const ADD_B = record(2, [
     id: "chase-dana",
     label: "Chase Dana",
     type: "task",
-    spec: { instruction: "chase", inputs: [], outputs: [], effect_class: "pure", max_reattempts: 3 },
+    spec: { instruction: "chase", inputs: [], outputs: [], effect_class: "pure" },
   },
   { op: "add_edge", from: "ask-dana", to: "chase-dana" },
 ]);

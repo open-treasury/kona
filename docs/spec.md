@@ -130,8 +130,7 @@ Greenfield: `docs/` only. No source, no toolchain, no CI. Block 0's output is th
       "effect_key": "ek_9f2a…"
     },
     "compensates": null,            // node id, if this task offsets an executed one
-    "obviated_if": { "wait": "roster-quorum", "satisfied": true },
-    "max_reattempts": 3
+    "obviated_if": { "wait": "roster-quorum", "satisfied": true }
   },
 
   "status": {                       // OBSERVED — written by executors
@@ -275,7 +274,8 @@ You cannot make a local write and an external effect atomic. The outbox is the a
 - Same key, **different payload_hash** ⇒ loud error in the viewer. Never a silent no-op, never a second send.
 - A node with a non-empty `effect_log` is **never re-executed** — the CLI refuses.
 - `attempted_at` ≠ `completed_at`; attempted-without-completion is **human adjudication**, not retry.
-- **Restart budget:** `max_reattempts` in a window; on exhaustion escalate, never loop.
+- **No per-node retry budget** — and the absence is load-bearing, not an omission. One node has exactly one slot, because the key is a function of `(node_id, created_by_version)`; a failed send makes the node terminal and invariant 1 forbids reopening it. So **retrying is superseding and replacing**: a new node, a new key, and a graph mutation the model must justify. A `max_reattempts` field was specified here and deleted — nothing could ever spend it, and a budget nothing can spend reads as a safety net that is not there.
+- **What that moves, and where.** The research's actual demand — *"without a budget, an LLM mutator will retry forever"* — is now carried entirely by **invariant 3(a)**, the pursuit-wide cap on cumulative irreversible sends. Which makes 3(a)'s budget, still undefined in §6.7, the only thing standing between a mutator and two hundred emails. **It is no longer optional.**
 
 ### 6.7 Invariants, concurrency, resume
 

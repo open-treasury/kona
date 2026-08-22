@@ -16,7 +16,6 @@ export function task(label: string, extra: Record<string, unknown> = {}): Author
       inputs: [],
       outputs: [{ name: "reply", type: "string" }],
       effect_class: "pure",
-      max_reattempts: 3,
       ...extra,
     },
   } as unknown as AuthoredOp;
@@ -32,7 +31,6 @@ export function wait(label: string, extra: Record<string, unknown> = {}): Author
       inputs: [],
       outputs: [],
       effect_class: "pure",
-      max_reattempts: 3,
       deadline: { at: "2026-08-22T17:00:00.000Z" },
       on_timeout: "$0",
       match: { kind: "event", conditions: [{ kind: "reply", on: "satisfied" }], memory: true },
