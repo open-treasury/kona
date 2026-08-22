@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { foldLog } from "@kona/core";
+
 import { useLogFeed } from "./feed/useLog.ts";
 import { useNow } from "./feed/useNow.ts";
 import { buildPursuit } from "./model/pursuit.ts";
@@ -49,23 +49,26 @@ export function App(): React.ReactElement {
   // #834: the right answer at the wrong cost, and it would first be felt at the fan-out.
   const head = useMemo(() => buildPursuit(feed.text), [feed.text]);
 
+  // Time travel folds a whole `PursuitView`, not just a graph. Pairing a truncated graph with
+  // HEAD's completion index is the subtle version of the bug rule 6 exists to avoid: scrubbing
+  // to v2 would render `wait-for-dana` counting down from a clock that `ask-dana` does not
+  // start until v3 — a deadline borrowed from the reader's future. `buildPursuit` builds the
+  // index from the records it actually folded, so the two can never come apart.
   const shown = useMemo(
     () =>
-      viewing === null || viewing >= head.graph.version
-        ? head.graph
-        : foldLog(feed.text, { upToVersion: viewing }).graph,
+      viewing === null || viewing >= head.graph.version ? head : buildPursuit(feed.text, viewing),
     [feed.text, head, viewing],
   );
 
   const view = useMemo(
-    () => buildGraphView(shown, head.completionTime, now),
-    [shown, head, now],
+    () => buildGraphView(shown.graph, shown.completionTime, now),
+    [shown, now],
   );
 
   // One cache for the process lifetime. §6.10 rule 2: the layout is recomputed when the
   // topology signature changes and at no other time, so a status tick cannot move a node.
   const layoutCache = useRef(createLayoutCache());
-  const layout = useMemo(() => layoutCache.current(shown), [shown]);
+  const layout = useMemo(() => layoutCache.current(shown.graph), [shown]);
 
   const target = useMemo<ReadonlyMap<string, Point>>(() => {
     const points = new Map<string, Point>();
@@ -76,7 +79,7 @@ export function App(): React.ReactElement {
   const positions = useTweenedPositions(target);
 
   const shownEntry = useMemo(
-    () => head.timeline.find((entry) => entry.version === shown.version) ?? null,
+    () => head.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
     [head, shown],
   );
   const fresh = useFresh(shownEntry?.diff ?? null);
@@ -87,7 +90,7 @@ export function App(): React.ReactElement {
   }, [view, selected]);
 
   const selectedView = selected === null ? null : (view.byId.get(selected) ?? null);
-  const travelling = shown.version !== head.graph.version;
+  const travelling = shown.graph.version !== head.graph.version;
   const damaged = head.damaged;
 
   return (
@@ -98,7 +101,7 @@ export function App(): React.ReactElement {
           <span className="text-ui-xs text-carbon-40 uppercase">Workflow graph</span>
           <span className="flex-1" />
           <span className="font-mono text-[11px] text-muted-foreground">
-            v<b className="font-semibold text-foreground">{shown.version}</b>
+            v<b className="font-semibold text-foreground">{shown.graph.version}</b>
           </span>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -135,7 +138,7 @@ export function App(): React.ReactElement {
               )}
             >
               <span>
-                viewing v{shown.version} as it stood — read-only. Head is v{head.graph.version}.
+                viewing v{shown.graph.version} as it stood — read-only. Head is v{head.graph.version}.
               </span>
               <button
                 type="button"
@@ -150,7 +153,7 @@ export function App(): React.ReactElement {
           )}
 
           <Canvas
-            graph={shown}
+            graph={shown.graph}
             view={view}
             positions={positions}
             fresh={fresh}
@@ -160,7 +163,7 @@ export function App(): React.ReactElement {
 
           {selectedView !== null && (
             <Inspector
-              graph={shown}
+              graph={shown.graph}
               view={selectedView}
               onClose={() => {
                 setSelected(null);
@@ -173,7 +176,7 @@ export function App(): React.ReactElement {
           <Timeline
             entries={head.timeline}
             headVersion={head.graph.version}
-            viewing={shown.version}
+            viewing={shown.graph.version}
             onView={(version) => {
               setViewing(version === head.graph.version ? null : version);
             }}

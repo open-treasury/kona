@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { Graph, Node } from "@kona/core";
-import { foldLog, inEdges, isTerminal, satisfiesBlockingEdge } from "@kona/core";
+import { foldLog, inEdges, isEdgeSatisfied, isTerminal, satisfiesBlockingEdge } from "@kona/core";
 import { predicateCount } from "../src/model/predicate.ts";
 import { completionTimeOf, versionTimeOf } from "../src/model/pursuit.ts";
 import type { Instant, WaitState } from "../src/model/types.ts";
@@ -331,19 +331,61 @@ describe("waitStateOf", () => {
       expect(state.remainingMs).toBeLessThan(0);
     });
 
-    test("a done wait that closed without an answer is failed, not resolved", () => {
-      // `done` satisfies a blocking edge, but with no resolving outcome it fires no condition
-      // and answers nothing — the success green would contradict the card next to it.
+    test("a done wait with no answer yet is still resolved — it unblocks an unconditional edge", () => {
+      // The tempting rule is "resolved needs an outcome too", and it is wrong in a way the
+      // fixture cannot show: `isEdgeSatisfied` is true for an UNCONDITIONAL edge out of any
+      // `done` source, so this wait really does put its successor on the frontier. Painting it
+      // the not-fulfilled red while the node beneath it went ready is the same contradiction
+      // as the one this describe block exists to prevent, pointing the other way.
       const graph = variant((g) => {
         node("wait-for-eligibility-ruling", g).status.state = "done";
+        g.edges.push({ from: "wait-for-eligibility-ruling", to: "escalate-no-goalie-found" });
       });
       const closed = node("wait-for-eligibility-ruling", graph);
       expect(satisfiesBlockingEdge(closed)).toBe(true);
       expect(closed.status.outcome).toBeNull();
-      expect(wait("wait-for-eligibility-ruling", NOW, graph).phase).toBe("failed");
+      expect(
+        isEdgeSatisfied(graph, {
+          from: "wait-for-eligibility-ruling",
+          to: "escalate-no-goalie-found",
+        }),
+      ).toBe(true);
+      expect(wait("wait-for-eligibility-ruling", NOW, graph).phase).toBe("resolved");
     });
 
-    test("a done wait with a resolving answer is the only one that is resolved", () => {
+    test("a terminal wait that ANSWERED but did not succeed is still failed", () => {
+      // The one that pins `satisfiesBlockingEdge` on its own: an outcome is present, so a rule
+      // that only asked "did anything answer" would paint this the success green. It bounced.
+      const graph = variant((g) => {
+        node("wait-for-priya", g).status.state = "failed";
+      });
+      const bounced = node("wait-for-priya", graph);
+      expect(bounced.status.outcome?.verdict).toBe("bounced");
+      expect(satisfiesBlockingEdge(bounced)).toBe(false);
+      expect(wait("wait-for-priya", NOW, graph).phase).toBe("failed");
+    });
+
+    test("an OPEN wait that has already answered keeps counting down", () => {
+      // `record_outcome` and `set_status` are separate ops (§6.4), so a batch can record a
+      // verdict without closing the wait. Until the store closes it, it is open: the deadline
+      // can still blow, `on_timeout` can still fire, and everything downstream is still
+      // blocked. Reading the outcome as "resolved" would paint the success green on a wait the
+      // CLI still considers running.
+      const graph = variant((g) => {
+        const ruling = node("wait-for-eligibility-ruling", g);
+        const answer = { verdict: "accept" as const, evidence_ref: "<m-9@mail>", at_version: 9 };
+        ruling.status.outcomes = [answer];
+        ruling.status.outcome = answer;
+      });
+      const open = node("wait-for-eligibility-ruling", graph);
+      expect(open.status.state).toBe("active");
+      expect(satisfiesBlockingEdge(open)).toBe(false);
+      const state = wait("wait-for-eligibility-ruling", NOW, graph);
+      expect(state.phase).toBe("blown");
+      expect(state.remainingMs).toBeLessThan(0);
+    });
+
+    test("a done wait with a resolving answer is resolved", () => {
       const dana = node("wait-for-dana");
       expect(satisfiesBlockingEdge(dana)).toBe(true);
       expect(dana.status.outcome).not.toBeNull();

@@ -217,16 +217,26 @@ export function waitStateOf(
    * happens next: §6.4 says a dropped source never satisfies readiness, whatever it answered.
    * Reporting it as `resolved` would show a branch as alive that the store has abandoned.
    *
-   * Then the rest of terminal, split into the two things terminal can mean. `resolved` is
-   * rule 8's *fulfilled* colour and has to be earned twice over: the wait succeeded
-   * (`satisfiesBlockingEdge`, the store's own test, not a second reading of `state`) AND
-   * something actually answered it. A `failed` wait, or a `done` one that closed without a
-   * resolving outcome, fires no out-edge and unblocks nothing — painting it the success green
-   * would contradict the blocked reason rendered on the very next card.
+   * Then the rest of terminal, split into the two things terminal can mean, and split on
+   * `satisfiesBlockingEdge` — the store's own test — rather than on a second reading of
+   * `state`. That predicate is exactly "does this node release what depends on it", which is
+   * what rule 8's *fulfilled* colour claims. A `failed` wait does not; a `done` one does.
    *
-   * A wait that is still open but already carries its resolving answer is `resolved` too: a
-   * wait that answered an hour after its deadline was answered, not timed out, and the
-   * timeout route was never taken.
+   * It deliberately does NOT also demand a resolving outcome. It used to, and that was wrong
+   * in a way the fixture cannot show: `isEdgeSatisfied` returns true for an *unconditional*
+   * edge out of any `done` source, so a `done` wait with no outcome can and does put its
+   * successor on the frontier — and painting it the not-fulfilled red while the node beneath
+   * it went ready is the same contradiction in the other direction. When the out-edge IS
+   * conditional and no outcome has landed, the honest place to say so is the target's blocked
+   * reason ("finished without a resolution, this edge needs satisfied"), which is where
+   * `blocked.ts` already says it.
+   *
+   * Nothing about an OPEN wait is decided by its outcome either. `record_outcome` and
+   * `set_status` are separate ops (§6.4), so a batch can record a verdict without closing the
+   * wait — and until the store closes it, it is open: the deadline can still blow, `on_timeout`
+   * can still fire, and every node downstream is still blocked. Reading the outcome as
+   * "resolved" there would paint the success green on a wait the CLI still considers running,
+   * which is the one disagreement this module exists to prevent.
    *
    * `unarmed` before `blown` because with no computable deadline there is nothing to compare
    * `now` against, and `null >= now` is a comparison JavaScript would happily answer wrongly.
@@ -234,10 +244,8 @@ export function waitStateOf(
   const phase = ((): WaitPhase => {
     if (node.status.state === "dropped") return "dropped";
     if (isTerminal(node.status.state)) {
-      const fulfilled = satisfiesBlockingEdge(node) && node.status.outcome !== null;
-      return fulfilled ? "resolved" : "failed";
+      return satisfiesBlockingEdge(node) ? "resolved" : "failed";
     }
-    if (node.status.outcome !== null) return "resolved";
     if (deadline.at === null) return "unarmed";
     if (now >= deadline.at) return "blown";
     return "awaiting";

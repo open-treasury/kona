@@ -87,8 +87,11 @@ export interface BlockedReason {
   /** One entry per unsatisfied in-edge, in edge order. */
   causes: BlockedCause[];
   /**
-   * True when no unsatisfied in-edge can ever be satisfied — every blocker is terminal and
-   * none of them succeeded. This is the state that silently hangs a pursuit, so it is named.
+   * True when **any** unsatisfied in-edge can never be satisfied.
+   *
+   * Any, not every: `isReady` requires *every* in-edge satisfied, so one permanently dead
+   * blocker settles it and the node can never reach the frontier again, whatever the others
+   * do next. This is the state that silently hangs a pursuit, so it is named.
    */
   unreachable: boolean;
 }

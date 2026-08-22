@@ -158,10 +158,16 @@ export function predicateCount(graph: Graph, node: Node): PredicateCount | null 
   // What is genuinely over is a source that finished WITHOUT succeeding (`satisfiesBlockingEdge`,
   // §6.4's fail-safe rule), and a source that has already given its resolving answer, which
   // §6.7 makes first-wins and final.
+  //
+  // The outcome test comes FIRST and applies to open sources too. §6.7 makes the resolving
+  // outcome append-only and first-wins, so a source that has answered has answered, whether or
+  // not the store has got round to closing it — and `record_outcome` without `set_status` is a
+  // legal batch. Testing terminality first counted such a source as one more answer still to
+  // come, which tells the reader the quorum has more chances than it has.
   const live = sources.filter(
     (source) =>
-      !isTerminal(source.status.state) ||
-      (satisfiesBlockingEdge(source) && source.status.outcome === null),
+      source.status.outcome === null &&
+      (!isTerminal(source.status.state) || satisfiesBlockingEdge(source)),
   ).length;
 
   const parsed = parseQuorum(predicateBlockOf(node));
