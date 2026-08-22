@@ -8,7 +8,7 @@
  */
 
 import { useMemo } from "react";
-import { Background, Controls, MiniMap, ReactFlow } from "@xyflow/react";
+import { Background, Controls, ReactFlow } from "@xyflow/react";
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 import type { Edge, Graph } from "@kona/core";
 import { isEdgeSatisfied, isTerminal } from "@kona/core";
@@ -39,25 +39,6 @@ function edgeIsDead(graph: Graph, edge: Edge): boolean {
   const source = graph.nodes.get(edge.from);
   if (source === undefined) return true;
   return isTerminal(source.status.state) && !isEdgeSatisfied(graph, edge);
-}
-
-/**
- * The five statuses, as the minimap sees them. Kept beside the CSS variables they mirror —
- * the minimap paints into SVG `fill` and cannot read a custom property from a stylesheet.
- */
-const MINIMAP_COLOR: Record<string, string> = {
-  active: "var(--color-status-active-ink)",
-  sending: "var(--color-status-sending-ink)",
-  done: "var(--color-status-done-ink)",
-  failed: "var(--color-status-failed-ink)",
-  dropped: "var(--color-status-dropped-ink)",
-};
-
-const FALLBACK_COLOR = "var(--color-status-dropped-ink)";
-
-function miniMapColor(node: FlowNode): string {
-  const data = node.data as unknown as CardData | undefined;
-  return MINIMAP_COLOR[data?.view.node.status.state ?? "dropped"] ?? FALLBACK_COLOR;
 }
 
 /**
@@ -167,9 +148,9 @@ export function Canvas({
        * small graph, it is a grey smear. Below about 0.45 a card's label stops being a label.
        *
        * So the opening shot is as much of the graph as stays readable, and the rest is the
-       * minimap and the scroll wheel — never an unreadable whole. The canvas `minZoom` is
-       * still 0.05, because deliberately zooming out to see the SHAPE of a fan-out is a
-       * reasonable thing to want; being dropped there on load is not.
+       * scroll wheel — never an unreadable whole. The canvas `minZoom` is still 0.05, because
+       * deliberately zooming out to see the SHAPE of a fan-out is a reasonable thing to want;
+       * being dropped there on load is not.
        */
       fitViewOptions={{ padding: 0.18, minZoom: 0.45, maxZoom: 1 }}
       minZoom={0.05}
@@ -177,9 +158,13 @@ export function Canvas({
     >
       <Background gap={22} size={1} color="var(--color-dots)" />
       <Controls showInteractive={false} />
-      {/* The minimap carries status colour so a ~97-node fan-out is still readable when the
-          canvas is zoomed out past the point where a card's own chip is. */}
-      <MiniMap pannable zoomable nodeStrokeWidth={0} nodeColor={miniMapColor} />
+      {/*
+        No minimap. It bought an overview that matters only past about ten arms — see
+        kona-e6-8h7.10, where a 31-arm pursuit does not fit above the legibility floor — and
+        it cost a permanent box over the bottom-right of the canvas at every size below that.
+        If group containers land (T6.4), the overview comes back for free and in the right
+        place: on the graph, not floating over it.
+      */}
     </ReactFlow>
   );
 }

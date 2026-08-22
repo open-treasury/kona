@@ -1045,8 +1045,8 @@
   .border-primary {
     border-color: var(--color-primary);
   }
-  .border-status-done-ink {
-    border-color: var(--color-status-done-ink);
+  .border-success {
+    border-color: var(--color-success);
   }
   .border-t-transparent {
     border-top-color: transparent;
@@ -1092,9 +1092,6 @@
   }
   .bg-foreground {
     background-color: var(--color-foreground);
-  }
-  .bg-primary {
-    background-color: var(--color-primary);
   }
   .bg-status-active-fill {
     background-color: var(--color-status-active-fill);
@@ -1278,6 +1275,9 @@
   .text-status-sending-ink {
     color: var(--color-status-sending-ink);
   }
+  .text-success {
+    color: var(--color-success);
+  }
   .text-wait-awaiting {
     color: var(--color-wait-awaiting);
   }
@@ -1307,13 +1307,6 @@
   }
   .opacity-70 {
     opacity: 70%;
-  }
-  .shadow-\[0_0_0_3px_--alpha\(var\(--color-primary\)\/20\%\)\] {
-    --tw-shadow: 0 0 0 3px var(--tw-shadow-color, color-mix(in srgb, #1634ef 20%, transparent));
-    @supports (color: color-mix(in lab, red, red)) {
-      --tw-shadow: 0 0 0 3px var(--tw-shadow-color, color-mix(in oklab, var(--color-primary) 20%, transparent));
-    }
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-lg {
     --tw-shadow: 0 10px 15px -3px var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 4px 6px -4px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
@@ -1485,22 +1478,6 @@
   }
   .react-flow__attribution {
     display: none;
-  }
-  .react-flow__minimap {
-    background: var(--color-background);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-subtle);
-  }
-  .react-flow__minimap-mask {
-    fill: color-mix(in srgb, #f7f4f3 80%, transparent);
-    @supports (color: color-mix(in lab, red, red)) {
-      fill: color-mix(in oklab, var(--color-titanium) 80%, transparent);
-    }
-    stroke: none;
-  }
-  .react-flow__minimap-node {
-    stroke: none;
   }
   .react-flow__controls {
     box-shadow: var(--shadow-subtle);

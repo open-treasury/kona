@@ -12,7 +12,17 @@
 
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { Check, CircleSlash, Clock, Radio, Sigma, TriangleAlert, UserCheck, Zap } from "lucide-react";
+import {
+  Check,
+  CircleSlash,
+  Clock,
+  Hourglass,
+  Radio,
+  Sigma,
+  TriangleAlert,
+  UserCheck,
+  Zap,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { NodeView, WaitPhase, WaitState } from "../model/types.ts";
 import { NODE_SIZE } from "../layout/dagre.ts";
@@ -121,7 +131,7 @@ function WaitRows({ wait }: { wait: WaitState }): React.ReactElement {
             size="xs"
             className={cn(
               "ml-auto text-[10px] normal-case",
-              wait.predicate.met && "border-status-done-ink text-status-done-ink",
+              wait.predicate.met && "border-success text-success",
             )}
           >
             {wait.predicate.have}/{wait.predicate.need}
@@ -162,19 +172,30 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
       <Handle type="target" position={Position.Left} isConnectable={false} />
 
       <div className="flex min-w-0 items-center gap-1.5">
-        <Badge tone="outline" size="xs">
-          {node.type}
-        </Badge>
-        <StatusBadge status={node.status.state} />
-        <span className="flex-1" />
-        {view.readiness === "ready" && (
+        {/*
+          §6.2 froze TWO node types, so the type is a one-bit fact and a chip spelling it out on
+          all fourteen cards spends the most valuable pixels on the least information. A `wait`
+          is the exception worth marking: it is the node that does not run, and the whole claim
+          rests on the reader seeing where the pursuit is parked. A task is simply a card
+          without the glass.
+        */}
+        {node.type === "wait" && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="size-1.5 shrink-0 rounded-full bg-primary shadow-[0_0_0_3px_--alpha(var(--color-primary)/20%)]" />
+              <Hourglass aria-hidden className="size-3 shrink-0 text-carbon-40" />
             </TooltipTrigger>
-            <TooltipContent>on the ready frontier — `kona next` would dispatch this</TooltipContent>
+            <TooltipContent>a wait — this node blocks until something answers it</TooltipContent>
           </Tooltip>
         )}
+        <StatusBadge status={node.status.state} />
+        <span className="flex-1" />
+        {/*
+          No readiness dot. It marked the set `kona next` would dispatch, which is real
+          information — but it is derivable from what the card already says (active, and no
+          blocked reason underneath), and a second dot beside the status was one marker too
+          many. `readinessOf` still decides whether a blocked reason is rendered at all, so
+          nothing about the model changed; only this glyph is gone.
+        */}
         {view.irreversible && (
           <Tooltip>
             <TooltipTrigger asChild>

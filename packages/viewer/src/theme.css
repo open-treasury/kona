@@ -93,8 +93,16 @@
    * The five statuses (§6.2 froze them), each mapped onto the kit rather than given a new hue.
    * `-fill` is the chip's tinted background, `-ink` the text and the card's left rule.
    *
-   * `sending` is ochre deliberately: §6.2 makes it NOT terminal — it means the real world's
-   * answer is unknown — so it must read as unfinished, not as progress.
+   * The traffic light, and why `active` is not the yellow.
+   *
+   * The tempting mapping is green=go, yellow=in-progress, red=stop. It does not survive §6.2,
+   * because **`sending` is the yellow** and it has a stronger claim: it is the one non-terminal
+   * status that looks finished from the outside — the bytes have left and what the world did
+   * with them is unknown. That is the anxious state, and amber is the colour for it.
+   *
+   * Which leaves `active` meaning "exists, nobody has run it yet" — queued, not in flight. Blue
+   * is the conventional colour for that and, more to the point, it is the one that is still
+   * free. `active` renders as no chip at all; the card's left rule carries it.
    */
   --color-status-active-fill: var(--color-tag-cobalt-bg);
   --color-status-active-ink: var(--color-cobalt-bold);
@@ -274,22 +282,6 @@
     display: none;
   }
 
-  /* The library ships light-mode chrome that is nearly right and the wrong white. */
-  .react-flow__minimap {
-    background: var(--color-background);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-subtle);
-  }
-
-  .react-flow__minimap-mask {
-    fill: --alpha(var(--color-titanium) / 80%);
-    stroke: none;
-  }
-
-  .react-flow__minimap-node {
-    stroke: none;
-  }
 
   .react-flow__controls {
     box-shadow: var(--shadow-subtle);

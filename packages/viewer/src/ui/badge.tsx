@@ -46,6 +46,12 @@ export function Badge({ className, tone, size, ...props }: BadgeProps): React.Re
 }
 
 /**
+ * The status, as a chip — except for `active`, which is a bare dot.
+ *
+ * `active` is the commonest state on a live canvas, so a chip spelling it out on every card
+ * spends the most valuable pixels restating the default. The four that are worth a word are
+ * the four that are *not* the default: something is in flight, finished, broken, or abandoned.
+ *
  * `sending` is ochre and breathing on purpose. §6.2 makes it the one non-terminal status that
  * looks finished from the outside: the bytes have left, and what the world did with them is
  * unknown. A green chip there would be a claim the store has not made.
@@ -57,6 +63,10 @@ export function StatusBadge({
   status: Status;
   className?: string;
 }): React.ReactElement {
+  // `active` renders as nothing at all. The card's left rule is already green, so a chip would
+  // be the third thing on screen saying the commonest fact about a node. The one dot a card
+  // carries is on the right and means something the border cannot: readiness.
+  if (status === "active") return <></>;
   return (
     <Badge tone={status} size="sm" className={className}>
       {status}
