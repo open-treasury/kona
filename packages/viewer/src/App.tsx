@@ -103,7 +103,10 @@ export function App(): React.ReactElement {
         )}
       >
         <header className="col-span-full flex items-center gap-4 border-b border-border bg-background px-4 shadow-nav">
-          <span className="text-[15px] font-semibold tracking-tight">Kona</span>
+          {/* Set in caps as a literal, not `uppercase`: the wordmark IS the capitals, and a
+              screen reader should read what is on the sign. Caps want the tracking opened up —
+              `tracking-tight` is for lowercase, where the letters already sit close. */}
+          <span className="text-[15px] font-semibold tracking-wide">KONA</span>
           <span className="text-ui-xs text-carbon-40 uppercase">Workflow graph</span>
           <span className="flex-1" />
 
