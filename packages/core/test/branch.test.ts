@@ -483,3 +483,53 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
     expect(isDroppable(nodeOf(graph, "accepted"))).toBe(true);
   });
 });
+
+describe("hardening — edge identity and the evidence stamp", () => {
+  /**
+   * `edgeKey` is what makes "existed at head" mean anything. Collapse it — to a constant, or
+   * by dropping the condition — and every edge in `post` looks like an edge from `pre`, so a
+   * branch the batch just authored would be derived from and its target born dropped.
+   */
+  test("a NEW edge is not mistaken for a pre-existing one, even beside a similar edge", () => {
+    const pre = commit(gated(), [outcome("gate", "accept"), close("gate")]);
+    const fresh: CommittedOp[] = [
+      {
+        op: "add_node",
+        id: "late",
+        label: "Late",
+        type: "task",
+        spec: { instruction: "late", inputs: [], outputs: [], effect_class: "pure" },
+      },
+      { op: "add_edge", from: "gate", to: "late", condition: { on: "ignore" } },
+    ];
+    const post = applyOps(pre, fresh, pre.version + 1, "2026-08-21T12:00:00.000Z");
+    expect(post.ok).toBe(true);
+    if (!post.ok) throw new Error("unreachable");
+    // `pre` already holds `gate -> accepted {accept}` and `gate -> ignored {ignore}`, so a
+    // key that ignored the endpoints or the condition would match this new edge against one
+    // of them and drop `late`.
+    expect(resolveBranches(pre, post.value).drops).toEqual([]);
+  });
+
+  /**
+   * The prefix is a wire format, not an implementation detail: `kona graph --json` and the
+   * viewer both separate the store's housekeeping from authored ops by reading it, and §6.6's
+   * outbox now shares this same field. Asserted as a literal, so changing the constant fails
+   * here rather than silently in whatever greps for it.
+   */
+  test("the derived evidence_ref is a stable literal", () => {
+    const { derived } = run(gated(), [outcome("gate", "accept"), close("gate")]);
+    const ref = derived[0]?.op === "set_status" ? derived[0].evidence_ref : "";
+    expect(ref).toBe("derived:branch-resolution:gate");
+  });
+
+  test("and it names the immediate cause at every depth", () => {
+    const { derived } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
+    expect(
+      derived.map((op) => (op.op === "set_status" ? `${op.node}=${op.evidence_ref}` : "")),
+    ).toEqual([
+      "b1=derived:branch-resolution:gate",
+      "b2=derived:branch-resolution:b1",
+    ]);
+  });
+});

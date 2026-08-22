@@ -907,3 +907,151 @@ describe("review regressions", () => {
     expect(parsed?.count.attrs?.["__proto__"]).toBe("x");
   });
 });
+
+/**
+ * The message text, asserted in full.
+ *
+ * §6.8 makes every non-zero exit one greppable stderr line, and §6.9 makes one of these the
+ * only human gate in the system — so what the line SAYS is contract, not decoration. An
+ * operator who cannot act on it has to read the source, and a reason token that drifts
+ * silently breaks whatever greps for it.
+ */
+describe("rejection messages are contract", () => {
+  function messageOf(result: ReturnType<typeof attempt>): string {
+    return rejection(result).message;
+  }
+
+  test("UNCONDITIONED_WAIT_EDGE names both ends and the harm", () => {
+    expect(messageOf(attempt(gate(), [{ op: "add_edge", from: "gate", to: "ignored" }]))).toBe(
+      "edge 'gate' -> 'ignored' leaves a wait without a condition; an ignored or timed-out " +
+        "wait would clear it and fire the branch unapproved (§6.2)",
+    );
+  });
+
+  test("DEAD_ON_ARRIVAL_EDGE distinguishes a resolved source from a dropped one", () => {
+    const resolved = commit(gate(), [outcome("gate", "accept"), close("gate")]);
+    expect(
+      messageOf(
+        attempt(resolved, [
+          { op: "add_edge", from: "gate", to: "ignored", condition: { on: "ignore" } },
+        ]),
+      ),
+    ).toBe(
+      "edge 'gate' -> 'ignored' is conditioned on 'ignore', but 'gate' has already resolved " +
+        "otherwise; it can never fire",
+    );
+
+    const dropped = commit(gate(), [close("ignored", "dropped")]);
+    expect(
+      messageOf(attempt(dropped, [task("Later"), { op: "add_edge", from: "ignored", to: "$0" }])),
+    ).toBe("edge 'ignored' -> 'later' originates at 'ignored', which is dropped; it can never fire");
+  });
+
+  test("MALFORMED_RECIPIENT_REF teaches the grammar and gives an example", () => {
+    expect(messageOf(attempt(seeded([task("A")]), [pivot("person:club/goalie-1")]))).toBe(
+      "recipient_ref 'person:club/goalie-1' is not a '<scope>#<key>' reference: expected " +
+        "exactly one '#', a dotted lowercase scope, and a key matching [a-z0-9][a-z0-9-]* of " +
+        "at most 48 characters (§6.2, e.g. 'roster.contacts#dana')",
+    );
+  });
+
+  test("LITERAL_RECIPIENT_ADDRESS says why a ref rather than an address", () => {
+    expect(messageOf(attempt(seeded([task("A")]), [pivot("marcus@club.org")]))).toBe(
+      "recipient_ref 'marcus@club.org' is a literal address; §6.2 requires a ref — " +
+        "'<scope>#<key>' — so the store can check who is being emailed against what the " +
+        "graph was told",
+    );
+  });
+
+  test("MISSING_PREDICATE says what it would have been for", () => {
+    expect(
+      messageOf(
+        attempt(seeded([task("A")]), [
+          wait("Quorum", {
+            on_timeout: "a",
+            match: { kind: "predicate", conditions: [{ kind: "count", on: "satisfied" }], memory: true },
+          }),
+        ]),
+      ),
+    ).toBe(
+      "'quorum' declares match.kind 'predicate' but carries no predicate; nothing would ever " +
+        "count against it, and invariant 2 could never judge it (§6.7)",
+    );
+  });
+
+  test("MALFORMED_PREDICATE prints the form it wanted", () => {
+    expect(
+      messageOf(
+        attempt(seeded([task("A")]), [
+          predicateWait("Quorum", { count: { verdict: "confirmed" }, op: ">", n: 1 }, "a"),
+        ]),
+      ),
+    ).toBe(
+      'predicate on \'quorum\' is not the §6.7 form {"count":{"verdict":…,"attrs":…},' +
+        '"op":">=","n":…}: \'op\' must be \'>=\', \'n\' an integer of at least 1, \'verdict\' a ' +
+        "resolving verdict, and 'attrs' flat primitives",
+    );
+  });
+
+  test("PREDICATE_UNSATISFIABLE shows the arithmetic and both remedies", () => {
+    expect(messageOf(attempt(quorum(), [outcome("dana", "declined")]))).toBe(
+      "'quorum' can no longer reach 1 'confirmed': 0 matching + 0 still live of 1 blocking " +
+        "in-edges (0 dropped); add a live member in this batch, or supersede the wait",
+    );
+  });
+
+  test("and names the derived drops when branch resolution is what broke it", () => {
+    expect(messageOf(attempt(gatedQuorum(), [outcome("gate", "ignore"), close("gate")]))).toBe(
+      "'quorum' can no longer reach 1 'confirmed': 0 matching + 0 still live of 2 blocking " +
+        "in-edges (1 dropped); branch resolution dropped dana; add a live member in this " +
+        "batch, or supersede the wait",
+    );
+  });
+});
+
+describe("hardening — the remaining branches of invariant 2's plumbing", () => {
+  const arm = { count: { verdict: "confirmed" as Verdict }, op: ">=" as const, n: 1 };
+
+  test("a non-wait node has no predicate arms", () => {
+    const graph = quorum();
+    expect(countPredicate(graph, nodeOf(graph, "quorum"), arm).population).toBe(1);
+    // A task never carries a match block, so it contributes no arms and is never judged.
+    expect(attempt(graph, [{ op: "record_output", node: "dana", output_name: "reply", value: "x", evidence_ref: "e" }]).ok).toBe(true);
+  });
+
+  test("a wait whose match kind is not 'predicate' is never judged", () => {
+    const evented = commit(
+      seeded([task("Escalate"), task("Dana"), wait("Evented", { on_timeout: "$0" })]),
+      [{ op: "add_edge", from: "dana", to: "evented" }],
+    );
+    expect(attempt(evented, [outcome("dana", "declined")]).ok).toBe(true);
+  });
+
+  test("a member that is not a node at all counts for nothing", () => {
+    // `add_edge` refuses an unknown endpoint, so this is only reachable by construction —
+    // but the guard has to hold, or a dangling edge would throw instead of being ignored.
+    const graph = quorum();
+    graph.edges.push({ from: "ghost", to: "quorum" });
+    expect(countPredicate(graph, nodeOf(graph, "quorum"), arm).population).toBe(1);
+  });
+
+  test("failed and done are both mechanical closures, and dropped is not", () => {
+    const two = commit(quorum(), [task("Sam"), { op: "add_edge", from: "$0", to: "quorum" }]);
+    const broken = commit(two, [outcome("sam", "declined")], SUBAGENT);
+    expect(attempt(broken, [close("dana", "failed")]).ok).toBe(true);
+    expect(attempt(broken, [close("dana", "done")]).ok).toBe(true);
+    expect(rejection(attempt(broken, [close("dana", "dropped")])).reason).toBe(
+      "PREDICATE_UNSATISFIABLE",
+    );
+  });
+
+  test("record_outcome bounced closes the wait as legitimately as timed_out", () => {
+    expect(attempt(quorum(), [outcome("dana", "declined"), outcome("quorum", "bounced")]).ok).toBe(true);
+  });
+
+  test("an unrelated record_outcome on the wait does not close it", () => {
+    expect(rejection(attempt(quorum(), [outcome("dana", "declined"), outcome("quorum", "late")])).reason).toBe(
+      "PREDICATE_UNSATISFIABLE",
+    );
+  });
+});
