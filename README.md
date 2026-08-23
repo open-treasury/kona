@@ -53,9 +53,30 @@ Given a five-node skeleton and nothing else, the agent:
 - **caught its own mistake** — committed a `supersede_node` carrying reason code
   `CONTRADICTION` when it found it had read a constraint wrong, with the correction in one
   sentence. Unprompted, inside a benchmark container
-- **satisfied 17 of 20 constraints** — and scored **`0.0`**, because the suite is
-  all-or-nothing. A plan is not a solver. What it changes is whether you can tell the
-  difference, which is exactly what a binary score throws away
+
+Those are the behaviours the design predicts, and they happened. **The score did not
+follow — and the reason is the most useful thing this rig produced.**
+
+Three runs of the same model on the same task:
+
+| run | arm | constraints passed |
+|---|---|---|
+| earlier probe | Kona | **17 / 20** |
+| A/B | baseline | **17 / 20** |
+| A/B | Kona | **9 / 20** |
+
+**Kona scored both 17 and 9 under an identical configuration.** The spread *within* one arm
+is 8 checks — the same size as the gap *between* arms. So a single paired run on this task
+measures run-to-run variance, not the tool, and anyone reporting the 17-vs-9 as a result
+would be reporting noise with a straight face. All three scored `0.0`, because the suite is
+all-or-nothing; the binary reward hid an 8-check spread twice over.
+
+That is why [`docs/eval.md`](docs/eval.md) carries a frozen pre-registration and a go/no-go
+bar written before any data existed, and why the analyzer refuses to call a verdict below
+three scored tasks. The honest state of the claim: **Kona demonstrably changed legibility,
+and has not been shown to change accuracy either way.** The graph says which step is in
+flight, what each concluded, and why the plan changed. The arm without it finished with a
+directory of `debug7.py` files that state no conclusion.
 
 ## What's inside
 
@@ -88,72 +109,8 @@ alias kona="bun $PWD/packages/kona/src/bin.ts"
 mkdir /tmp/plan && cd /tmp/plan && kona init
 ```
 
-```bash
-# v1 — read the constraints. Nothing may be scheduled before this is done.
-cat > constraints.json <<'EOF'
-[
-  {"op":"add_node","label":"Read the line constraints","type":"task",
-   "spec":{"instruction":"Read the shift calendar and downtime windows for every line.",
-           "outputs":[{"name":"windows","type":"string[]"}],"effect_class":"pure"}},
-  {"op":"record_output","node":"$0","output_name":"windows",
-   "value":["L1 06:00-14:00","L2 14:00-22:00"],"evidence_ref":"mes.shift_calendar#v3"},
-  {"op":"set_status","node":"$0","status":"done","evidence_ref":"mes.shift_calendar#v3"}
-]
-EOF
-kona mutate --ops constraints.json --base-version 0 \
-  --why "Read the calendar before scheduling against it." --reason-code MISSING_STEP
-
-# v2 — plan the work. `$N` refers to an earlier op in the same batch; ids are minted from labels.
-cat > schedule.json <<'EOF'
-[
-  {"op":"add_node","label":"Escalate: no feasible slot","type":"task",
-   "spec":{"instruction":"Report that demand cannot be met inside the calendar.",
-           "effect_class":"pure"}},
-  {"op":"add_node","label":"Schedule the work orders","type":"task",
-   "spec":{"instruction":"Place each released order on a qualified line inside its window.",
-           "inputs":[{"ref":"read-the-line-constraints.windows"}],
-           "outputs":[{"name":"placements","type":"string[]"}],"effect_class":"pure"}},
-  {"op":"add_edge","from":"read-the-line-constraints","to":"$1"}
-]
-EOF
-kona mutate --ops schedule.json --base-version 1 \
-  --why "The calendar is read; the orders can be placed against it." --reason-code NEW_CONSTRAINT
-
-kona graph
-kona next                                                            # the ready frontier
-kona mutate --ops schedule.json --base-version 1 --why "again" --reason-code OTHER; echo $?   # 3
-
-# Claim a step before working it. It leaves the frontier; a second claim gets ALREADY_CLAIMED.
-printf '[{"op":"set_status","node":"schedule-the-work-orders","status":"in_flight","evidence_ref":"claim"}]' > claim.json
-kona mutate --ops claim.json --base-version 2 --why "Starting placement." --reason-code OTHER
-kona next                                                            # it is gone
-
-# And the refusal that is the product: a counterparty the graph has never seen.
-cat > notify.json <<'EOF'
-[
-  {"op":"add_node","label":"Escalate: shortage unresolved","type":"task",
-   "spec":{"instruction":"Report that the shortage could not be covered.","effect_class":"pure"}},
-  {"op":"add_node","label":"Ask the supplier to expedite","type":"task",
-   "spec":{"instruction":"Email the supplier asking them to pull the delivery forward.",
-           "effect_class":"pivot",
-           "effect":{"channel":"email","recipient_ref":"suppliers.contacts#acme"}}}
-]
-EOF
-kona mutate --ops notify.json --base-version 0 --why "expedite the shortage" --reason-code OTHER
-```
-
-```
-UNEVIDENCED_RECIPIENT node=ask-the-supplier-to-expedite op=1 nothing in the graph attests to
-'acme' (recipient_ref 'suppliers.contacts#acme'). A recipient must already be named by a
-recorded output that cited its source, or by an outcome's attrs — evidence that existed
-BEFORE this batch. At n=60 a mutator that could not satisfy a constraint invented
-counterparties and queued real email to them, passing every other check. Record where
-'acme' came from first, or ask a human.
-```
-
-`--why` and `--reason-code` are required — a commit without a rationale is impossible, not
-discouraged. Exit codes are 8-bit: `0` ok · `1` refused · `3` stale base version · `4`
-invariant violation, each with one symbolic stderr line.
+Full walkthrough of the ops, the refusal and the exit codes:
+[`docs/spec.md`](docs/spec.md).
 
 ### Run the demo
 
@@ -198,21 +155,21 @@ The suite scores this task all-or-nothing, so **both arms will read `0.0`** — 
 count, not the reward. [`docs/eval.md`](docs/eval.md) explains why, and carries the frozen
 pre-registration the run is measured against.
 
-## Quality gates
+## Tech stack
 
-`bun run check` — typecheck (including a purity gate that makes `core`'s independence a
-compile error, not a code review note), lint, knip, and **1,244 tests**. Mutation-score
-floors where it pays: `validate()` and `fold()` at 100.
+**TypeScript 7** (the native Go compiler) on **Bun** — one runtime for the CLI, the tests and
+the bundler, and `bun build --compile` gives a single static binary with no Node in the image.
+**Zod** at the CLI boundary, so malformed shape is rejected before any graph logic runs.
+**React 19 + @xyflow/react + dagre + Tailwind 4** for the viewer, served by Bun over localhost
+with zero outbound calls. Storage is **one append-only JSONL file** — no database, no daemon,
+no snapshot.
 
-The plugin's prompts are tested against the code they describe: the op shapes in the skill
-files are extracted and run through the real parser, and the vocabularies they quote are
-compared against `core`'s frozen tuples. The README's own walkthrough above is executed by
-`packages/kona/test/readme.test.ts` — a code fence is not code until something runs it.
+The eval rig runs on **Harbor** (the benchmark's own harness) with **Terminus-2** as the agent
+and **LiteLLM** for model routing, so any provider works: the runs behind this README were
+Claude Sonnet 5 and DeepSeek V4-Flash.
 
-## More
+`bun run check` — typecheck, lint, knip, **1,238 tests**. Mutation-score floors of 100 on
+`validate()` and `fold()`.
 
-[`docs/prd.md`](docs/prd.md) · [`docs/spec.md`](docs/spec.md) · [`docs/eval.md`](docs/eval.md)
-· [`docs/prfaq.md`](docs/prfaq.md)
-
-Where you see a number in this repo, it was measured. `n=60`, `17 of 20`, `0 of 8 -> 10 of 10`
-are the receipts.
+More: [`docs/prd.md`](docs/prd.md) · [`docs/spec.md`](docs/spec.md) ·
+[`docs/eval.md`](docs/eval.md) · [`docs/prfaq.md`](docs/prfaq.md)
