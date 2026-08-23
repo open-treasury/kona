@@ -178,20 +178,42 @@ class KonaTerminus(Terminus2):
 # ---------------------------------------------------------------------------------------
 
 KONA_DIRECTIVE = """\
-Before you start, read /opt/kona/skills/kona/SKILL.md and follow it.
+Before your first command, read /opt/kona/skills/kona/SKILL.md and follow it. This is not
+advice and it is not optional: on this task, the graph is how you work.
 
-`kona` is installed on your PATH and a pursuit is already initialised. Use it to plan this
-task: author the steps and their dependencies before doing the work, ask `kona next` what is
-ready rather than deciding from memory, record each step's outcome as you finish it, and when
-the work proves the plan wrong, change the plan and say why."""
+`kona` is on your PATH and a pursuit is already initialised.
+
+- **Author the plan first.** One node per concrete, checkable step, not three large ones. If a
+  step would take more than a few commands to finish, it is two steps. `kona mutate --steps`
+  starts a plan in a single command, so there is no reason to defer it.
+- **Claim before you work.** Set a node `in_flight` before you start it, so the graph says what
+  is being worked and not merely what is ready.
+- **Record before you move on.** Every finished step gets its outcome and an `evidence_ref`
+  naming what you actually looked at — a file, a log, a command.
+- **`kona next` is the only source of work.** Do not keep a to-do list, a notes file, or a plan
+  in your head beside the graph. If you catch yourself tracking state the CLI could track, put
+  it in the graph instead.
+- **When the work proves the plan wrong, change the plan** — add a step, supersede one, re-wire
+  a dependency — and say why. Replanning is the expected case, not a failure.
+
+Work the whole task this way, from the first step to the last."""
 
 PLAN_DIRECTIVE = """\
-Before you start, plan this task explicitly.
+Before your first command, plan this task explicitly. This is not advice and it is not
+optional: on this task, the written plan is how you work.
 
-Write down the steps and which depend on which. Work only on steps whose prerequisites are
-done, consult your plan rather than your memory when choosing what to do next, record each
-step's outcome as you finish it, and when the work proves the plan wrong, revise it and note
-why."""
+- **Write the plan first.** One entry per concrete, checkable step, not three large ones. If a
+  step would take more than a few commands to finish, it is two steps.
+- **Mark a step started before you work it**, so the plan says what is being worked and not
+  merely what is ready.
+- **Record before you move on.** Every finished step gets its outcome and a note of what you
+  actually looked at — a file, a log, a command.
+- **The plan is the only source of work.** Consult it rather than your memory when choosing
+  what to do next, and keep one plan rather than a second list beside it.
+- **When the work proves the plan wrong, change the plan** — add a step, drop one, re-order —
+  and note why. Replanning is the expected case, not a failure.
+
+Work the whole task this way, from the first step to the last."""
 
 
 def _instructed() -> bool:
