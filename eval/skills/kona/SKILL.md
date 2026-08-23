@@ -1,6 +1,6 @@
 ---
 name: kona
-description: "Read this while you are still working — at your first command or your fortieth, it is never too late and starting late costs nothing. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. One command starts it — `kona mutate --steps "first thing" --steps "second thing"` — and you grow it as you learn."
+description: "Read this while you are still working — at your first command or your fortieth, it is never too late and starting late costs nothing. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. One command starts it — `kona mutate --steps 'first thing' --steps 'second thing'` — and you grow it as you learn."
 ---
 
 # Kona — the plan lives in a file, not in your context
