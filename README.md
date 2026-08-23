@@ -155,6 +155,49 @@ counterparties and queued real email to them, passing every other check. Record 
 discouraged. Exit codes are 8-bit: `0` ok · `1` refused · `3` stale base version · `4`
 invariant violation, each with one symbolic stderr line.
 
+### Run the demo
+
+The benchmark A/B: the same model on `production-planning` twice, with Kona and without.
+
+> **This takes hours, not minutes, and costs real money.** Pre-flight builds six Docker
+> images (~10–20 min, cold). The run itself is capped at two hours and both arms are billed
+> the whole time: **~$10–28 on Sonnet 5**, **~$3 on DeepSeek V4-Flash**. Set a spend limit on
+> the account first — a wrong flag here is expensive, not just slow.
+
+```bash
+eval/run/00-preflight.sh              # no API key, no tokens: installs Harbor, builds the
+                                      # images, proves the Kona layer installs in them
+echo 'ANTHROPIC_API_KEY=sk-...' > eval/.env        # gitignored. Or DEEPSEEK_API_KEY.
+
+eval/run/01-probe.sh                  # ~15 min, ~$0.30 — measures the real cost per run
+                                      # before you commit to a full one. Do not skip it.
+
+KONA_INSTRUCTED=1 KONA_SEED=1 TASKS=production-planning \
+  MODEL=anthropic/claude-sonnet-5 MULT=2.0 N_CONCURRENT=2 \
+  eval/run/detached.sh 02-ab.sh       # detached: survives your terminal closing
+```
+
+Watch it while it runs — the graph is a file, so a second process can read it live:
+
+```bash
+eval/bin/pull-pursuit.sh --watch &    # copies the pursuit out of the container every 10s
+cd eval/report/live && kona view      # http://127.0.0.1:4747
+```
+
+Only one arm has a graph to watch. The other has no Kona, so there is nothing to open —
+which is the comparison, not a gap in the tooling.
+
+When it finishes:
+
+```bash
+bun eval/analyze/paired.ts eval/jobs        # per-arm checks passed, wall-clock, cost
+bun eval/analyze/trajectory.ts eval/jobs    # adoption, redo rate, looping
+```
+
+The suite scores this task all-or-nothing, so **both arms will read `0.0`** — read the check
+count, not the reward. [`docs/eval.md`](docs/eval.md) explains why, and carries the frozen
+pre-registration the run is measured against.
+
 ## Quality gates
 
 `bun run check` — typecheck (including a purity gate that makes `core`'s independence a
