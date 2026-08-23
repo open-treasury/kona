@@ -2,6 +2,14 @@
 
 **A living workflow graph — Beads with state machines.**
 
+![The Kona viewer: a live plan at v31](docs/img/viewer.png)
+
+*A real run, mid-flight. The four grey-checked steps at the bottom are the skeleton it was
+handed; everything above them the agent authored itself. One node is spinning — `Generate ERP
+writeback SQL file` is claimed and being worked right now, which is why it is not offered to
+anything else. `Apply writebacks through gateway` says `3 of 3 dependencies unmet`: it knows
+what it is waiting for.*
+
 An agent's plan normally lives in its context window: you cannot see it, it cannot constrain
 what the agent does next, and it dies with the session. Kona puts it in a file — a graph the
 model authors, works against, and rewrites as reality answers, carrying the reason for every
@@ -18,11 +26,6 @@ the store, not in a prompt.
 
 **And it survives.** Kill the session; a fresh one reads the file and continues. There is no
 snapshot to rebuild, because the graph *is* a fold over the log.
-
-> **⚖ The law: the `kona` binary never calls a language model.**
-> Every verb is a pure function of `.kona/mutations.jsonl` + the clock + the mailbox cursor.
-> All judgment lives in the Claude Code plugin — which is what makes the store testable, the
-> crash-resume decidable, and the cost bounded by events rather than turns.
 
 ## Why this is not already solved
 
@@ -79,23 +82,14 @@ effect protection · predicate-waits stay satisfiable · effects are bounded and
 
 ## Try it
 
-The demo's own task, in miniature. Effect-free — every node is `pure` — which is what most
-real work looks like.
-
 ```bash
-bun install
-bun run check          # typecheck (incl. the purity gate) + lint + knip + tests
-
+bun install && bun run check
 alias kona="bun $PWD/packages/kona/src/bin.ts"
-
-mkdir /tmp/plan && cd /tmp/plan
-kona init
+mkdir /tmp/plan && cd /tmp/plan && kona init
 ```
 
-**v1 — read before you schedule.** The dependency is not advice: `kona next` will not offer
-the scheduling step until the reading step is `done`.
-
 ```bash
+# v1 — read the constraints. Nothing may be scheduled before this is done.
 cat > constraints.json <<'EOF'
 [
   {"op":"add_node","label":"Read the line constraints","type":"task",
@@ -108,12 +102,8 @@ cat > constraints.json <<'EOF'
 EOF
 kona mutate --ops constraints.json --base-version 0 \
   --why "Read the calendar before scheduling against it." --reason-code MISSING_STEP
-```
 
-**v2 — now it can be planned.** `$N` refers to an earlier op in the same batch; ids are
-minted from labels.
-
-```bash
+# v2 — plan the work. `$N` refers to an earlier op in the same batch; ids are minted from labels.
 cat > schedule.json <<'EOF'
 [
   {"op":"add_node","label":"Escalate: no feasible slot","type":"task",
@@ -130,26 +120,15 @@ kona mutate --ops schedule.json --base-version 1 \
   --why "The calendar is read; the orders can be placed against it." --reason-code NEW_CONSTRAINT
 
 kona graph
-kona next     # the ready frontier — computed, never stored
-kona mutate --ops schedule.json --base-version 1 --why "again" --reason-code OTHER; echo $?  # 3
-```
+kona next                                                            # the ready frontier
+kona mutate --ops schedule.json --base-version 1 --why "again" --reason-code OTHER; echo $?   # 3
 
-**Claim it before you work it.** A node in flight leaves the frontier, so a plan that goes
-quiet says which step it is quiet inside:
-
-```bash
+# Claim a step before working it. It leaves the frontier; a second claim gets ALREADY_CLAIMED.
 printf '[{"op":"set_status","node":"schedule-the-work-orders","status":"in_flight","evidence_ref":"claim"}]' > claim.json
 kona mutate --ops claim.json --base-version 2 --why "Starting placement." --reason-code OTHER
-kona next     # the node is gone from the frontier
-```
+kona next                                                            # it is gone
 
-A second claim on the same node is refused with `ALREADY_CLAIMED`. If the holder never comes
-back, `kona resume` returns it — nothing was sent, so nothing needs a human.
-
-**And the refusal, which is the product.** The moment a pursuit touches the world the store
-stops guessing. Ask a supplier the graph has never heard of and it will not have it:
-
-```bash
+# And the refusal that is the product: a counterparty the graph has never seen.
 cat > notify.json <<'EOF'
 [
   {"op":"add_node","label":"Escalate: shortage unresolved","type":"task",
@@ -172,12 +151,9 @@ counterparties and queued real email to them, passing every other check. Record 
 'acme' came from first, or ask a human.
 ```
 
-`--why` and `--reason-code` are **required**. A commit without a rationale is impossible,
-not discouraged.
-
-**Exit status is 8-bit** — `409` truncates to `153`, so HTTP-shaped codes are not available:
-`0` ok · `1` refused · `3` stale base version · `4` invariant violation. Every non-zero exit
-writes one stderr line beginning with a symbolic reason.
+`--why` and `--reason-code` are required — a commit without a rationale is impossible, not
+discouraged. Exit codes are 8-bit: `0` ok · `1` refused · `3` stale base version · `4`
+invariant violation, each with one symbolic stderr line.
 
 ## Quality gates
 
