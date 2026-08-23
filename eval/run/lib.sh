@@ -107,10 +107,14 @@ require_binaries() {
     echo "REFUSED NO_BINARY  run eval/bin/build-kona.sh first" >&2
     exit 1
   fi
+  # `|| true` on the loop body, and the pipeline as a whole. Under `set -e` with `pipefail`
+  # the while loop's exit status is its LAST test, so when nothing is newer — the success
+  # case — the pipeline reports 1 and the script dies on the happy path. It did.
   local newer
   newer="$(find "${REPO_ROOT}/packages" "${EVAL_ROOT}/skills" \
-    -name '*.ts' -o -name '*.md' -o -name '*.json' 2>/dev/null \
-    | while read -r f; do [[ "${f}" -nt "${bin}" ]] && echo "${f}"; done | head -3)"
+    \( -name '*.ts' -o -name '*.md' -o -name '*.json' \) 2>/dev/null \
+    | while read -r f; do [[ "${f}" -nt "${bin}" ]] && echo "${f}" || true; done \
+    | head -3 || true)"
   if [[ -n "${newer}" ]]; then
     echo "REFUSED STALE_BINARY  eval/dist/kona-linux-x64 is older than:" >&2
     echo "${newer}" | sed 's/^/    /' >&2

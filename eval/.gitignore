@@ -3,3 +3,5 @@ dist/
 .venv/
 bench/
 .env
+report/live/
+report/*.log
