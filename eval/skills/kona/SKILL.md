@@ -1,6 +1,6 @@
 ---
 name: kona
-description: "Read this before your first command, whatever the task looks like — you cannot tell yet how long it runs, and the cheapest time to start is now. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. Two nodes is a valid plan; start there and grow it as you learn."
+description: "Read this while you are still working — at your first command or your fortieth, it is never too late and starting late costs nothing. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. Two nodes is a valid plan; start there and grow it as you learn."
 ---
 
 # Kona — the plan lives in a file, not in your context
@@ -27,8 +27,10 @@ of what `kona next` just told you. When the two disagree, the graph is right.
 
 ## 1. Author the plan, before doing the work
 
-**Your first commit does not have to be the whole plan.** Two nodes and an edge is a plan —
-commit it before you know the rest. §4 is how the remainder arrives, and it is the normal
+**Your first commit does not have to be the whole plan, and it does not have to be first.**
+Two nodes and an edge is a plan — commit it before you know the rest, and commit it even if you
+are already twenty commands in. Recording what you have learned so far is worth more than the
+plan you would have written at the start. §4 is how the remainder arrives, and it is the normal
 case, not a fallback. Waiting until you can see the whole decomposition is how you end up
 never starting.
 

@@ -673,6 +673,68 @@ question with its own prediction, stated here before the data.
 
 ---
 
+### Retest result — 2026-08-23, `probe-kona--adopt-fix`
+
+**Zero again.** DeepSeek, uninstructed, unseeded, same task, skill fixed: 43 commands, ~10
+minutes, store still one line. Reward 0, which is not the read here.
+
+The prediction in the block above was ≥1 mutation. It failed. What the transcript shows is
+more useful than the number, and it splits three ways.
+
+**The trigger worked; the instruction didn't bind.** Removing the step-count exit did what it
+was supposed to — the model no longer reasons *"under five steps, skip."* It now notices the
+instruction, twice, and registers that it is in violation of it:
+
+> *"`kona`. No need maybe. But system said read skill before first command. **Too late? We
+> should not worry.**"*
+>
+> *"`kona` required. It says 'Read this before your first command…' **We didn't.** But final
+> answer just JSON. Fine."*
+
+So the edit converted a reasoned decline into a **noticed violation, rationalised away**. That
+is not nothing — salience went up — but it exposes a defect I introduced: *"before your first
+command"* names a window, and a window **expires**. Once the first command is behind it, the
+instruction is unsatisfiable, and "too late" becomes its own permanent licence to skip. A
+condition that can lapse is worse than a condition that is merely wrong, because it only has
+to be dodged once. **The trigger must be re-entrant** — a standing condition the model
+re-evaluates every turn ("if work is still going and you have not read this, read it now"),
+not a one-time gate.
+
+**H2 was never tested, and my falsification condition was wrong to imply it was.** Change 2 —
+the §0 that redefines the harness's mandatory `plan` field as an echo of `kona next` — lives
+*inside the file the model never opened*. It cannot influence a decision made before reading.
+The block above said a second zero would make H1 and H2 "both wrong"; that was sloppy. Only
+`description:` is load-bearing for adoption. Everything in the body is post-adoption content,
+and putting an adoption fix there was a category error on my part.
+
+**H4 is live, in the model's own words.** *"kona is for plan. But we have 1800s. Need be
+systematic."* The clock entered its reasoning unprompted, at the moment of the decision.
+
+**H5, new: the terminal is the third incumbent.** The model did keep a plan — as `printf`
+banners in the scrollback (`--- CLIENT MAP SOURCES ---`, `--- SMOKES ---`, `--- PRIVATE TEXT
+SCAN ---`). It felt the need for structure and satisfied it with echo statements. So Kona is
+not competing against *no plan*; it competes against the response's `plan` field (H2), the
+context window, and the terminal itself — three free, zero-latency surfaces. Its stated *"we
+can directly plan"* was an accurate description of its own behaviour.
+
+### The instrument is wrong for the question, and that is on the rig
+
+`bun-sourcemap-leak` has the **shortest native budget in the set** (30 min) and the probe runs
+it at `MULT=0.34`, so ~10 minutes. It was chosen to make the probe cheap. The consequence is
+that a tool whose entire value is proportional to horizon length has now been offered twice on
+the **shortest horizon available**, to models that correctly judged it would not pay off inside
+the budget. Two zeroes on this task are close to uninformative about adoption on long work.
+
+**Next, and the only version of this experiment worth paying for:** the fixed skill,
+uninstructed and unseeded, on `production-planning` at full budget — hours, twenty constraints,
+a decomposition that does not fit in one context. That is the condition the tool is for, and it
+is the one condition never yet tested without instruction. Prediction stated before running:
+adoption is a function of horizon, so ≥1 mutation there even though it was zero here. If that
+also comes back zero, the honest conclusion is that models do not adopt this unprompted at all,
+and the product answer is that Kona ships as an instruction, not as an available skill.
+
+---
+
 ## 12. Sources
 
 - **LHTB (Long-Horizon Terminal-Bench)** — [project page](https://zli12321.github.io/LHTB/) · [github.com/zli12321/LHTB](https://github.com/zli12321/LHTB) · [HF dataset](https://huggingface.co/datasets/IntelligenceLab/Long-Horizon-Terminal-Bench) · [leaderboard](https://zli12321.github.io/LHTB/leaderboard.html) · [arXiv 2607.08964](https://huggingface.co/papers/2607.08964)
