@@ -13,7 +13,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OP_KINDS, REASON_CODES, STATUSES, VERDICTS, parseBatch } from "@kona/core";
 
@@ -213,55 +214,64 @@ describe("the rules the probes paid for are still in the prompt", () => {
   });
 });
 
+/** Run the real `claude plugin validate` against a path, and report what it said. */
+function validate(target: string): { ok: boolean; output: string } {
+  const result = Bun.spawnSync({
+    cmd: ["claude", "plugin", "validate", target],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return { ok: result.success, output: `${result.stdout.toString()}${result.stderr.toString()}` };
+}
+
 describe("the real tooling accepts it", () => {
   /**
    * Everything else in this file checks the plugin against OUR reading of the format. This
    * checks it against Claude Code's, which is the only reading that decides whether it loads
-   * on stage — and the failure mode it rules out is the expensive one: a manifest that is
-   * perfectly self-consistent, passes every test here, and is rejected at the moment somebody
-   * types `/kona:plan` in front of an audience.
+   * on stage — and rules out the expensive failure: a manifest that is perfectly
+   * self-consistent, passes every test here, and is rejected at the moment somebody types
+   * `/kona:plan` in front of an audience.
    *
-   * **Skipped, not failed**, when the CLI is absent: a checkout without it is a checkout that
-   * cannot answer the question, which is different from one where the answer is no.
+   * ## What this proves, and what it turned out not to
+   *
+   * An earlier version also asserted `claude plugin validate <plugin>/skills` and `.../agents`.
+   * Both passed — and kept passing after `skills/plan/SKILL.md` was DELETED, and after the
+   * whole `skills/` directory was emptied. The subdirectory form does not bite on anything
+   * this repo could get wrong, so those two green ticks were decoration. They are gone.
+   *
+   * What is left is the root form, which does bite, and a NEGATIVE CONTROL that proves it —
+   * because a validator you have never seen fail is indistinguishable from one that always
+   * passes. The skills' actual content is checked above, by running every op they document
+   * through the real `parseBatch`.
+   *
+   * **Skipped, not failed**, when the CLI is absent, and skipped under mutation testing: this
+   * spawns an external binary and cannot kill a mutant in `core` or `kona`.
    */
-  // Skipped under mutation testing, and for a reason worth stating: this spawns an external
-  // binary three times, which is about 0.75s of every 8.3s test run — and it cannot kill a
-  // mutant in `core` or `kona`, because validating a plugin manifest exercises neither. Over
-  // 2,184 mutants that is three and a half minutes buying nothing. Same rule as the viewer
-  // suite: a tier runs the suites that could kill its mutants, and no others.
   const underMutation = process.env["KONA_SKIP_EXTERNAL"] !== undefined;
   const cli = underMutation
     ? { success: false }
     : Bun.spawnSync({ cmd: ["claude", "--version"], stdout: "pipe", stderr: "pipe" });
   const available = cli.success;
 
-  function validate(...parts: string[]): { ok: boolean; output: string } {
-    const result = Bun.spawnSync({
-      cmd: ["claude", "plugin", "validate", join(PLUGIN, ...parts)],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    return {
-      ok: result.success,
-      output: `${result.stdout.toString()}${result.stderr.toString()}`,
-    };
-  }
-
   test.skipIf(!available)("`claude plugin validate` accepts the manifest", () => {
-    const result = validate();
-    expect(`${String(result.ok)}: ${result.output.trim()}`).toContain("true");
+    const result = validate(PLUGIN);
+    expect(`passed: ${String(result.ok)}`).toBe("passed: true");
+    expect(result.output).toContain("Validation passed");
   });
 
-  test.skipIf(!available)("and the skills, whose frontmatter it parses itself", () => {
-    // `disable-model-invocation` and the description that decides when a skill loads both
-    // live in frontmatter that nothing in this repo parses. This is what reads it.
-    const result = validate("skills");
-    expect(`${String(result.ok)}: ${result.output.trim()}`).toContain("true");
-  });
-
-  test.skipIf(!available)("and the executor agent", () => {
-    const result = validate("agents");
-    expect(`${String(result.ok)}: ${result.output.trim()}`).toContain("true");
+  test.skipIf(!available)("and REFUSES a broken one — the control that gives the above meaning", () => {
+    // A copy, corrupted. Without this, "validation passed" is a sentence with no information
+    // in it: we would not know whether the tool had looked.
+    const scratch = mkdtempSync(join(tmpdir(), "kona-plugin-"));
+    try {
+      cpSync(PLUGIN, scratch, { recursive: true });
+      writeFileSync(join(scratch, ".claude-plugin", "plugin.json"), "{ not json");
+      const result = validate(scratch);
+      expect(`passed: ${String(result.ok)}`).toBe("passed: false");
+      expect(result.output).toContain("Validation failed");
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });
 
