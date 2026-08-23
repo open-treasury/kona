@@ -186,6 +186,11 @@ advice and it is not optional: on this task, the graph is how you work.
 - **Author the plan first.** One node per concrete, checkable step, not three large ones. If a
   step would take more than a few commands to finish, it is two steps. `kona mutate --steps`
   starts a plan in a single command, so there is no reason to defer it.
+- **Draw an edge only where one step truly needs another.** An edge means "this must be
+  finished before that can start" — it does not mean "I planned to do that next". Steps that
+  do not depend on each other must be left unchained so they are ready at the same time. A
+  plan that is one long chain is usually wrong: check every edge by asking whether the target
+  genuinely needs the source.
 - **Claim before you work.** Set a node `in_flight` before you start it, so the graph says what
   is being worked and not merely what is ready.
 - **Record before you move on.** Every finished step gets its outcome and an `evidence_ref`
@@ -196,7 +201,7 @@ advice and it is not optional: on this task, the graph is how you work.
 - **When the work proves the plan wrong, change the plan** — add a step, supersede one, re-wire
   a dependency — and say why. Replanning is the expected case, not a failure.
 
-Work the whole task this way, from the first step to the last."""
+Work the whole task this way, from the first step to the last one."""
 
 PLAN_DIRECTIVE = """\
 Before your first command, plan this task explicitly. This is not advice and it is not
@@ -204,6 +209,10 @@ optional: on this task, the written plan is how you work.
 
 - **Write the plan first.** One entry per concrete, checkable step, not three large ones. If a
   step would take more than a few commands to finish, it is two steps.
+- **Record a prerequisite only where one step truly needs another.** "Depends on" means "this
+  must be finished before that can start" — not "I planned to do that next". Steps that do not
+  depend on each other must be marked as available at the same time. A plan that is one long
+  sequence is usually wrong: check each prerequisite by asking whether it is real.
 - **Mark a step started before you work it**, so the plan says what is being worked and not
   merely what is ready.
 - **Record before you move on.** Every finished step gets its outcome and a note of what you
@@ -213,7 +222,7 @@ optional: on this task, the written plan is how you work.
 - **When the work proves the plan wrong, change the plan** — add a step, drop one, re-order —
   and note why. Replanning is the expected case, not a failure.
 
-Work the whole task this way, from the first step to the last."""
+Work the whole task this way, from the first step to the last one."""
 
 
 def _instructed() -> bool:

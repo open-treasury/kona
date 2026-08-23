@@ -36,7 +36,36 @@ kona mutate --steps "Read the failing test" --steps "Fix the parser" \
 ```
 
 That is a whole first commit. It costs about what an `echo` costs, so there is no version of
-"I will plan later" that is cheaper than planning now.
+"I will plan later" that is cheaper than planning now. **`--steps` chains what you give it**,
+each step depending on the one before, so use it when the work really is a sequence — and
+author the ops directly when it is not.
+
+**An edge is a claim about what must be true first — not the order you intend to work.**
+This is the single most common way a plan comes out wrong. If two steps do not need each
+other, do not chain them: leave them both on the frontier and let them be ready at once.
+
+```bash
+cat > /tmp/plan.json <<'EOF'
+[
+  {"op":"add_node","label":"Read the ERP tables","type":"task",
+   "spec":{"instruction":"Dump the work orders and the SKU lines.","effect_class":"pure"}},
+  {"op":"add_node","label":"Read the MES queue","type":"task",
+   "spec":{"instruction":"Dump the dispatch queue and the WIP rows.","effect_class":"pure"}},
+  {"op":"add_node","label":"Build the schedule","type":"task",
+   "spec":{"instruction":"Place every released order inside its window.","effect_class":"pure"}},
+  {"op":"add_edge","from":"$0","to":"$2"},
+  {"op":"add_edge","from":"$1","to":"$2"}
+]
+EOF
+```
+
+Two reads that do not depend on each other, and one step that waits for **both**. `kona next`
+offers you both reads at once; the schedule appears only when they are done. Had those two
+been chained, the plan would have claimed something false — that you cannot read the MES until
+you have read the ERP — and you would have worked them one at a time for no reason.
+
+Ask of every edge: *does the target actually need the source to be finished?* If the honest
+answer is "no, I just planned to do it afterwards", there is no edge.
 
 **Your first commit does not have to be the whole plan, and it does not have to be first.**
 Two nodes and an edge is a plan — commit it before you know the rest, and commit it even if you
