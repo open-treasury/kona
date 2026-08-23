@@ -12,7 +12,7 @@ Watch the arm that has it. Handed a five-node skeleton and nothing else, the age
 
 Then kill it. A fresh terminal reads the file and carries on; there is no session state and no snapshot to rebuild.
 
-**And the number, stated honestly, because it is the most interesting thing here.** The benchmark scores this task **all-or-nothing**: twenty checks or zero. One measured run worked its plan to completion, wrote all three SQL deliverables, and scored **`0.0`** — while satisfying **17 of the 20 constraints**, failing only order coverage, schedule feasibility and alt-groups. A plan is not a solver, and Kona never claimed to make the answer right. What it made was the difference *visible* — which is exactly what a binary score throws away. The arm without it reached a similar place, and its state is a directory of `debug7.py` files with no record of what any of them concluded.
+**And what we are not claiming.** The benchmark scores this task all-or-nothing: twenty checks or zero. We have run both arms and we are not reporting a winner — one task with one attempt per arm cannot separate the tool from run-to-run variance, and we have watched the same configuration swing by eight checks. A plan is not a solver, and Kona never claimed to make the answer right. What the rig gives you is the ability to make the comparison properly: both arms, per-constraint results instead of the binary score that hides them, and a pre-registered bar written before any data existed. Running it across all seventy tasks with repeats is the experiment worth having; it costs hours and real money per sweep, so it is next, not done.
 
 Inside are four building blocks:
 

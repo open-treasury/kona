@@ -38,15 +38,17 @@ structural reason:
 | **The timeline is irreversible** | AFlow, ADAS and DSPy optimise topology *between* runs, scored against a benchmark they re-execute. You cannot email thirty people five times and take the mean |
 | **Waits outlive the process** | Temporal, LittleHorse, Golem, Hatchet and Trigger.dev all pin in-flight work to the version it started on. **Every replay-based engine buys crash-resume by forbidding mutation.** That unanimity is the evidence this is unsolved rather than merely unbuilt |
 
-## What we measured
+## How it's measured
 
 The demo is a public benchmark, not a scenario we wrote: Terminal-Bench 3's
 `production-planning` — reconcile an ERP, an MES and a warehouse into a schedule that
 survives **20 constraint checks**. Four hours of expert time, authored by a manufacturing
-engineer. The same model runs it twice, with Kona and without. Rig and pre-registration:
-[`docs/eval.md`](docs/eval.md).
+engineer. `eval/` runs the same model on it twice, with Kona and without, and reports the
+two arms side by side: constraints passed, wall-clock, cost, and how much of the plan the
+agent actually maintained. Rig, pre-registration and go/no-go bar: [`docs/eval.md`](docs/eval.md).
 
-Given a five-node skeleton and nothing else, the agent:
+Watch the arm that has Kona and the mechanism is visible. Given a five-node skeleton and
+nothing else, the agent:
 
 - **authored its own plan** — 15 nodes and 22 edges added in a single commit
 - **claimed each step before working it**, so a plan that goes quiet says *which* step
@@ -54,29 +56,13 @@ Given a five-node skeleton and nothing else, the agent:
   `CONTRADICTION` when it found it had read a constraint wrong, with the correction in one
   sentence. Unprompted, inside a benchmark container
 
-Those are the behaviours the design predicts, and they happened. **The score did not
-follow — and the reason is the most useful thing this rig produced.**
+The arm without it finishes with a directory of `debug7.py` files that state no conclusion.
 
-Three runs of the same model on the same task:
-
-| run | arm | constraints passed |
-|---|---|---|
-| earlier probe | Kona | **17 / 20** |
-| A/B | baseline | **17 / 20** |
-| A/B | Kona | **9 / 20** |
-
-**Kona scored both 17 and 9 under an identical configuration.** The spread *within* one arm
-is 8 checks — the same size as the gap *between* arms. So a single paired run on this task
-measures run-to-run variance, not the tool, and anyone reporting the 17-vs-9 as a result
-would be reporting noise with a straight face. All three scored `0.0`, because the suite is
-all-or-nothing; the binary reward hid an 8-check spread twice over.
-
-That is why [`docs/eval.md`](docs/eval.md) carries a frozen pre-registration and a go/no-go
-bar written before any data existed, and why the analyzer refuses to call a verdict below
-three scored tasks. The honest state of the claim: **Kona demonstrably changed legibility,
-and has not been shown to change accuracy either way.** The graph says which step is in
-flight, what each concluded, and why the plan changed. The arm without it finished with a
-directory of `debug7.py` files that state no conclusion.
+**We are not reporting a score.** One task and one attempt per arm cannot separate the tool
+from run-to-run variance — we have watched the same configuration swing by eight checks — and
+the suite scores this task all-or-nothing, so both arms read `0.0` regardless. The rig exists
+so the comparison *can* be made properly. The interesting version is all 70 tasks with
+repeats per arm; that is hours of wall-clock and real money per sweep, so it is **TBD**.
 
 ## What's inside
 
