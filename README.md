@@ -2,19 +2,32 @@
 
 **A living workflow graph — Beads with state machines.**
 
-An agent's plan normally lives in its context window and dies with the session. Kona puts it
-in a file: a graph the model authors, mutates mid-run as reality answers, and explains as it
-goes. Any fresh session reads the file and continues.
+An agent's plan normally lives in its context window: you cannot see it, it cannot constrain
+what the agent does next, and it dies with the session. Kona puts it in a file — a graph the
+model authors, works against, and rewrites as reality answers, carrying the reason for every
+change.
+
+**You can see it.** A live graph, not a chat scroll. Steps are claimed before they are worked,
+so a plan that goes quiet tells you *which step* it is quiet inside — and every mutation
+carries a `--why` the store refuses to commit without.
+
+**The agent is grounded by it.** `kona next` is the only source of work, and it is computed
+from the log rather than remembered. A finished step is terminal: the store refuses to reopen
+it, so work is not silently redone. This is enforcement, not advice — three invariants live in
+the store, not in a prompt.
+
+**And it survives.** Kill the session; a fresh one reads the file and continues. There is no
+snapshot to rebuild, because the graph *is* a fold over the log.
 
 > **⚖ The law: the `kona` binary never calls a language model.**
 > Every verb is a pure function of `.kona/mutations.jsonl` + the clock + the mailbox cursor.
 > All judgment lives in the Claude Code plugin — which is what makes the store testable, the
 > crash-resume decidable, and the cost bounded by events rather than turns.
 
-## What it does that nothing else does
+## Why this is not already solved
 
-Three properties, and the intersection is the claim — each one exists elsewhere, the
-combination does not:
+Every property above exists somewhere. The three-way intersection does not, and for a
+structural reason:
 
 | | |
 |---|---|
