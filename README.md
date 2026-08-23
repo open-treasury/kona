@@ -25,8 +25,8 @@ repo, it was measured; `n=60` and `2 of 4` and `0 of 8 -> 10 of 10` are the rece
 
 ## Status
 
-**Complete.** Nine verbs, three invariants, the viewer, the Claude Code plugin, and a demo
-rig that drives all of it as a subprocess. 1,200 tests.
+**Complete.** Nine verbs, three invariants, the viewer, the Claude Code plugin, and an
+evaluation rig that runs it against a real benchmark. 1,240 tests.
 
 | Verb | |
 |---|---|
@@ -50,73 +50,100 @@ All three invariants are enforced in the store, not advised in a prompt:
 
 ## Try it
 
+The worked example is the demo's own task: a production plan that must satisfy constraints
+read out of three systems before anything is scheduled. It is effect-free — every node is
+`pure`, nothing is ever sent — which is what most real work looks like.
+
 ```bash
 bun install
 bun run check          # typecheck (incl. the purity gate) + lint + knip + tests
 
 alias kona="bun $PWD/packages/kona/src/bin.ts"
 
-mkdir /tmp/thursday && cd /tmp/thursday
+mkdir /tmp/plan && cd /tmp/plan
 kona init
 ```
 
-**v1 — read the roster.** Nothing may be addressed to Dana until something in the graph says
-where she came from. That is invariant 3(b) shaping the plan rather than merely policing it:
-you cannot email somebody you have not looked up.
+**v1 — read before you schedule.** Nothing may be planned until something in the graph says
+what the constraints are. The dependency is not advice: `kona next` will not offer the
+scheduling step until the reading step is `done`.
 
 ```bash
-cat > roster.json <<'EOF'
+cat > constraints.json <<'EOF'
 [
-  {"op":"add_node","label":"Confirm roster availability","type":"task",
-   "spec":{"instruction":"Read the roster and list who has not yet answered.",
-           "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
-  {"op":"record_output","node":"$0","output_name":"availability",
-   "value":["dana","sam"],"evidence_ref":"roster.csv#v3"},
-  {"op":"set_status","node":"$0","status":"done","evidence_ref":"roster.csv#v3"}
+  {"op":"add_node","label":"Read the line constraints","type":"task",
+   "spec":{"instruction":"Read the shift calendar and downtime windows for every line.",
+           "outputs":[{"name":"windows","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"record_output","node":"$0","output_name":"windows",
+   "value":["L1 06:00-14:00","L2 14:00-22:00"],"evidence_ref":"mes.shift_calendar#v3"},
+  {"op":"set_status","node":"$0","status":"done","evidence_ref":"mes.shift_calendar#v3"}
 ]
 EOF
-kona mutate --ops roster.json --base-version 0 \
-  --why "Read the roster before contacting anyone on it." --reason-code MISSING_STEP
+kona mutate --ops constraints.json --base-version 0 \
+  --why "Read the calendar before scheduling against it." --reason-code MISSING_STEP
 ```
 
-**v2 — now she can be asked.** `$N` refers to an earlier op in the same batch, and ids are
-minted from labels.
+**v2 — now the work can be planned.** `$N` refers to an earlier op in the same batch, and ids
+are minted from labels.
 
 ```bash
-cat > ask.json <<'EOF'
+cat > schedule.json <<'EOF'
 [
-  {"op":"add_node","label":"Escalate: no goalie found","type":"task",
-   "spec":{"instruction":"Tell Ilya nobody can play.","effect_class":"pure"}},
-  {"op":"add_node","label":"Ask Dana to play Thursday","type":"task",
-   "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
-           "effect_class":"pivot",
-           "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
-  {"op":"add_node","label":"Wait for Dana","type":"wait",
-   "spec":{"instruction":"Await Dana's reply.","effect_class":"pure",
-           "deadline":{"after":"$1","duration":"48h"},"on_timeout":"$0",
-           "match":{"kind":"event","conditions":[
-             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
-  {"op":"add_edge","from":"$1","to":"$2"}
+  {"op":"add_node","label":"Escalate: no feasible slot","type":"task",
+   "spec":{"instruction":"Report that demand cannot be met inside the calendar.",
+           "effect_class":"pure"}},
+  {"op":"add_node","label":"Schedule the work orders","type":"task",
+   "spec":{"instruction":"Place each released order on a qualified line inside its window.",
+           "inputs":[{"ref":"read-the-line-constraints.windows"}],
+           "outputs":[{"name":"placements","type":"string[]"}],"effect_class":"pure"}},
+  {"op":"add_edge","from":"read-the-line-constraints","to":"$1"}
 ]
 EOF
-kona mutate --ops ask.json --base-version 1 \
-  --why "The roster names Dana; ask her." --reason-code NEW_CONSTRAINT
+kona mutate --ops schedule.json --base-version 1 \
+  --why "The calendar is read; the orders can be placed against it." --reason-code NEW_CONSTRAINT
 
 kona graph
 kona next     # the ready frontier — computed, never stored
-kona mutate --ops ask.json --base-version 1 --why "again" --reason-code OTHER; echo $?  # 3
+kona mutate --ops schedule.json --base-version 1 --why "again" --reason-code OTHER; echo $?  # 3
 ```
 
-**And the refusal, which is the product.** Run `ask.json` as your *first* commit against a
-fresh pursuit and the store will not have it:
+**Claim it before you work it.** A node in flight leaves the frontier, so nothing else picks
+it up, and a plan that goes quiet says which step it is quiet inside:
+
+```bash
+printf '[{"op":"set_status","node":"schedule-the-work-orders","status":"in_flight","evidence_ref":"claim"}]' > claim.json
+kona mutate --ops claim.json --base-version 2 --why "Starting placement." --reason-code OTHER
+kona next     # the node is gone from the frontier
+```
+
+A second claim on the same node is refused with `ALREADY_CLAIMED`. If the holder never comes
+back, `kona resume` returns it — nothing was sent, so nothing needs a human.
+
+**And the refusal, which is the product.** The example above sends nothing, but the moment a
+pursuit touches the world the store stops guessing. Ask a supplier the graph has never heard
+of, as your *first* commit against a fresh pursuit, and it will not have it:
+
+```bash
+cat > notify.json <<'EOF'
+[
+  {"op":"add_node","label":"Escalate: shortage unresolved","type":"task",
+   "spec":{"instruction":"Report that the shortage could not be covered.","effect_class":"pure"}},
+  {"op":"add_node","label":"Ask the supplier to expedite","type":"task",
+   "spec":{"instruction":"Email the supplier asking them to pull the delivery forward.",
+           "effect_class":"pivot",
+           "effect":{"channel":"email","recipient_ref":"suppliers.contacts#acme"}}}
+]
+EOF
+kona mutate --ops notify.json --base-version 0 --why "expedite the shortage" --reason-code OTHER
+```
 
 ```
-UNEVIDENCED_RECIPIENT node=ask-dana-to-play-thursday op=1 nothing in the graph attests to
-'dana' (recipient_ref 'roster.contacts#dana'). A recipient must already be named by a
+UNEVIDENCED_RECIPIENT node=ask-the-supplier-to-expedite op=1 nothing in the graph attests to
+'acme' (recipient_ref 'suppliers.contacts#acme'). A recipient must already be named by a
 recorded output that cited its source, or by an outcome's attrs — evidence that existed
 BEFORE this batch. At n=60 a mutator that could not satisfy a constraint invented
 counterparties and queued real email to them, passing every other check. Record where
-'dana' came from first, or ask a human.
+'acme' came from first, or ask a human.
 ```
 
 `--why` and `--reason-code` are **required**. A commit without a rationale is impossible,
@@ -136,9 +163,9 @@ packages/viewer/  React Flow + dagre over the log. Depends on core ONLY — it c
                   reach the store, because it does not depend on the package that is one.
 plugin/           the Claude Code plugin: two skills, one executor agent, a SessionStart
                   hook. Where ALL the judgment lives.
-demo/             the rig. A directory, NOT a package, so nothing here is importable by
-                  core, kona or viewer — it drives the binary as a subprocess, the way a
-                  human on stage does.
+eval/             the measurement rig. A directory, NOT a package, so nothing here is
+                  importable by core, kona or viewer — it drives the binary as a
+                  subprocess, the way an agent in a container does.
 ```
 
 The dependency graph enforces what prose can only assert: `core` has no `node:fs` import
@@ -190,28 +217,27 @@ repairing, because firing timeouts unprompted at every session start is a commit
 for. It never touches `.kona/` directly either; a test greps for it, because a second thing
 that knows the layout is how a format ends up with two readers.
 
-## The demo rig
+## What was proven, and how
 
-```bash
-bun demo/script/divergence.ts     # the graph diverges in ways a parameterised fan-out cannot
-bun demo/script/pursuit.ts        # a whole pursuit, driven by `kona next`, run to done
-bun demo/script/kill-resume.ts    # kill -9 eleven times, and recover from each
-```
+The rig that proved these is gone — its scenario was a hockey game, and the demo is now a
+single supply-chain task from Terminal-Bench 3 (see [`docs/eval.md`](docs/eval.md)). The
+measurements it took stand; they are recorded here because the code that produced them no
+longer is.
 
-Three runs, and none subsumes another. A **replay** proves things about structure that a loop
-cannot make happen on cue. A **loop** proves termination, which a replay assumes: it asks
-`kona next` what is ready, reads head rather than predicting it, and stops when the frontier is
-empty. And only a **real signal** proves that the state a crash leaves is the state the
-in-process tests simulate — a detached process group, `SIGKILL`, and then a genuinely fresh
-process that has to say what is going on.
+Three runs drove the real binary as a subprocess, and none subsumed another. A **replay**
+proved things about structure a loop cannot make happen on cue. A **loop** proved termination,
+which a replay assumes. And only a **real signal** proved that the state a crash leaves is the
+state the in-process tests simulate — a detached process group, `SIGKILL`, a genuinely fresh
+process made to say what is going on.
 
-Each of the last two found a bug the others could not see. `kona brief` was handing executors
-the sender's reply address while `kona poll` watched for the wait's, so every reply in a real
-run would have correlated to nothing — both halves had passing unit tests. And a `kill -9`
-mid-write left the next command saying "another writer holds it (pid N)" for thirty seconds,
-naming a corpse in exactly the window a crash gets discovered in.
+Each of the last two found a bug the others could not. `kona brief` was handing executors the
+sender's reply address while `kona poll` watched for the wait's, so every reply in a real run
+would have correlated to nothing — both halves had passing unit tests. And a `kill -9`
+mid-write left the next command naming a corpse for thirty seconds, in exactly the window a
+crash gets discovered in.
 
-`kona resume` answers a fresh terminal in **135ms**, against §8's 60-second budget. What makes
+`kona resume` answered a fresh terminal in **135ms**, against §8's 60-second budget. What makes
+it that is having no snapshot to rebuild.
 it that is having no snapshot to rebuild.
 
 ## The purity gate

@@ -387,21 +387,25 @@ React Flow (fully controlled) + dagre `rankdir:'LR'`, positions derived every ve
 
 **Do not build a graph editor.** An editable canvas is a second, unversioned mutator with no rationale.
 
-### 6.11 The demo rig
+### 6.11 The evaluation rig
 
-**One plus-addressed Gmail, $0.** The correlation token goes in Kona's own `Reply-To` — `ilya+kona-<node_id>@gmail.com` — so a fan-out needs **N tags on one inbox**, not N inboxes.
+The demo is **one task from Terminal-Bench 3** — `production-planning`, a supply-chain
+problem that must reconcile ERP, MES and WMS and emit three SQL writebacks against twenty
+constraint checks. `eval/` runs it twice, same model both sides, with and without Kona.
+See [`eval.md`](./eval.md) for the design, the costings and the frozen pre-registration.
 
 | | |
 |---|---|
-| Kona's mailbox | one real Gmail; every outbound sets the per-node `Reply-To` |
-| Persona sender | a **second** ordinary Gmail — Gmail threads a message you send to yourself instead of delivering it |
-| Cast | **6 players + a rival captain.** The claim is divergence, not volume |
-| Offline fallback | **Mailpit** behind the same `MailboxProvider` port |
-| Correlation keys | two, free: the plus-tag on `To:`, and `In-Reply-To` → message-id |
+| Harness | Terminus-2, inside Harbor — the harness the benchmark's own leaderboard uses |
+| Arms | stock Terminus-2 vs the same plus `kona` on `PATH` and one `SKILL.md` |
+| Isolation | one container per arm; the store is a compiled `kona-bin`, no Bun in the image |
+| Scoring | reward is **binary** on this suite, so the comparison reads the per-check CTRF |
 
-Send-as *aliases* are capped (~30/user); **plus-addressing is uncapped**. Gmail↔Gmail between two established accounts is the safest path — no new domain, no four-week reputation ramp. Every send records `provider` and `sandbox_or_real`. Personas and the scripted premise-break are injections, which double as the live-failure fallback for every external hop — **and there is no tenth verb for it**. Two paths, both already in the nine: `kona mutate` injects the *decision* directly, and `kona poll --inbound <file>` injects the *message* and lets the binary route it. Prefer the second on stage. It takes an ordinary JSON array of `{message_id, from, to}`, so a reply can be hand-written when the network dies — and because it goes through the same correlation matching a real reply does, an injected event proves the routing rather than bypassing it.
-
-*Out of scope: prompt injection via inbound mail.* The counterparties are personas we author; in general this is the ordinary untrusted-content exposure every tool reading a webpage has. The closed op vocabulary and the effect gate bound what an injected instruction could express.
+**What replaced the staged rig, and what was lost with it.** The earlier version drove a
+hockey game through a real mailbox — plus-addressed Gmail, a persona sender, Mailpit as the
+offline fallback — and its 69 tests are the reason several claims below carry measurements.
+It is deleted: one demo, and it is the benchmark. The measurements stand as history; the code
+that produced them does not, and §12 says so rather than implying the proof is still runnable.
 
 ### 6.12 Packages
 
@@ -411,13 +415,13 @@ core/     types, vocabularies, validators, the 6 ops, 3 invariants, branch resol
 kona/     fold, .kona/ layout, lock + CAS, waits, outbox, resume, the 9 verbs.
           The only thing that writes.
 viewer/   React + xyflow + dagre. Depends on core ONLY.
-demo/     throwaway scripts — a directory, not a package
+eval/     the measurement rig — a directory, not a package
 plugin/   .claude-plugin manifest, skills, hooks, bin/ ← the compiled binary
 ```
 
 **The dependency graph enforces three rules prose can only assert:** the viewer cannot import the store because it does not depend on it; exactly one package calls `writeFile`; and `core` being pure is what makes the 100% mutation-score target affordable.
 
-It maps onto the four windows — W1 `core`, W2 `kona`, W3 `viewer`, W4 `demo/` — so each owns packages rather than files. W3 and W4 unblock when **`core` compiles**, roughly 50 minutes in.
+It mapped onto the four windows — W1 `core`, W2 `kona`, W3 `viewer`, W4 the rig — so each owned packages rather than files. W3 and W4 unblock when **`core` compiles**, roughly 50 minutes in.
 
 ---
 
@@ -441,6 +445,16 @@ Per-package Stryker floors where mutation testing pays: **`validate()` and `fold
 | Untaken arm, two deep | both nodes end `dropped`, neither appears in `next`, neither reserves an effect, the merge satisfies rather than hanging |
 | Late reply after timeout | lands as a logged outcome; does **not** reopen a closed wait |
 
+Six of these seven survive as unit tests in `core` and `kona` — branch drops, the crash
+windows, the predicate flip, the timeout. **Two do not.** *Divergent arms* was asserted by the
+staged rig's `assertions.ts` and went with it, and the `kill -9` row is now covered only in
+simulation: `packages/kona/test/kill-resume.test.ts` reproduces the states a crash leaves —
+a torn line, a stale lock, an open reservation — but a process cannot kill itself mid-syscall
+inside a test, so what proved the simulation faithful was a real signal to a real process
+group, and that is gone (§6.11). Naming it here rather than leaving the table implying
+otherwise: a test suite that quietly stops asserting something is worse than one that says so.
+
+
 ---
 
 ## 8. Definition of Done
@@ -451,11 +465,11 @@ stranger is a memory rather than a definition.
 - [x] `bun run typecheck` and `bun run lint` clean — plus `knip` and 1,200 tests, as `bun run check`
 - [x] **`--why` is required on every mutating verb** — `cli.test.ts` "a commit without a rationale is impossible"; `--reason-code` is checked against the closed vocabulary, so `BECAUSE` is refused too
 - [x] All 3 invariants enforced pre-commit, each with a distinct rejection naming the node; the parser rejects shape first — `TERMINAL_NODE_PROTECTED` / `UNCOMPENSATED_SUPERSEDE`, `PREDICATE_UNSATISFIABLE`, `EFFECT_BUDGET_EXHAUSTED` / `UNEVIDENCED_RECIPIENT`. Invariant 1 is an **op-delta against pre-commit head**, never a post-state predicate
-- [x] **Rejected mutations are logged** — `.kona/rejections.jsonl`, best-effort and never a system of record. `demo/test/pursuit.test.ts` reads back the two refusals a live run produced, with the rationale each carried
+- [x] **Rejected mutations are logged** — `.kona/rejections.jsonl`, best-effort and never a system of record. a live run read back the two refusals it produced, with the rationale each carried (measured before the staged rig was deleted; §6.11)
 - [x] No `delete_node` verb and no `rollback` opcode anywhere in code or schema — `FORBIDDEN_OP_KINDS` exists so the check has something to assert against; `purity.test.ts` greps `core` for the strings and `contracts.test.ts` proves the parser refuses each
 - [x] Folding the log twice yields an identical graph; a torn final line is tolerated — and `dropTornTail` truncates by BYTES before the next append, so a torn line cannot be buried mid-file where it stops being a tail
 - [x] Nothing outside the CLI reads or writes `.kona/`; **no verb calls a model** — the purity gate is three mechanisms (a tsconfig with `types: []`, an oxlint override, and a test for what still typechecks), and a test greps the plugin's hook script for `.kona`
-- [x] `kona resume` on a fresh terminal prints correct status in **< 60 s** with no session state — **measured at 135 ms**, after a real `SIGKILL` to a real process group, eleven times (`demo/script/kill-resume.ts`)
+- [x] `kona resume` on a fresh terminal prints correct status in **< 60 s** with no session state — **measured at 135 ms**, after a real `SIGKILL` to a real process group, eleven times — measured before the staged rig was deleted, and no longer reproducible in-repo (§6.11)
 - [x] Every irreversible node carries a payload-independent `effect_key`; the three crash windows behave per §6.6 — the key is `hash(node_id, created_by_version)` and the `payload_hash` proves the bytes, so re-reserving the same slot with different bytes is `EFFECT_PAYLOAD_MISMATCH` rather than a second send
 - [x] Only the orchestrator mutates topology; a subagent attempting it is refused — and invariant 2 EXEMPTS a subagent from the satisfiability check, because an actor that cannot author the repair must not be blocked for failing to include one
 - [x] Viewer holds zero authoritative state; dagre memoized on a **topology signature** (see §6.10 rule 2 — the original wording named `graph_version`, which re-layouts on the status ticks the same rule forbids); zero outbound calls

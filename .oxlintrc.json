@@ -112,14 +112,6 @@
     },
     {
       "files": [
-        "demo/**/*.ts"
-      ],
-      "rules": {
-        "eslint/no-console": "off"
-      }
-    },
-    {
-      "files": [
         "eval/**/*.ts"
       ],
       "rules": {

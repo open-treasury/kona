@@ -90,7 +90,9 @@ Each executor returns one of `EXECUTED`, `COMPOSED`, or `REFUSED`. Handle each p
 
 ```bash
 kona poll --json                     # which addresses to fetch
-# fetch them through the MailboxProvider in demo/ — bun demo/kona.ts poll
+# fetch those addresses with whatever reads mail here — an MCP server, a client, a script —
+# and write the messages to /tmp/inbound.json. ⚖ The binary never fetches: it has no network
+# and no credentials, and a store that could reach a mailbox could not be a pure fold.
 kona poll --inbound /tmp/inbound.json --json
 ```
 

@@ -10,12 +10,12 @@
 ## 2. What Kona Does (plain words)
 We help people who delegate multi-day tasks to AI agents **see what the agent is doing and actually get the task finished** — the agent's plan becomes a live, visible file that explains itself and survives any crash.
 
-Specific example: you tell Kona "get a hockey game together next week — invite the whole list of thirty, we need a goalie plus seven skaters." It writes a plan you can read before anything happens. Then you watch that plan work: thirty emails go out, replies land, checkmarks flip. The goalie cancels — you watch the plan reroute itself and explain why. Your laptop dies overnight; in the morning you open a fresh terminal, type "continue," and it picks up from the plan file alone. The same machine runs a contractor buyout at work.
+Specific example: you hand Kona a production plan that has to reconcile three systems — orders, shop floor, warehouse — against shift calendars, downtime, engineering release and inventory it must not over-allocate. It writes a plan you can read before anything happens. Then you watch that plan work: steps are claimed, outcomes recorded, checkmarks flip. Halfway through it discovers a constraint it had read wrong — you watch the plan supersede its own step and explain why. Your laptop dies overnight; in the morning you open a fresh terminal, type "continue," and it picks up from the plan file alone. The same machine runs a contractor buyout at work.
 
 ## 3. Problem
 Agents can already *do* long multi-step work. What's missing is everything around the doing:
 
-* **You can't see the plan.** Ask Claude Code to run a buyout or organize a hockey game and it will design a decent workflow — but you never see the workflow. What is it doing? What state is it in? What comes next? Today's answer is a chat scroll and a flat todo list.
+* **You can't see the plan.** Ask Claude Code to run a buyout or a production plan and it will design a decent workflow — but you never see the workflow. What is it doing? What state is it in? What comes next? Today's answer is a chat scroll and a flat todo list.
 * **The pursuit dies with the session.** The construction works for a few hours, then the session hangs, compacts, or the box restarts. Resuming means re-explaining. There is no artifact that *is* the pursuit, independent of any process.
 * **The plan's logic lives nowhere.** State ends up scattered across text files the agent invented ad hoc. No structure, no history, no "why." A ticket tracker (Beads, Linear) stores issues with dependencies — that's not a state machine, and multi-step real-world work *is* a state machine.
 
@@ -46,7 +46,7 @@ Every property Kona claims already exists somewhere. The landscape, by quadrant:
 And the intersection is empty for a *structural* reason, which is the strongest form of the argument: **every replay-based engine buys crash-resume by forbidding mutation.** Temporal, LittleHorse, Golem, Hatchet, Trigger.dev, Conductor and Microsoft Agent Framework all pin in-flight work to the version it started on. That unanimity is evidence the combination is genuinely unsolved, not merely unbuilt.
 
 ## 5. How Builders Do This Today
-Run the honest experiment: Claude Code + Gmail MCP, "handle my buyout / organize the hockey game." It designs the workflow logic fine — logic isn't the hard part — writes the emails, invents state files, loops on the inbox. It survives a few hours, then dies with the session; you resume by hand and it mostly recovers. The real gap: **the plan is invisible, unversioned, and unreadable by anyone but the session that improvised it** — no fresh session, second agent, or human can read the pursuit and act on it. Serious builders bolt on a tracker (Beads) and a loop (Ralph): task lists persist, but the state machine of the work still lives nowhere — ticket ≠ state. And beneath it all the old economics stand: hand-authoring one workflow's logic costs $2.5–15K or engineer-weeks, per workflow.
+Run the honest experiment: Claude Code, "handle my buyout / build this production plan." It designs the workflow logic fine — logic isn't the hard part — writes the emails, invents state files, loops on the inbox. It survives a few hours, then dies with the session; you resume by hand and it mostly recovers. The real gap: **the plan is invisible, unversioned, and unreadable by anyone but the session that improvised it** — no fresh session, second agent, or human can read the pursuit and act on it. Serious builders bolt on a tracker (Beads) and a loop (Ralph): task lists persist, but the state machine of the work still lives nowhere — ticket ≠ state. And beneath it all the old economics stand: hand-authoring one workflow's logic costs $2.5–15K or engineer-weeks, per workflow.
 
 ## 6. Why It Matters
 * **The plan-artifact is already the most-loved moment in agents.** TodoWrite's live checklist, Manus's side-panel tasks, Devin's plan view — the industry accidentally discovered that watching the plan update *is* the product. Then everyone stopped at a flat list. Kona gives that moment its full form: topology, branches sprouting, rationale on click, survival after death.
@@ -78,19 +78,46 @@ Differentiation one-liners, strongest first: **Nobody has a clock.** Every frame
 * **G2 — Prove the bundle with a real artifact:** graph authored from a brief, mutated live by the agent, resumed from death — no faked screens.
 * **G3 — Compound:** public repo + recorded demo same day; the "glass-box agent / living plan" essay to follow.
 
-## 9. Demo — Hockey Night
-Setup: the rival team's captain emails a challenge — "let's play in the next two weeks." Thirty players invited; minimum 8 to play — 1 goalie, 5 field, 2 subs — and goalies are scarce, so losing the one confirmed goalie is a crisis. All communication over email; by demo time the plan's first node is already green from the setup run: **the agent provisioned its own mailbox and minted a reply address per player** (`+kona-<node_id>`, so every reply routes itself back to the exact node that sent it). Counterparty agents (persona profiles: availability windows, positions, temperaments) reply **instantly** — no waiting theater; the show is the graph.
+## 9. Demo — one benchmark task, two arms
 
-1. **Author (30s).** Brief goes in. Kona emits the plan as a graph — poll the group, collect availabilities, satisfy the typed roster (≥1 goalie!), negotiate date with the rival captain, confirm. Human reviews the graph, approves.
-2. **Fan-out (45s).** Execute. Thirty emails go out and the graph *sprouts* thirty per-player sub-flows on screen — collapsed into groups, expanding on click. Every arm starts the **identical** shape: `invite → wait → {yes | no | silent}`. Replies land within seconds; nodes flip; the roster tally and goalie constraint update live. **Three arms then stop matching each other** — and this is the point of the demo, not decoration:
-   * **Priya** replies *"in, but only if we start after 8pm."* Not a yes and not a no. The graph grows a **constraint node** and a branch that reaches **out of Priya's own sub-flow into the rival-captain negotiation** — one player's reply changing a different part of the plan.
-   * **Pat** goes quiet. A follow-up branch appears on the deadline. **The deliberately boring arm**, kept so the other two have something to be different from.
-   * **Sam** is the third — see beat 3, because his reply is what rescues the pursuit.
-3. **Premise break, and the recovery that proves the claim (45s).** Dana — the only goalie — pulls out. The quorum predicate goes unsatisfiable and the graph visibly reroutes. Then **Sam's reply lands: *"I'm out, but my brother Marcus plays goalie — want me to ask him?"*** Marcus is **not on the thirty-player roster and has no node in the graph.** Kona mints one: a new counterparty, a new wait with its own deadline, wired into the goalie quorum. Click the mutation → the rationale is right there.
+**The demo is a paired A/B on a public benchmark, not a staged scenario.** Terminal-Bench 3's
+`production-planning`: a supply-chain task authored by a manufacturing engineer at Foxconn,
+estimated at **four hours of expert time**, graded by twenty independent constraint checks.
+The same model runs it twice — once with Kona, once without — concurrently, in identical
+containers. See [`eval.md`](./eval.md) for the rig, the pre-registration and the costings.
 
-   **This is the beat that answers the sharpest objection.** Argo, Kestra and Windmill have all done parameterised fan-out over a pre-authored template since 2018, and thirty identical arms are indistinguishable from it. But `withParam` iterates a list fixed before the loop starts — here the list **gained a member the plan never knew about**, and that member's sub-flow has a different shape from every other. Scrub the version slider back to v1 and point at the empty space: no node, and no *template* for one. Same assertions run as an automated test — `spec.md` §7.2 *Divergent arms*.
-4. **Kill & resume (30s).** Kill the session on stage. Fresh terminal: `continue`. The agent reads the graph, states where the pursuit stands, and proceeds. The graph is the resurrection artifact — the long-horizon claim, made physical.
-5. **Close (30s).** Roster locked, confirmations sent, game node green. One line: "The theory is from 2008. The mutator that makes it usable shipped two years ago. We assembled them today." Scrub the version history as the outro.
+Why this replaced a staged hockey game: a scenario we authored can be built to flatter the
+product, and an audience knows it. A benchmark task cannot. It also removes the one thing a
+judge could dismiss the old demo with — *"you wrote the test"*.
+
+1. **Author (live).** The agent is given a five-node skeleton — understand the inputs, state
+   the requirements, decide the approach, do the work, verify — and nothing else. It reads
+   the three systems and **authors its own plan against them**: measured, fifteen nodes and
+   twenty-two edges added in a single commit.
+2. **Work the frontier.** It claims a node (`in_flight`, so the node leaves `kona next` and
+   the plan says what is being worked rather than only what is ready), does the work, records
+   the output with an `evidence_ref`, and takes the next. The timeline reads as a narrative:
+   *Starting WIP and capacity analysis* → *Completed* → *Starting selection and scheduling*.
+3. **Premise break, and the recovery that proves the claim.** Measured, unprompted, in a real
+   run: the agent discovered its feasibility gate was reading all inventory where the task
+   specified critical-only, and committed a `supersede_node` carrying reason code
+   **`CONTRADICTION`** with the correction stated in one sentence. That is the whole thesis —
+   the plan changing shape as reality answers, and saying why — happening inside a benchmark
+   container rather than on a slide.
+4. **Kill it.** `SIGKILL` the process group. Open a fresh terminal, `kona resume`, and the
+   pursuit continues from the log alone. No session state, no snapshot to rebuild.
+5. **The score, and the honesty about it.** The suite's reward is **binary** — twenty checks
+   or zero — so both arms will read `0.0` on a four-hour expert task, and the number is
+   worthless as a comparison. The demo reports the **per-check count** instead. One measured
+   run: a plan worked to completion, frontier empty, no timeout, `reward: 0.0` — and **17 of
+   20 constraints satisfied**, failing only sales-order coverage, schedule feasibility and
+   alt groups.
+
+**What the demo does not claim.** That Kona makes the answer correct. It made the process
+legible and durable; the three failures above are a solver problem, and a plan is not a
+solver. The comparison it *can* make is against the arm without it, on the same task, with
+the same model — and that arm's state is a directory of `debug7.py` files with no statement
+of what any of them concluded.
 
 ## 10. Users
 * **Primary (event):** judges and an audience who run agents daily and have personally suffered the opaque run and the dead session.

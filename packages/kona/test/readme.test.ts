@@ -71,53 +71,78 @@ async function commit(name: string, base: number, why: string, code: string): Pr
 }
 
 describe("the README's example is code, not decoration", () => {
-  test("extraction found both blocks — an empty test passes silently", () => {
-    expect([...heredocs().keys()]).toEqual(["roster.json", "ask.json"]);
+  test("extraction found every block — an empty test passes silently", () => {
+    expect([...heredocs().keys()]).toEqual(["constraints.json", "schedule.json", "notify.json"]);
   });
 
   test("the documented sequence commits, in the documented order", async () => {
     expect(await run(["init"], h.io)).toBe(0);
     h.reset();
 
-    expect(await commit("roster.json", 0, "Read the roster first.", "MISSING_STEP")).toBe(0);
+    expect(
+      await commit("constraints.json", 0, "Read the calendar first.", "MISSING_STEP"),
+    ).toBe(0);
     expect(h.out[0]).toContain("committed v1");
     // The ids the prose promises are minted from labels, not written by hand.
-    expect(h.out[0]).toContain("confirm-roster-availability");
+    expect(h.out[0]).toContain("read-the-line-constraints");
     h.reset();
 
-    expect(await commit("ask.json", 1, "The roster names Dana; ask her.", "NEW_CONSTRAINT")).toBe(0);
+    expect(await commit("schedule.json", 1, "Place the orders.", "NEW_CONSTRAINT")).toBe(0);
     expect(h.out[0]).toContain("committed v2");
-    expect(h.out[0]).toContain("ask-dana-to-play-thursday");
+    expect(h.out[0]).toContain("schedule-the-work-orders");
   });
 
   test("`kona next` shows what the README says it shows", async () => {
     await run(["init"], h.io);
-    await commit("roster.json", 0, "Read the roster first.", "MISSING_STEP");
-    await commit("ask.json", 1, "Ask Dana.", "NEW_CONSTRAINT");
+    await commit("constraints.json", 0, "Read the calendar first.", "MISSING_STEP");
+    await commit("schedule.json", 1, "Place the orders.", "NEW_CONSTRAINT");
     h.reset();
 
     expect(await run(["next"], h.io)).toBe(0);
     const text = h.out.join("\n");
-    // The ask is ready and marked pivot; the wait behind it is not, because a wait is
-    // something the world has to do.
-    expect(text).toContain("ask-dana-to-play-thursday");
-    expect(text).toContain("[pivot]");
-    expect(text).not.toContain("wait-for-dana");
+    // Both are ready: the escalation has no in-edge, and scheduling's one dependency is the
+    // reading step, which v1 recorded as done.
+    expect(text).toContain("schedule-the-work-orders");
+    expect(text).toContain("escalate-no-feasible-slot");
+  });
+
+  test("claiming a node takes it off the frontier, as the README says", async () => {
+    await run(["init"], h.io);
+    await commit("constraints.json", 0, "Read the calendar first.", "MISSING_STEP");
+    await commit("schedule.json", 1, "Place the orders.", "NEW_CONSTRAINT");
+
+    // The README writes this one with `printf` rather than a heredoc, so it is inlined here
+    // rather than extracted — the assertion that matters is the disappearance, not the shape.
+    const claim = join(h.dir, "claim.json");
+    writeFileSync(
+      claim,
+      '[{"op":"set_status","node":"schedule-the-work-orders","status":"in_flight","evidence_ref":"claim"}]',
+    );
+    expect(
+      await run(
+        ["mutate", "--ops", claim, "--base-version", "2", "--why", "Starting placement.", "--reason-code", "OTHER"],
+        h.io,
+      ),
+    ).toBe(0);
+    h.reset();
+
+    expect(await run(["next"], h.io)).toBe(0);
+    expect(h.out.join("\n")).not.toContain("schedule-the-work-orders");
   });
 
   test("the `# 3` in the last line is the exit code it really produces", async () => {
     await run(["init"], h.io);
-    await commit("roster.json", 0, "Read the roster first.", "MISSING_STEP");
-    await commit("ask.json", 1, "Ask Dana.", "NEW_CONSTRAINT");
+    await commit("constraints.json", 0, "Read the calendar first.", "MISSING_STEP");
+    await commit("schedule.json", 1, "Place the orders.", "NEW_CONSTRAINT");
     h.reset();
 
-    expect(await commit("ask.json", 1, "again", "OTHER")).toBe(3);
+    expect(await commit("schedule.json", 1, "again", "OTHER")).toBe(3);
     expect(h.err[0]).toContain("STALE_BASE_VERSION");
   });
 
   test("the refusal the README quotes is the refusal the store gives, WORD FOR WORD", async () => {
-    // Run `ask.json` FIRST, as the README invites you to, and the store must answer with the
-    // paragraph printed underneath it.
+    // Run `notify.json` FIRST, as the README invites you to, and the store must answer with
+    // the paragraph printed underneath it.
     //
     // This compared FRAGMENTS until it let a defect through: the README quoted `op=0` where
     // the binary prints `op=1` — index 0 is the escalation, index 1 is the node actually
@@ -127,11 +152,13 @@ describe("the README's example is code, not decoration", () => {
     expect(await run(["init"], h.io)).toBe(0);
     h.reset();
 
-    expect(await commit("ask.json", 0, "email a stranger", "OTHER")).toBe(1);
+    expect(await commit("notify.json", 0, "expedite the shortage", "OTHER")).toBe(1);
     const refusal = flatten(h.err.join(" "));
 
     // The quote is the fenced block that follows "the store will not have it:".
-    const quoted = /the store will not have it:\s*```\n([\s\S]*?)```/.exec(README)?.[1];
+    // The quote is the LAST fenced block in the refusal section — the one after the heredoc
+    // that provokes it, not the heredoc itself.
+    const quoted = /kona mutate --ops notify\.json[^`]*```\s*```\n([\s\S]*?)```/.exec(README)?.[1];
     expect(quoted).toBeDefined();
     expect(flatten(quoted ?? "")).toBe(refusal);
 
