@@ -1,6 +1,6 @@
 ---
 name: kona
-description: "Read this before you start work on any task needing more than about five steps. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. Costs one command to start."
+description: "Read this before your first command, whatever the task looks like — you cannot tell yet how long it runs, and the cheapest time to start is now. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. Two nodes is a valid plan; start there and grow it as you learn."
 ---
 
 # Kona — the plan lives in a file, not in your context
@@ -16,11 +16,23 @@ yourself tracking state the CLI could track, ask the CLI.
 
 `kona` is on your `PATH`. `.kona/` is already initialised in the working directory.
 
+## 0. The `plan` field in your response is not the plan
+
+Your response format makes you write a `plan` string every turn. That string is scratch: it
+dies with the turn, nothing reads it back, and it is not what `kona next` consults. Do not
+plan twice. Write the plan into the graph once, then let the `plan` field be a one-line echo
+of what `kona next` just told you. When the two disagree, the graph is right.
+
 ---
 
 ## 1. Author the plan, before doing the work
 
-Decompose the task into nodes with dependencies. Every node is `"type":"task"` and
+**Your first commit does not have to be the whole plan.** Two nodes and an edge is a plan —
+commit it before you know the rest. §4 is how the remainder arrives, and it is the normal
+case, not a fallback. Waiting until you can see the whole decomposition is how you end up
+never starting.
+
+Decompose what you can see now into nodes with dependencies. Every node is `"type":"task"` and
 `"effect_class":"pure"` — nothing here contacts anybody.
 
 ```bash

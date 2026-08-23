@@ -578,7 +578,102 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
 
 ---
 
-## 11. Sources
+## 11. Adoption — the void, and the mechanism behind it
+
+§10 anticipated this: *"a void result is a finding about discoverability — the skill's
+`description:` is what the model sees first."* That is what happened, and the mechanism turned
+out to be legible in the transcripts rather than a matter of speculation.
+
+### The result
+
+Offered the skill and told nothing else, **neither model ever invoked `kona`.**
+
+| run | model | mutations beyond genesis |
+|---|---|---|
+| `probe-kona` | `deepseek/deepseek-v4-flash` | 0 |
+| `probe-kona-sonnet` | `anthropic/claude-sonnet-5` | 0 |
+
+Both stores hold exactly one line. By the §10 gate the arm is **VOID** — not evidence that the
+state layer fails to help, evidence that it was never used. **It is not a DeepSeek trait**; a
+frontier model on the identical task behaved identically.
+
+### The two models declined differently, which rules out the boring explanation
+
+DeepSeek never opened the file. It read the `<available_skills>` block and reasoned its way out
+in the response body:
+
+> *"'Available skills kona' not necessary. … Let's consider if we need to use `/opt/kona`
+> skills? Not really. The instruction says read before tasks need >5 steps; we didn't. But not
+> mandatory? It says should. But final can ignore."*
+
+Sonnet ran `cat /opt/kona/skills/kona/SKILL.md`, read all 115 lines, then immediately ran
+`find /app` and never mentioned it again.
+
+So one model declined on the description and the other declined *after full information*.
+"The model did not know it was there" is dead, and the two paths need two different fixes.
+
+### Four hypotheses, ranked by evidence
+
+1. **Our own gating clause handed it the exit.** The `description:` opened with *"Read this
+   before you start work on any task needing more than about five steps."* That asks for an
+   ex-ante estimate of an ex-post quantity, at the one moment the model knows least about the
+   task — and every task looks like three steps before you start it. DeepSeek quoted the clause
+   back as its reason. Best-evidenced of the four, because the model stated it in words, and
+   **it is our defect, not the model's.**
+
+2. **The harness already owns the planning slot.** Terminus-2's response schema requires a
+   `plan` string every turn. The agent is therefore already emitting a plan continuously, for
+   free, with no tool call and no way to skip it. Kona was not competing against no-plan; it was
+   competing against a mandatory plan that costs nothing. Evidenced by the same trajectory
+   (*"plan as string. commands empty."*), and it plausibly explains Sonnet's decline-after-
+   reading, which hypothesis 1 does not.
+
+3. **The blank page.** Authoring a graph from zero means committing to the whole decomposition
+   at the moment of least information; maintaining one is incremental. Instructed but unseeded,
+   the models authored nothing; handed a five-node skeleton they extended it to twenty in a
+   single commit. The cost is *starting*, not *using*.
+
+4. **Deferred payoff under a clock.** 1800s timeout, binary reward: tokens spent on the plan are
+   tokens not spent on the task, and the payoff arrives late or never. Rational discounting, not
+   a failure. Weakest-evidenced here, but it predicts adoption falls as the timeout tightens,
+   which is testable and currently untested.
+
+### What changed in the skill, and what each change predicts
+
+All three edits are to `eval/skills/kona/SKILL.md` only. The shipped plugin skills
+(`plugin/skills/{plan,run}`) are **unchanged and did not need changing** — those are invoked by a
+human typing `/kona:plan`, so a trigger describing when a *user* should reach for them is doing
+its job. The defect is specific to the autonomous-adoption path.
+
+| # | change | targets | predicts |
+|---|---|---|---|
+| 1 | `description:` no longer asks for a step-count forecast — the trigger is "before your first command", which is evaluable when read | H1 | DeepSeek-shaped declines stop |
+| 2 | New §0: the response's `plan` field is per-turn scratch; make it a one-line echo of `kona next` | H2 | Sonnet-shaped declines stop — the mandatory field becomes a consumer of the graph rather than a rival |
+| 3 | §1 states the first commit may be two nodes, and that §4 is the normal way the rest arrives | H3 | authoring starts without a seed |
+
+Change 2 is the one worth watching. The competitor was not another tool — it was a field the
+agent is *required* to fill in, which is a much stronger incumbent than anything we could have
+been designed against. Turning it into a mirror of the graph costs nothing and removes the
+duplication the model was correctly objecting to.
+
+### Retest, declared before running it
+
+**The instrument changed between runs, and this section is the record of it.** The §10
+pre-registration governs the reward A/B and is untouched; this is a separate discoverability
+question with its own prediction, stated here before the data.
+
+- **Arm:** uninstructed (`KONA_INSTRUCTED` unset), unseeded, DeepSeek, same task as
+  `probe-kona`, which is the control at 0 invocations.
+- **Prediction:** ≥1 `kona mutate` reaching the store. Anything above zero falsifies "models
+  will not adopt it unprompted" as a flat statement and relocates the problem to the skill text.
+- **What it does not test:** whether adoption *helps*. Reward is not the read here and will not
+  be reported as one.
+- **Failure is informative too:** if it still comes back at zero with the exit removed, H1 and
+  H2 are both wrong and H4 — the timeout economics — becomes the live explanation.
+
+---
+
+## 12. Sources
 
 - **LHTB (Long-Horizon Terminal-Bench)** — [project page](https://zli12321.github.io/LHTB/) · [github.com/zli12321/LHTB](https://github.com/zli12321/LHTB) · [HF dataset](https://huggingface.co/datasets/IntelligenceLab/Long-Horizon-Terminal-Bench) · [leaderboard](https://zli12321.github.io/LHTB/leaderboard.html) · [arXiv 2607.08964](https://huggingface.co/papers/2607.08964)
 - DeepSeek pricing and models — [deepseek.ai/pricing](https://deepseek.ai/pricing) · [V4-Flash agent benchmarks](https://deepseek.ai/blog/deepseek-v4-flash-ga-agent-benchmarks) · [V4-Pro-0813 benchmarks](https://www.mindstudio.ai/blog/deepseek-v4-pro-0813-benchmarks)
