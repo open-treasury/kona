@@ -136,6 +136,7 @@ const VERB_OPTIONS: Record<string, Options> = {
   mutate: {
     ...COMMON,
     ops: { type: "string" },
+    steps: { type: "string", multiple: true },
     "base-version": { type: "string" },
     why: { type: "string" },
     "reason-code": { type: "string" },
@@ -279,8 +280,16 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     return await runGraph(io, { json, history, rejections });
   }
 
-  const opsFile = requireString(values, "ops", io);
-  if (opsFile === null) return EXIT_REFUSED;
+  // Exactly one source of ops. Refusing both is not pedantry: silently preferring one would
+  // commit a batch the author did not mean to send, and this is the only write path.
+  const steps = values["steps"] as string[] | undefined;
+  const opsValue = values["ops"];
+  if (steps !== undefined && typeof opsValue === "string") {
+    io.err("REFUSED AMBIGUOUS_OPS --ops and --steps are alternatives; pass one");
+    return EXIT_REFUSED;
+  }
+  const opsFile = steps === undefined ? requireString(values, "ops", io) : null;
+  if (steps === undefined && opsFile === null) return EXIT_REFUSED;
   const baseVersion = requireInteger(values, "base-version", io);
   if (baseVersion === null) return EXIT_REFUSED;
   // §8: --why is required on every mutating verb. Not defaulted, not inferred.
@@ -296,7 +305,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   const expectedEffect = values["expected-effect"];
 
   return await runMutate(io, {
-    opsFile,
+    ...(steps === undefined ? { opsFile: opsFile as string } : { steps }),
     baseVersion,
     why,
     reasonCode,

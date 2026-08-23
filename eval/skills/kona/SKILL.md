@@ -1,6 +1,6 @@
 ---
 name: kona
-description: "Read this while you are still working — at your first command or your fortieth, it is never too late and starting late costs nothing. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. Two nodes is a valid plan; start there and grow it as you learn."
+description: "Read this while you are still working — at your first command or your fortieth, it is never too late and starting late costs nothing. `kona` is a command-line tool already installed here that keeps your plan outside your context window, so a long task does not decay into re-reading files you already read and re-running commands you already ran. You write the steps and their dependencies once, then run `kona next` to be told what is ready instead of remembering; finished steps become terminal and the tool refuses to hand them back. When the work proves the plan wrong, you rewrite the plan and record why. One command starts it — `kona mutate --steps "first thing" --steps "second thing"` — and you grow it as you learn."
 ---
 
 # Kona — the plan lives in a file, not in your context
@@ -27,6 +27,17 @@ of what `kona next` just told you. When the two disagree, the graph is right.
 
 ## 1. Author the plan, before doing the work
 
+**Start with one command.** `--steps` takes labels and chains them, each depending on the one
+before it:
+
+```bash
+kona mutate --steps "Read the failing test" --steps "Fix the parser" \
+  --base-version 0 --why "Read the failure before changing anything." --reason-code MISSING_STEP
+```
+
+That is a whole first commit. It costs about what an `echo` costs, so there is no version of
+"I will plan later" that is cheaper than planning now.
+
 **Your first commit does not have to be the whole plan, and it does not have to be first.**
 Two nodes and an edge is a plan — commit it before you know the rest, and commit it even if you
 are already twenty commands in. Recording what you have learned so far is worth more than the
@@ -34,7 +45,9 @@ plan you would have written at the start. §4 is how the remainder arrives, and 
 case, not a fallback. Waiting until you can see the whole decomposition is how you end up
 never starting.
 
-Decompose what you can see now into nodes with dependencies. Every node is `"type":"task"` and
+When you need more than a chain — a fan-out, a step whose output you want recorded, anything
+that contacts the world — author the ops directly. Decompose what you can see now into nodes
+with dependencies. Every node is `"type":"task"` and
 `"effect_class":"pure"` — nothing here contacts anybody.
 
 ```bash
