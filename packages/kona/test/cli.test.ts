@@ -382,11 +382,12 @@ describe("the architecture, asserted", () => {
 
 describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
   /**
-   * The contract a caller depends on. `demo/kona.ts` throws a `KonaError` carrying stderr,
-   * and a shell script greps the first token — so a verb that fails SILENTLY leaves both
-   * with nothing to report but the number. Checked across every refusal reachable from
-   * argument handling, since that is where a `return EXIT_REFUSED` is easiest to add
-   * without a message beside it.
+   * The contract a caller depends on. An agent reads the first token to decide what to do
+   * next — `ALREADY_CLAIMED` means take another node, `STALE_BASE_VERSION` means re-read and
+   * re-decide — and a shell script greps the same token. So a verb that fails SILENTLY leaves
+   * both with nothing to report but the number. Checked across every refusal reachable from
+   * argument handling, since that is where a `return EXIT_REFUSED` is easiest to add without
+   * a message beside it.
    */
   const REFUSALS: [string, string[]][] = [
     ["unknown verb", ["rollback"]],
