@@ -16,6 +16,7 @@ import type { ViewEdge } from "../model/edges.ts";
 import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 import { edgeKeyString } from "../model/diff.ts";
 import { MARKER_SIZE, NODE_SIZE } from "../layout/dagre.ts";
+import { edgeHandles } from "../layout/handles.ts";
 import type { Fresh } from "./useFresh.ts";
 import type { Positions } from "./useTween.ts";
 import { KONA_NODE_TYPE, nodeTypes } from "./NodeCard.tsx";
@@ -100,6 +101,7 @@ export function Canvas({
           // render — no warning, no error, just no lines. The card pins its own box instead.
           width: size.width,
           height: size.height,
+          handles: edgeHandles(size),
           selected: id === selected,
           draggable: false,
           connectable: false,
@@ -132,6 +134,7 @@ export function Canvas({
         data: { kind },
         width: MARKER_SIZE.width,
         height: MARKER_SIZE.height,
+        handles: edgeHandles(MARKER_SIZE),
         draggable: false,
         connectable: false,
         deletable: false,
