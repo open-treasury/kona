@@ -54,6 +54,66 @@ function usage(): string {
   return lines.join("\n");
 }
 
+/**
+ * One complete, copyable invocation per verb.
+ *
+ * A flag list tells you what exists; an example tells you what to type. Watching a model
+ * work the CLI, every recovery attempt after a refusal was a guess at syntax — so the most
+ * useful thing help can contain is a line that already works.
+ */
+const VERB_EXAMPLES: Record<string, string[]> = {
+  init: ["kona init", "kona init --config /opt/kona/config.json"],
+  mutate: [
+    `kona mutate --steps 'read the tables' --steps 'build the schedule' \\`,
+    `  --base-version 0 --why 'read before scheduling' --reason-code MISSING_STEP`,
+    "",
+    "kona mutate --ops /tmp/ops.json --base-version 3 \\",
+    `  --why 'the fixture was stale' --reason-code PREMISE_BROKEN`,
+  ],
+  graph: ["kona graph", "kona graph --json", "kona graph --version 3", "kona graph --history"],
+  next: ["kona next", "kona next --json"],
+  brief: ["kona brief <node-id>", "kona brief <node-id> --json"],
+  poll: ["kona poll", "kona poll --json"],
+  resume: ["kona resume", "kona resume --json"],
+  effect: [
+    "kona effect reserve <node-id> --payload-hash <sha256> --why 'about to send'",
+    "kona effect record <node-id> --key <key> --outcome sent \\",
+    "  --message-id <id> --why 'it went'",
+    "",
+    "Only nodes that declare an effect can be reserved; a pure node is refused.",
+  ],
+  view: ["kona view", "kona view --port 4747"],
+};
+
+/** `kona <verb> --help`. Refusing this was, in practice, refusing to be learnable. */
+function verbHelp(verb: string): string {
+  const summary = VERBS.find((v) => v.name === verb)?.summary ?? "";
+  const options = VERB_OPTIONS[verb] ?? {};
+  const flags = Object.entries(options).map(([flag, spec]) => {
+    const takesValue = (spec as { type?: string }).type === "string";
+    const repeatable = (spec as { multiple?: boolean }).multiple === true;
+    return `  --${flag}${takesValue ? " <value>" : ""}${repeatable ? "  (repeatable)" : ""}`;
+  });
+  // `--reason-code` is a closed vocabulary, so a help page that omits it just relocates the
+  // guess. Both mutating verbs take one.
+  const vocab =
+    verb === "mutate" || verb === "effect"
+      ? ["", `--reason-code is one of: ${REASON_CODES.join(" ")}`]
+      : [];
+  return [
+    `kona ${verb} — ${summary}`,
+    "",
+    "Flags:",
+    ...flags.toSorted(),
+    ...vocab,
+    "",
+    "Example:",
+    ...(VERB_EXAMPLES[verb] ?? []).map((line) => (line === "" ? "" : `  ${line}`)),
+    "",
+    "Exit: 0 ok · 1 refused · 3 stale base version · 4 invariant violation",
+  ].join("\n");
+}
+
 function requireString(
   values: Record<string, unknown>,
   flag: string,
@@ -206,6 +266,15 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   if (!VERBS.some((v) => v.name === verb)) {
     io.err(`REFUSED UNKNOWN_VERB '${verb}' is not a kona verb; try --help`);
     return EXIT_REFUSED;
+  }
+
+  // Before parseArgs, because parseArgs rejects --help as an unknown option — which is how
+  // this was found: a model asked `kona mutate --help` six times, got REFUSED BAD_FLAG each
+  // time, and fell back to working without the graph. A CLI that refuses --help is one that
+  // can only be used by someone who already knows it.
+  if (rest.includes("--help") || rest.includes("-h")) {
+    io.out(verbHelp(verb));
+    return EXIT_OK;
   }
 
   let values: Record<string, unknown>;
