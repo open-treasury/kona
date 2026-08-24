@@ -79,6 +79,13 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
 
       <ScrollArea className="min-h-0">
         <dl className={KV}>
+          {/*
+            The header shows the id too, but `truncate`d — and ids run to 48 characters, so
+            a real one is routinely clipped mid-word in a 380px rail. This row is the full,
+            wrapping, selectable copy: it is the id you type into `kona brief <node-id>`,
+            and it is the node's correlation address, so a half of it is no use.
+          */}
+          <Row label="id" value={<span className="select-all">{node.id}</span>} />
           <Row label="label" value={node.label} />
           <Row label="type" value={node.type} />
           <Row label="status" value={node.status.state} />
