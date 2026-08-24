@@ -81,7 +81,9 @@ class KonaTerminus(Terminus2):
         # `brief` refuses with NO_IDENTITY unless the pursuit has one, and identity can only
         # be set at init — the log is never re-created. So the config must be in place first.
         init = await environment.exec(
-            f"cd / && {_BIN_TARGET} init --config {_CONFIG_TARGET}",
+            # `--prefix` is required: every node id opens with it and it is fixed for the life of
+            # the pursuit. `kn` keeps the correlation address short.
+            f"cd / && {_BIN_TARGET} init --config {_CONFIG_TARGET} --prefix kn",
             timeout_sec=60,
             user="root",
         )
