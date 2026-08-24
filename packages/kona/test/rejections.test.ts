@@ -24,7 +24,10 @@ const NODE = [
     spec: { instruction: "Email Dana.", effect_class: "pure" },
   },
 ];
-const FINISH = [{ op: "set_status", node: "ask-dana", status: "done", evidence_ref: "e" }];
+// The node id is minted, so this is a function evaluated inside a test.
+const FINISH = () => [
+  { op: "set_status", node: h.id("ask-dana"), status: "done", evidence_ref: "e" },
+];
 
 async function mutate(ops: unknown[], base: number, why: string, ...extra: string[]): Promise<number> {
   h.reset();
@@ -46,9 +49,9 @@ function refusals(): RejectionRecord[] {
 
 beforeEach(async () => {
   h = harness();
-  expect(await run(["init"], h.io)).toBe(0);
+  expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
   expect(await mutate(NODE, 0, "ask her")).toBe(0);
-  expect(await mutate(FINISH, 1, "she answered")).toBe(0);
+  expect(await mutate(FINISH(), 1, "she answered")).toBe(0);
 });
 afterEach(() => h.cleanup());
 
@@ -58,11 +61,11 @@ describe("what gets remembered", () => {
   });
 
   test("an invariant violation is written whole", async () => {
-    expect(await mutate(FINISH, 2, "reopen it, I want another go")).toBe(4);
+    expect(await mutate(FINISH(), 2, "reopen it, I want another go")).toBe(4);
     const [record] = refusals();
     expect(record?.rejection.reason).toBe("TERMINAL_NODE_PROTECTED");
     expect(record?.rejection.invariant).toBe(1);
-    expect(record?.rejection.node).toBe("ask-dana");
+    expect(record?.rejection.node).toBe(h.id("ask-dana"));
     expect(record?.head_version).toBe(2);
     expect(record?.base_version).toBe(2);
   });
@@ -70,14 +73,14 @@ describe("what gets remembered", () => {
   test("the author's own words survive verbatim — that is the point", async () => {
     // §6.3: rationale without outcome is a changelog; rationale WITH outcome is training
     // data. A rejection is the only record in the system that carries both.
-    await mutate(FINISH, 2, "reopen it, I want another go");
+    await mutate(FINISH(), 2, "reopen it, I want another go");
     expect(refusals()[0]?.rationale?.why).toBe("reopen it, I want another go");
     expect(refusals()[0]?.rationale?.reason_code).toBe("OTHER");
   });
 
   test("the batch is kept AS AUTHORED, refs and all — it never got normalised", async () => {
     const authored = [
-      { op: "add_edge", from: "$0", to: "ask-dana" },
+      { op: "add_edge", from: "$0", to: h.id("ask-dana") },
       ...NODE,
     ];
     expect(await mutate(authored, 2, "wire it backwards")).toBe(1);
@@ -85,7 +88,7 @@ describe("what gets remembered", () => {
   });
 
   test("a malformed batch is remembered too, even though it never reached the graph", async () => {
-    expect(await mutate([{ op: "delete_node", node: "ask-dana" }], 2, "just remove it")).toBe(1);
+    expect(await mutate([{ op: "delete_node", node: h.id("ask-dana") }], 2, "just remove it")).toBe(1);
     expect(refusals()[0]?.rejection.reason).toBe("MALFORMED_OPS");
     expect(refusals()[0]?.rationale?.why).toBe("just remove it");
   });
@@ -97,15 +100,15 @@ describe("what gets remembered", () => {
   });
 
   test("refusals accumulate, oldest first", async () => {
-    await mutate(FINISH, 2, "first try");
-    await mutate(FINISH, 2, "second try");
+    await mutate(FINISH(), 2, "first try");
+    await mutate(FINISH(), 2, "second try");
     expect(refusals().map((r) => r.rationale?.why)).toEqual(["first try", "second try"]);
   });
 });
 
 describe("what is deliberately NOT remembered", () => {
   test("a successful commit writes nothing here", async () => {
-    expect(await mutate([{ op: "record_output", node: "ask-dana", output_name: "x", value: 1, evidence_ref: "e" }], 2, "ok")).not.toBe(0);
+    expect(await mutate([{ op: "record_output", node: h.id("ask-dana"), output_name: "x", value: 1, evidence_ref: "e" }], 2, "ok")).not.toBe(0);
     const afterFailure = refusals().length;
     expect(await mutate(NODE, 2, "another node")).toBe(0);
     expect(refusals()).toHaveLength(afterFailure);
@@ -125,7 +128,7 @@ describe("the graph is still exactly fold(mutations.jsonl)", () => {
     expect(await run(["graph", "--json"], h.io)).toBe(0);
     const before = h.out[0];
 
-    await mutate(FINISH, 2, "reopen it");
+    await mutate(FINISH(), 2, "reopen it");
     expect(refusals()).toHaveLength(1);
 
     h.reset();
@@ -134,7 +137,7 @@ describe("the graph is still exactly fold(mutations.jsonl)", () => {
   });
 
   test("deleting the file loses memory, not state", async () => {
-    await mutate(FINISH, 2, "reopen it");
+    await mutate(FINISH(), 2, "reopen it");
     writeFileSync(rejectionsPath(), "");
     h.reset();
     expect(await run(["graph", "--json"], h.io)).toBe(0);
@@ -144,7 +147,7 @@ describe("the graph is still exactly fold(mutations.jsonl)", () => {
 
 describe("reading them back", () => {
   test("--rejections lists them with the reason and the rationale", async () => {
-    await mutate(FINISH, 2, "reopen it, I want another go");
+    await mutate(FINISH(), 2, "reopen it, I want another go");
     h.reset();
     expect(await run(["graph", "--rejections"], h.io)).toBe(0);
     const text = h.out.join("\n");
@@ -160,7 +163,7 @@ describe("reading them back", () => {
   });
 
   test("--json carries them alongside the graph, and omits them otherwise", async () => {
-    await mutate(FINISH, 2, "reopen it");
+    await mutate(FINISH(), 2, "reopen it");
     h.reset();
     expect(await run(["graph", "--json", "--rejections"], h.io)).toBe(0);
     const withThem = JSON.parse(h.out[0] ?? "{}") as { rejections: RejectionRecord[] };
@@ -184,7 +187,7 @@ describe("it is memory, so it fails soft", () => {
     // The refusal still stands, and one line says the note was lost.
     const dir = join(h.dir, ".kona");
     mkdirSync(join(dir, "rejections.jsonl"), { recursive: true });
-    expect(await mutate(FINISH, 2, "reopen it")).toBe(4);
+    expect(await mutate(FINISH(), 2, "reopen it")).toBe(4);
     expect(h.err.some((line) => line.includes("REJECTION_NOT_LOGGED"))).toBe(true);
     expect(h.err[0]).toContain("TERMINAL_NODE_PROTECTED");
   });

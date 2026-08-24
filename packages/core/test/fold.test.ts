@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { foldLog, projectGraph, splitLogLines } from "../src/index.ts";
+import { SCHEMA_VERSION, foldLog, projectGraph, splitLogLines } from "../src/index.ts";
 import { logOf, record } from "./fixtures.ts";
 
 const GENESIS = record(0, []);
@@ -49,7 +49,7 @@ describe("fold is deterministic", () => {
   });
 
   test("the fold stamps the schema version it was asked for", () => {
-    expect(foldLog(LOG).graph.schema_version).toBe(2);
+    expect(foldLog(LOG).graph.schema_version).toBe(SCHEMA_VERSION);
     expect(foldLog(LOG, { schemaVersion: 4 }).graph.schema_version).toBe(4);
   });
 

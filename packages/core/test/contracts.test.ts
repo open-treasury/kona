@@ -28,7 +28,7 @@ import {
   isTerminal,
   parseBatch,
 } from "../src/index.ts";
-import { seeded, task } from "./fixtures.ts";
+import { seeded, task, nodeAt } from "./fixtures.ts";
 
 describe("the six ops, and only the six", () => {
   test("OP_KINDS is exactly what the authored schema discriminates on", () => {
@@ -53,7 +53,7 @@ describe("the six ops, and only the six", () => {
   test("TERMINAL_SAFE_OP_KINDS is exactly the set invariant 1 lets through", () => {
     // Anything not in this list, targeting a node terminal at head, must be rejected.
     const done = seeded([task("A")]);
-    const node = done.nodes.get("a");
+    const node = nodeAt(done, "a");
     if (node === undefined) throw new Error("fixture");
     node.status.state = "done";
     const safe: string[] = [...TERMINAL_SAFE_OP_KINDS];

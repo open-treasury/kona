@@ -11,19 +11,19 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph, Rejection } from "../src/index.ts";
 import { SCHEMA_VERSION, emptyGraph, validate } from "../src/index.ts";
-import { ORCHESTRATOR, SUBAGENT, commit, seeded, task, wait } from "./fixtures.ts";
+import { ORCHESTRATOR, SUBAGENT, commit, seeded, task, wait, resolveSlugs, slugOf } from "./fixtures.ts";
 
 const EMPTY = emptyGraph(SCHEMA_VERSION);
 
 function refuses(graph: Graph, ops: unknown, actor = ORCHESTRATOR): Rejection {
-  const result = validate({ graph, ops, actor, version: graph.version + 1 });
+  const result = validate({ graph, ops: resolveSlugs(graph, ops), actor, version: graph.version + 1, prefix: "t" });
   expect(result.ok).toBe(false);
   if (result.ok) throw new Error("expected a rejection");
   return result.rejection;
 }
 
 function accepts(graph: Graph, ops: AuthoredOp[], actor = ORCHESTRATOR): void {
-  const result = validate({ graph, ops, actor, version: graph.version + 1 });
+  const result = validate({ graph, ops: resolveSlugs(graph, ops), actor, version: graph.version + 1, prefix: "t" });
   if (!result.ok) throw new Error(`unexpectedly rejected: ${result.rejection.message}`);
 }
 
@@ -110,7 +110,7 @@ describe("every reference position names itself when it dangles", () => {
     expect(r.reason).toBe("UNKNOWN_NODE");
     expect(r.message).toStartWith(`${field} references `);
     expect(r.message).toContain("ghost");
-    expect(r.node).toBe("ghost");
+    expect(slugOf(r.node)).toBe("ghost");
     expect(r.op_index).toBe(0);
   });
 
@@ -144,11 +144,13 @@ describe("every reference position names itself when it dangles", () => {
 describe("spec refs are only rewritten where a ref can legally live", () => {
   test("an {at} deadline holds a literal and is left alone", () => {
     const at = "2026-08-22T17:00:00.000Z";
+    const graph = seeded([task("A")]);
     const result = validate({
-      graph: seeded([task("A")]),
-      ops: [wait("W", { on_timeout: "a", deadline: { at } })],
+      graph,
+      ops: resolveSlugs(graph, [wait("W", { on_timeout: "a", deadline: { at } })]),
       actor: ORCHESTRATOR,
       version: 2,
+      prefix: "t",
     });
     if (!result.ok) throw new Error(result.rejection.message);
     const added = result.value.ops[0];
@@ -157,11 +159,13 @@ describe("spec refs are only rewritten where a ref can legally live", () => {
 
   test("an {expr} deadline is left alone too", () => {
     const deadline = { expr: "game_date - 24h", backstop: "2026-08-22T17:00:00.000Z", after_unknown: true };
+    const graph = seeded([task("A")]);
     const result = validate({
-      graph: seeded([task("A")]),
-      ops: [wait("W", { on_timeout: "a", deadline })],
+      graph,
+      ops: resolveSlugs(graph, [wait("W", { on_timeout: "a", deadline })]),
       actor: ORCHESTRATOR,
       version: 2,
+      prefix: "t",
     });
     if (!result.ok) throw new Error(result.rejection.message);
     const added = result.value.ops[0];
@@ -178,7 +182,7 @@ describe("invariant violations name the invariant and the node", () => {
     const r = refuses(done, [{ op: "add_edge", from: "b", to: "a" }]);
     expect(r.code).toBe("INVARIANT_VIOLATION");
     expect(r.invariant).toBe(1);
-    expect(r.node).toBe("a");
+    expect(r.message).toContain("'A'");
     expect(r.op_index).toBe(0);
     expect(r.message).toContain("already terminal");
   });
@@ -188,7 +192,7 @@ describe("invariant violations name the invariant and the node", () => {
     expect(r.message).toContain("supersede_node");
     expect(r.message).toContain("record_outcome");
     expect(r.message).toContain("record_output");
-    expect(r.node).toBe("a");
+    expect(r.message).toContain("'A'");
   });
 
   test("the violating op's index is reported, not the first op's", () => {

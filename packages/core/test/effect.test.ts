@@ -17,7 +17,7 @@ import {
   openEffect,
   parseEffectEvidence,
 } from "../src/index.ts";
-import { commit, rostered, task } from "./fixtures.ts";
+import { commit, rostered, task, nodeAt } from "./fixtures.ts";
 
 const KEY = "ek_b4668bc35579b3eb";
 
@@ -29,7 +29,7 @@ function pivot(label: string): AuthoredOp {
 }
 
 function nodeOf(graph: Graph, id: string) {
-  const node = graph.nodes.get(id);
+  const node = nodeAt(graph, id);
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }

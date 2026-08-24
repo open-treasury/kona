@@ -2,7 +2,14 @@
 
 import { mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { PursuitConfigSchema, SCHEMA_VERSION, type MutationRecord, type PursuitConfig } from "@kona/core";
+import {
+  PREFIX_PATTERN,
+  PursuitConfigSchema,
+  SCHEMA_VERSION,
+  isValidPrefix,
+  type MutationRecord,
+  type PursuitConfig,
+} from "@kona/core";
 import { readFile } from "node:fs/promises";
 import { konaPaths } from "../paths.ts";
 import { detectNetworkFilesystem } from "../netfs.ts";
@@ -16,6 +23,12 @@ export interface InitOptions {
   actorId: string;
   /** Pursuit-wide config — identity and effect budget — written onto the genesis record. */
   configFile?: string;
+  /**
+   * `--prefix`: the string every node id in this pursuit opens with. Settable only here,
+   * because ids already minted cannot be re-minted — a prefix that could change would leave
+   * the log carrying two shapes with neither of them wrong.
+   */
+  prefix?: string;
   json: boolean;
 }
 
@@ -88,13 +101,38 @@ export async function runInit(io: Io, options: InitOptions): Promise<number> {
     config = parsed.data;
   }
 
+  // Required, not defaulted. A default would be a second way to create a pursuit — one
+  // where nobody chose the prefix — and the prefix cannot be changed afterwards, because the
+  // ids it produced are already in the log.
+  if (options.prefix === undefined && config?.prefix === undefined) {
+    io.err(
+      "REFUSED MISSING_FLAG --prefix is required: every node id opens with it, and it is " +
+        "fixed for the life of the pursuit",
+    );
+    return EXIT_REFUSED;
+  }
+
+  // `--prefix` beats the config file, since it is the more immediate statement of intent,
+  // and it is the only way to set the prefix without authoring a config file at all.
+  if (options.prefix !== undefined) {
+    if (!isValidPrefix(options.prefix)) {
+      io.err(
+        `REFUSED BAD_PREFIX '${options.prefix}' must be 1-8 characters matching ` +
+          `${PREFIX_PATTERN.source} — a letter, then letters or digits, and no '-' because ` +
+          `the dash separates the prefix from the hash`,
+      );
+      return EXIT_REFUSED;
+    }
+    config = { ...config, prefix: options.prefix };
+  }
+
   await mkdir(paths.dir, { recursive: true });
   await appendRecord(paths, genesisRecord(io.now(), options.actorId, config));
 
   io.out(
     options.json
       ? JSON.stringify({ ok: true, root: paths.root, log: paths.log, version: 0 })
-      : `initialised ${paths.log} at version 0`,
+      : `initialised ${paths.log} at version 0 · ids look like ${config?.prefix}-a1b2`,
   );
   return EXIT_OK;
 }

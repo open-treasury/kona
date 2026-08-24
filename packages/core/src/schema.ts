@@ -21,7 +21,7 @@
  */
 
 import { z } from "zod";
-import { NODE_ID_PATTERN, MAX_NODE_ID_LENGTH, isValidNodeId } from "./ids.ts";
+import { NODE_ID_PATTERN, MAX_NODE_ID_LENGTH, PREFIX_PATTERN, isValidNodeId } from "./ids.ts";
 import {
   ACTOR_KINDS,
   EDGE_CONDITIONS,
@@ -381,6 +381,14 @@ export type Identity = z.infer<typeof IdentitySchema>;
  */
 export const PursuitConfigSchema = z.strictObject({
   identity: IdentitySchema.optional(),
+  /**
+   * The prefix every node id in this pursuit opens with, fixed at `kona init`.
+   *
+   * It lives on the genesis record rather than in a flag or a second file because ids
+   * already committed cannot be re-minted: if the prefix could change, the log would carry
+   * two id shapes and neither would be wrong.
+   */
+  prefix: z.string().regex(PREFIX_PATTERN).optional(),
   /** Invariant 3(a): the cumulative cap on irreversible sends. */
   effect_budget: z.number().int().min(0).optional(),
 });
@@ -415,4 +423,4 @@ export type MutationRecord = z.infer<typeof MutationRecordSchema>;
  * silently accepts two spellings of one state has two spellings to keep true forever.
  * Prototype-stage call — nothing durable is running on v1.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;

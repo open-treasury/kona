@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph, Result } from "../src/index.ts";
 import { checkAuthority, checkInvariant1, formatRejection, validate } from "../src/index.ts";
-import { ORCHESTRATOR, SUBAGENT, commit, seeded, task } from "./fixtures.ts";
+import { ORCHESTRATOR, SUBAGENT, commit, seeded, task, nodeAt, resolveSlugs, nid } from "./fixtures.ts";
 
 function run(graph: Graph, ops: AuthoredOp[], actor = ORCHESTRATOR) {
-  return validate({ graph, ops, actor, version: graph.version + 1 });
+  return validate({ graph, ops: resolveSlugs(graph, ops), actor, version: graph.version + 1, prefix: "t" });
 }
 
 function rejection<T>(result: Result<T>) {
@@ -32,7 +32,7 @@ describe("stage order", () => {
     if (!result.ok) throw new Error("unreachable");
     expect(result.value.ops).toHaveLength(2);
     expect(result.value.graph.version).toBe(2);
-    expect(result.value.graph.nodes.has("b")).toBe(true);
+    expect(result.value.graph.nodes.has(nid(result.value.graph, "b"))).toBe(true);
   });
 });
 
@@ -78,7 +78,7 @@ describe("invariant 1 — terminal & effect protection", () => {
     expect(r.code).toBe("INVARIANT_VIOLATION");
     expect(r.invariant).toBe(1);
     expect(r.reason).toBe("TERMINAL_NODE_PROTECTED");
-    expect(r.node).toBe("a");
+    expect(r.message).toContain("'A'");
   });
 
   test("refuses set_status against a terminal node", () => {
@@ -108,7 +108,7 @@ describe("invariant 1 — terminal & effect protection", () => {
   test("EXISTING edges into a terminal node do not block unrelated commits", () => {
     const wired = commit(seeded([task("A"), task("B")]), [{ op: "add_edge", from: "a", to: "b" }]);
     const finished = commit(wired, [{ op: "set_status", node: "b", status: "done", evidence_ref: "e" }]);
-    expect(finished.edges).toEqual([{ from: "a", to: "b" }]);
+    expect(finished.edges).toEqual([{ from: nid(finished, "a"), to: nid(finished, "b") }]);
     // b is terminal and still carries an in-edge. An unrelated commit must succeed.
     expect(run(finished, [task("C")]).ok).toBe(true);
   });
@@ -127,7 +127,7 @@ describe("invariant 1 — terminal & effect protection", () => {
 /** A node that has already put an email on the wire. */
 function withEffect(): Graph {
   const graph = seeded([task("Send invite")]);
-  const node = graph.nodes.get("send-invite");
+  const node = nodeAt(graph, "send-invite");
   if (node === undefined) throw new Error("fixture");
   node.status.effect_log.push({
     effect_key: "ek_1",
@@ -145,7 +145,7 @@ describe("invariant 1 — superseding a node that already moved bytes", () => {
     const r = rejection(run(withEffect(), [{ op: "supersede_node", node: "send-invite" }]));
     expect(r.invariant).toBe(1);
     expect(r.reason).toBe("UNCOMPENSATED_SUPERSEDE");
-    expect(r.node).toBe("send-invite");
+    expect(r.message).toContain("'Send invite'");
   });
 
   test("allows it when the same batch carries the compensation", () => {
@@ -178,11 +178,12 @@ describe("invariant 1 — superseding a node that already moved bytes", () => {
 
 describe("rejections are one greppable line", () => {
   test("symbolic reason first, then invariant, node and op", () => {
-    const r = rejection(run(withTerminal(), [{ op: "add_edge", from: "b", to: "a" }]));
+    const graph = withTerminal();
+    const r = rejection(run(graph, [{ op: "add_edge", from: "b", to: "a" }]));
     const line = formatRejection(r);
     expect(line.startsWith("TERMINAL_NODE_PROTECTED ")).toBe(true);
     expect(line).toContain("invariant=1");
-    expect(line).toContain("node=a");
+    expect(line).toContain(`node=${nid(graph, "a")}`);
     expect(line).toContain("op=0");
   });
 

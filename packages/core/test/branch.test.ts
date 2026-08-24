@@ -25,10 +25,16 @@ import {
   SCHEMA_VERSION,
   validate,
 } from "../src/index.ts";
-import { ORCHESTRATOR, commit, seeded, task, wait } from "./fixtures.ts";
+import { ORCHESTRATOR, commit, seeded, task, wait, nodeAt, resolveSlugs, slugOr, slugOf, nid } from "./fixtures.ts";
 
 function run(graph: Graph, ops: AuthoredOp[]) {
-  const result = validate({ graph, ops, actor: ORCHESTRATOR, version: graph.version + 1 });
+  const result = validate({
+    graph,
+    ops: resolveSlugs(graph, ops),
+    actor: ORCHESTRATOR,
+    version: graph.version + 1,
+    prefix: "t",
+  });
   if (!result.ok) {
     throw new Error(`rejected: ${result.rejection.reason} ${result.rejection.message}`);
   }
@@ -36,7 +42,7 @@ function run(graph: Graph, ops: AuthoredOp[]) {
 }
 
 function nodeOf(graph: Graph, id: string): Node {
-  const node = graph.nodes.get(id);
+  const node = nodeAt(graph, id);
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }
@@ -102,17 +108,17 @@ describe("isEdgeDead — the trichotomy is satisfied | pending | dead", () => {
 
   test("a resolved gate kills exactly the arms it did not take", () => {
     const graph = commit(gated(), [outcome("gate", "accept"), close("gate")]);
-    expect(isEdgeDead(graph, { from: "gate", to: "accepted", condition: { on: "accept" } })).toBe(
+    expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "accepted"), condition: { on: "accept" } })).toBe(
       false,
     );
-    expect(isEdgeDead(graph, { from: "gate", to: "ignored", condition: { on: "ignore" } })).toBe(
+    expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "ignored"), condition: { on: "ignore" } })).toBe(
       true,
     );
   });
 
   test("a DROPPED source kills every out-edge, conditioned or not", () => {
     const graph = commit(gated(), [close("ignored", "dropped")]);
-    expect(isEdgeDead(graph, { from: "ignored", to: "accepted" })).toBe(true);
+    expect(isEdgeDead(graph, { from: slugOr(graph, "ignored"), to: slugOr(graph, "accepted") })).toBe(true);
   });
 
   /**
@@ -122,24 +128,24 @@ describe("isEdgeDead — the trichotomy is satisfied | pending | dead", () => {
    */
   test("a FAILED source is not dead, even though it can never satisfy", () => {
     const graph = commit(gated(), [close("ignored", "failed")]);
-    expect(isEdgeDead(graph, { from: "ignored", to: "accepted" })).toBe(false);
+    expect(isEdgeDead(graph, { from: slugOr(graph, "ignored"), to: slugOr(graph, "accepted") })).toBe(false);
   });
 
   test("a plain edge out of a done source is satisfied, never dead", () => {
     const graph = commit(gated(), [outcome("gate", "accept"), close("gate")]);
-    expect(isEdgeDead(graph, { from: "gate", to: "accepted" })).toBe(false);
+    expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "accepted") })).toBe(false);
   });
 
   test("done but not yet resolved is pending — the outcome may land in a later commit", () => {
     const graph = commit(gated(), [close("gate")]);
-    expect(isEdgeDead(graph, { from: "gate", to: "ignored", condition: { on: "ignore" } })).toBe(
+    expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "ignored"), condition: { on: "ignore" } })).toBe(
       false,
     );
   });
 
   test("a tentative outcome does not resolve, so it kills nothing", () => {
     const graph = commit(gated(), [outcome("gate", "tentative"), close("gate")]);
-    expect(isEdgeDead(graph, { from: "gate", to: "ignored", condition: { on: "ignore" } })).toBe(
+    expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "ignored"), condition: { on: "ignore" } })).toBe(
       false,
     );
   });
@@ -175,13 +181,14 @@ describe("isDroppable — what the store may rewrite", () => {
 
 describe("the trigger is an op-delta, never a post-state scan", () => {
   test("resolving a gate derives a drop for the untaken arm", () => {
-    const { ops, derived, graph } = run(gated(), [outcome("gate", "accept"), close("gate")]);
+    const head = gated();
+    const { ops, derived, graph } = run(head, [outcome("gate", "accept"), close("gate")]);
     expect(derived).toHaveLength(1);
     expect(derived[0]).toEqual({
       op: "set_status",
-      node: "ignored",
+      node: nid(head, "ignored"),
       status: "dropped",
-      evidence_ref: `${DERIVED_EVIDENCE_PREFIX}:gate`,
+      evidence_ref: `${DERIVED_EVIDENCE_PREFIX}:${nid(head, "gate")}`,
     });
     // The authored ops keep their positions; derivation only ever appends.
     expect(ops).toHaveLength(3);
@@ -200,7 +207,7 @@ describe("the trigger is an op-delta, never a post-state scan", () => {
   test("out-of-order events still resolve: the drop lands on the commit that completes the pair", () => {
     const closed = commit(gated(), [close("gate")]);
     const { derived } = run(closed, [outcome("gate", "accept")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["ignored"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["ignored"]);
   });
 
   /**
@@ -230,17 +237,22 @@ describe("the trigger is an op-delta, never a post-state scan", () => {
 describe("the cascade is transitive, and it stops where the spec says", () => {
   test("an untaken arm two deep drops both nodes", () => {
     const { derived, graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["b1", "b2"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b1", "b2"]);
     expect(nodeOf(graph, "b1").status.state).toBe("dropped");
     expect(nodeOf(graph, "b2").status.state).toBe("dropped");
   });
 
   test("each derived op names its own immediate cause, not the original gate", () => {
     const { derived } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && op.evidence_ref)).toEqual([
-      `${DERIVED_EVIDENCE_PREFIX}:gate`,
-      `${DERIVED_EVIDENCE_PREFIX}:b1`,
-    ]);
+    // The ref names the node that caused each drop, so it carries a minted id; translate it
+    // back rather than spelling it.
+    expect(
+      derived.map((op) =>
+        op.op === "set_status"
+          ? `${DERIVED_EVIDENCE_PREFIX}:${String(slugOf(op.evidence_ref.slice(DERIVED_EVIDENCE_PREFIX.length + 1)))}`
+          : "",
+      ),
+    ).toEqual([`${DERIVED_EVIDENCE_PREFIX}:gate`, `${DERIVED_EVIDENCE_PREFIX}:b1`]);
   });
 
   test("the taken arm is untouched", () => {
@@ -252,14 +264,14 @@ describe("the cascade is transitive, and it stops where the spec says", () => {
   /** §6.4: "It stops at a node still held by a live in-edge — a shared descendant." */
   test("a shared descendant with one live in-edge survives", () => {
     const { derived, graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).not.toContain("join");
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).not.toContain("join");
     expect(nodeOf(graph, "join").status.state).toBe("active");
   });
 
   test("a root with no in-edges is never dropped", () => {
     const seed = commit(gated(), [task("Orphan")]);
     const { derived } = run(seed, [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["ignored"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["ignored"]);
   });
 
   /**
@@ -271,22 +283,22 @@ describe("the cascade is transitive, and it stops where the spec says", () => {
   test("a node already done on a dead arm is not rewritten, but its successors still drop", () => {
     const withDone = commit(twoDeep(), [close("b1")]);
     const { derived, graph } = run(withDone, [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["b2"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2"]);
     expect(nodeOf(graph, "b1").status.state).toBe("done");
-    expect(readyFrontier(graph).map((n) => n.id)).not.toContain("b2");
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).not.toContain("b2");
   });
 
   test("a SENDING node is withheld rather than dropped — and its successors still drop", () => {
     const sending = commit(twoDeep(), [close("b1", "in_flight")]);
     const { derived, withheld, graph } = run(sending, [outcome("gate", "accept"), close("gate")]);
-    expect(withheld).toEqual(["b1"]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["b2"]);
+    expect(withheld.map(slugOf)).toEqual(["b1"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2"]);
     expect(nodeOf(graph, "b1").status.state).toBe("in_flight");
   });
 
   test("a node the same batch set done is not dropped", () => {
     const { derived } = run(twoDeep(), [outcome("gate", "accept"), close("gate"), close("b1")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["b2"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2"]);
   });
 });
 
@@ -294,9 +306,9 @@ describe("§7 — untaken arm, two deep", () => {
   test("neither node appears on the frontier at any point", () => {
     const { graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
     const frontier = readyFrontier(graph).map((n) => n.id);
-    expect(frontier).not.toContain("b1");
-    expect(frontier).not.toContain("b2");
-    expect(frontier).toEqual(["a1"]);
+    expect(frontier.map(slugOf)).not.toContain("b1");
+    expect(frontier.map(slugOf)).not.toContain("b2");
+    expect(frontier.map(slugOf)).toEqual(["a1"]);
   });
 
   test("the merge SATISFIES rather than hanging once the taken arm completes", () => {
@@ -306,7 +318,7 @@ describe("§7 — untaken arm, two deep", () => {
     // `join` still carries a live-looking in-edge from b2, which is dropped. §6.4 excludes
     // it from merge evaluation, so the join is satisfied by the arm that was actually taken.
     expect(isReady(graph, nodeOf(graph, "join"))).toBe(true);
-    expect(readyFrontier(graph).map((n) => n.id)).toContain("join");
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toContain("join");
   });
 
   test("a join loses its last live arm and is dropped, not left hanging", () => {
@@ -315,9 +327,9 @@ describe("§7 — untaken arm, two deep", () => {
     // every blocking in-edge now originates at a dropped node. §6.4's transitive rule
     // reaches the merge itself; it does not stop one hop short and leave it unreachable.
     const { derived, graph } = run(resolved, [close("a1", "dropped")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["a2", "join"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["a2", "join"]);
     expect(isReady(graph, nodeOf(graph, "join"))).toBe(false);
-    expect(readyFrontier(graph).map((n) => n.id)).not.toContain("join");
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).not.toContain("join");
   });
 });
 
@@ -343,7 +355,7 @@ describe("determinism — the log is the authority, not the code that wrote it",
       { op: "add_edge", from: "b1", to: "b2" },
     ]);
     const { derived } = run(wired, [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && op.node)).toEqual(["b2", "b1"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2", "b1"]);
   });
 
   /**
@@ -353,7 +365,7 @@ describe("determinism — the log is the authority, not the code that wrote it",
   test("replaying the expanded ops reproduces the graph validate previewed", () => {
     const pre = twoDeep();
     const { ops, graph } = run(pre, [outcome("gate", "accept"), close("gate")]);
-    const replayed = applyOps(pre, ops, pre.version + 1);
+    const replayed = applyOps(pre, resolveSlugs(pre, ops) as CommittedOp[], pre.version + 1);
     expect(replayed.ok).toBe(true);
     if (!replayed.ok) throw new Error("unreachable");
     expect(JSON.stringify(projectGraph(replayed.value))).toBe(
@@ -384,7 +396,7 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
     expect(nodeOf(graph, "gate").status.state).toBe("failed");
     expect(nodeOf(graph, "gate").status.outcome?.verdict).toBe("accept");
     // Were `failed` treated as dropped, this would be dead and `ignored` would be rewritten.
-    expect(isEdgeDead(graph, { from: "gate", to: "ignored", condition: { on: "ignore" } })).toBe(
+    expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "ignored"), condition: { on: "ignore" } })).toBe(
       false,
     );
   });
@@ -417,10 +429,10 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
       },
       { op: "add_edge", from: "gate", to: "late", condition: { on: "ignore" } },
     ];
-    const post = applyOps(pre, fresh, pre.version + 1);
+    const post = applyOps(pre, resolveSlugs(pre, fresh) as CommittedOp[], pre.version + 1);
     expect(post.ok).toBe(true);
     if (!post.ok) throw new Error("unreachable");
-    expect(isEdgeDead(post.value, { from: "gate", to: "late", condition: { on: "ignore" } })).toBe(
+    expect(isEdgeDead(post.value, { from: slugOr(post.value, "gate"), to: slugOr(post.value, "late"), condition: { on: "ignore" } })).toBe(
       true,
     );
     // Dead, and still not derived from: it was born dead, so refusing it is the store's
@@ -474,7 +486,16 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
     ]);
     const { derived } = run(wired, [outcome("gate", "accept"), close("gate")]);
     const causes = Object.fromEntries(
-      derived.flatMap((op) => (op.op === "set_status" ? [[op.node, op.evidence_ref]] : [])),
+      derived.flatMap((op) =>
+        op.op === "set_status"
+          ? [
+              [
+                String(slugOf(op.node)),
+                `${DERIVED_EVIDENCE_PREFIX}:${String(slugOf(op.evidence_ref.slice(DERIVED_EVIDENCE_PREFIX.length + 1)))}`,
+              ],
+            ]
+          : [],
+      ),
     );
     expect(causes["j"]).toBe(`${DERIVED_EVIDENCE_PREFIX}:b1`);
     expect(causes["b1"]).toBe(`${DERIVED_EVIDENCE_PREFIX}:gate`);
@@ -519,7 +540,7 @@ describe("hardening — edge identity and the evidence stamp", () => {
       },
       { op: "add_edge", from: "gate", to: "late", condition: { on: "ignore" } },
     ];
-    const post = applyOps(pre, fresh, pre.version + 1, "2026-08-21T12:00:00.000Z");
+    const post = applyOps(pre, resolveSlugs(pre, fresh) as CommittedOp[], pre.version + 1, "2026-08-21T12:00:00.000Z");
     expect(post.ok).toBe(true);
     if (!post.ok) throw new Error("unreachable");
     // `pre` already holds `gate -> accepted {accept}` and `gate -> ignored {ignore}`, so a
@@ -535,19 +556,22 @@ describe("hardening — edge identity and the evidence stamp", () => {
    * here rather than silently in whatever greps for it.
    */
   test("the derived evidence_ref is a stable literal", () => {
-    const { derived } = run(gated(), [outcome("gate", "accept"), close("gate")]);
+    const graph = gated();
+    const { derived } = run(graph, [outcome("gate", "accept"), close("gate")]);
     const ref = derived[0]?.op === "set_status" ? derived[0].evidence_ref : "";
-    expect(ref).toBe("derived:branch-resolution:gate");
+    // The ref names the node that CAUSED the drop, so it carries a minted id. The constant
+    // is what this asserts; the id is read back rather than written down.
+    expect(ref).toBe(`derived:branch-resolution:${nid(graph, "gate")}`);
   });
 
   test("and it names the immediate cause at every depth", () => {
-    const { derived } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
+    const graph = twoDeep();
+    const { derived } = run(graph, [outcome("gate", "accept"), close("gate")]);
     expect(
-      derived.map((op) => (op.op === "set_status" ? `${op.node}=${op.evidence_ref}` : "")),
-    ).toEqual([
-      "b1=derived:branch-resolution:gate",
-      "b2=derived:branch-resolution:b1",
-    ]);
+      derived.map((op) =>
+        op.op === "set_status" ? `${String(slugOf(op.node))}=${String(slugOf(op.evidence_ref.split(":").pop()))}` : "",
+      ),
+    ).toEqual(["b1=gate", "b2=b1"]);
   });
 });
 
@@ -568,14 +592,14 @@ describe("arm-death (§6.4, read side)", () => {
 
   test("nothing is arm-dead while the gate is still open", () => {
     const graph = shared("any");
-    expect(isArmDead(graph, "b1")).toBe(false);
-    expect(isArmDead(graph, "a1")).toBe(false);
+    expect(isArmDead(graph, slugOr(graph, "b1"))).toBe(false);
+    expect(isArmDead(graph, slugOr(graph, "a1"))).toBe(false);
   });
 
   test("the untaken arm becomes arm-dead once the gate resolves", () => {
     const graph = run(shared("any"), [outcome("gate", "accept"), close("gate")]).graph;
-    expect(isArmDead(graph, "b1")).toBe(true);
-    expect(isArmDead(graph, "a1")).toBe(false);
+    expect(isArmDead(graph, slugOr(graph, "b1"))).toBe(true);
+    expect(isArmDead(graph, slugOr(graph, "a1"))).toBe(false);
   });
 
   /**
@@ -591,7 +615,7 @@ describe("arm-death (§6.4, read side)", () => {
     expect(nodeOf(graph, "b1").status.state).toBe("done");
     expect(nodeOf(graph, "a1").status.state).toBe("active");
     expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(false);
-    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["a1"]);
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["a1"]);
   });
 
   /**
@@ -602,11 +626,11 @@ describe("arm-death (§6.4, read side)", () => {
   test("nor does a SENDING node that later completes", () => {
     const sending = commit(shared("any"), [close("b1", "in_flight")]);
     const resolved = run(sending, [outcome("gate", "accept"), close("gate")]);
-    expect(resolved.withheld).toEqual(["b1"]);
+    expect(resolved.withheld.map(slugOf)).toEqual(["b1"]);
 
     const completed = commit(resolved.graph, [close("b1")]);
     expect(isReady(completed, nodeOf(completed, "pivot"))).toBe(false);
-    expect(readyFrontier(completed).map((n) => n.id)).toEqual(["a1"]);
+    expect(readyFrontier(completed).map((n) => slugOf(n.id))).toEqual(["a1"]);
   });
 
   test("the taken arm still opens the descendant normally", () => {
@@ -630,13 +654,13 @@ describe("arm-death (§6.4, read side)", () => {
       { op: "add_edge", from: "y", to: "x" },
     ]);
     const graph = run(wired, [outcome("gate", "accept"), close("gate")]).graph;
-    expect(isArmDead(graph, "x")).toBe(false);
-    expect(isArmDead(graph, "y")).toBe(false);
+    expect(isArmDead(graph, slugOr(graph, "x"))).toBe(false);
+    expect(isArmDead(graph, slugOr(graph, "y"))).toBe(false);
   });
 
   test("a node whose every in-edge is dropped is arm-dead, and not ready", () => {
     const graph = run(twoDeep(), [outcome("gate", "accept"), close("gate")]).graph;
-    expect(isArmDead(graph, "b2")).toBe(true);
-    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["a1"]);
+    expect(isArmDead(graph, slugOr(graph, "b2"))).toBe(true);
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["a1"]);
   });
 });

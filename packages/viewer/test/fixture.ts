@@ -85,8 +85,21 @@ export const V = {
 
 /**
  * A wall clock fixed to a moment in the middle of the story, so countdown assertions are
- * stable. v7 was observed at 2026-08-22T00:53:59Z; `goalie-confirmed` is due at
- * 2026-08-21T17:00:00Z and `wait-for-eligibility-ruling` at 2026-08-21T12:00:00Z, so both are
+ * stable. v7 was observed at 2026-08-22T00:53:59Z; `th-ymld` is due at
+ * 2026-08-21T17:00:00Z and `th-9xi1` at 2026-08-21T12:00:00Z, so both are
  * already blown at head — which is exactly the state rule 8's third colour has to render.
  */
 export const NOW = Date.parse("2026-08-22T01:00:00.000Z");
+
+/**
+ * The id the fixture minted for a node, found by its label.
+ *
+ * Ids are hashes, so a test cannot spell one from the person's name. The label is the stable
+ * handle, and it is what the tests using this are actually asserting about.
+ */
+export function idOfLabel(label: string): string {
+  for (const node of folded().graph.nodes.values()) {
+    if (node.label === label) return node.id;
+  }
+  throw new Error(`the fixture has no node labelled "${label}"`);
+}

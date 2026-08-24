@@ -81,7 +81,7 @@ describe("the topology table", () => {
     const diff = diffGraphs(before, after);
     expect(diff.topologyStable).toBe(true);
     expect(diff.statusChanged).toEqual([
-      { id: "ask-dana-to-play-in-goal", from: "in_flight", to: "done" },
+      { id: "th-nhwd", from: "in_flight", to: "done" },
     ]);
   });
 
@@ -100,8 +100,8 @@ describe("versions that change the shape", () => {
     // may address the people in it. v1 adds no edges because it wires nothing yet.
     const diff = step(V.roster);
     expect(diff.addedNodes).toEqual([
-      "confirm-roster-availability",
-      "escalate-no-goalie-found",
+      "th-ahf6",
+      "th-vipt",
     ]);
     expect(diff.addedEdges).toEqual([]);
     // Nothing CHANGED status: the roster node is added and finished inside one version, so
@@ -112,39 +112,39 @@ describe("versions that change the shape", () => {
   test("the plan version is every arm at once, converging on the predicate", () => {
     const diff = step(V.plan);
     expect(diff.addedNodes).toEqual([
-      "ask-dana-to-play-in-goal",
-      "wait-for-dana",
-      "ask-sam-to-play-in-goal",
-      "wait-for-sam",
-      "ask-priya-to-play-in-goal",
-      "wait-for-priya",
-      "goalie-confirmed",
+      "th-nhwd",
+      "th-es9m",
+      "th-gyre",
+      "th-ocwr",
+      "th-t2yo",
+      "th-1ppl",
+      "th-ymld",
     ]);
     // Three of the seven new edges are conditional, all on `satisfied`, all into the quorum.
-    expect(diff.addedEdges.filter((key) => key.to === "goalie-confirmed")).toEqual([
-      { from: "wait-for-dana", to: "goalie-confirmed", on: "satisfied" },
-      { from: "wait-for-sam", to: "goalie-confirmed", on: "satisfied" },
-      { from: "wait-for-priya", to: "goalie-confirmed", on: "satisfied" },
+    expect(diff.addedEdges.filter((key) => key.to === "th-ymld")).toEqual([
+      { from: "th-es9m", to: "th-ymld", on: "satisfied" },
+      { from: "th-ocwr", to: "th-ymld", on: "satisfied" },
+      { from: "th-1ppl", to: "th-ymld", on: "satisfied" },
     ]);
     expect(diff.statusChanged).toEqual([]);
   });
 
   test("Sam's refusal grows the Marcus arm", () => {
     const diff = step(V.samRefers);
-    expect(diff.addedNodes).toEqual(["check-marcus-is-eligible", "wait-for-eligibility-ruling"]);
+    expect(diff.addedNodes).toEqual(["th-etsk", "th-9xi1"]);
     expect(diff.addedEdges).toEqual([
-      { from: "check-marcus-is-eligible", to: "wait-for-eligibility-ruling", on: null },
+      { from: "th-etsk", to: "th-9xi1", on: null },
       // The one `accept` edge in the fixture: a human ruling, not a reply.
-      { from: "wait-for-eligibility-ruling", to: "goalie-confirmed", on: "accept" },
+      { from: "th-9xi1", to: "th-ymld", on: "accept" },
     ]);
-    expect(diff.statusChanged).toEqual([{ id: "wait-for-sam", from: "active", to: "done" }]);
-    expect(diff.outcomeAdded).toEqual(["wait-for-sam"]);
+    expect(diff.statusChanged).toEqual([{ id: "th-ocwr", from: "active", to: "done" }]);
+    expect(diff.outcomeAdded).toEqual(["th-ocwr"]);
     expect(diff.topologyStable).toBe(false);
   });
 
   test("the supersede adds no edge, moves no status, and is still not stable", () => {
     const diff = step(V.rosterSuperseded);
-    expect(diff.addedNodes).toEqual(["confirm-roster-availability-and-eligibility"]);
+    expect(diff.addedNodes).toEqual(["th-five"]);
     expect(diff.addedEdges).toEqual([]);
     // The superseded node was already `done`, so superseding it moved nothing observable.
     // Only `superseded` records what happened — and it alone has to unstick the layout.
@@ -152,8 +152,8 @@ describe("versions that change the shape", () => {
     expect(diff.outcomeAdded).toEqual([]);
     expect(diff.superseded).toEqual([
       {
-        id: "confirm-roster-availability",
-        by: "confirm-roster-availability-and-eligibility",
+        id: "th-ahf6",
+        by: "th-five",
       },
     ]);
     expect(diff.topologyStable).toBe(false);
@@ -166,35 +166,35 @@ describe("versions that change the shape", () => {
     const diff = step(V.priyaFailed);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.statusChanged).toEqual([
-      { id: "ask-priya-to-play-in-goal", from: "in_flight", to: "failed" },
+      { id: "th-t2yo", from: "in_flight", to: "failed" },
     ]);
     expect(diff.topologyStable).toBe(true);
   });
 
   test("Pat's arm is planned once Priya's is written off", () => {
     const diff = step(V.patPlanned);
-    expect(diff.addedNodes).toEqual(["ask-pat-to-play-in-goal", "wait-for-pat"]);
+    expect(diff.addedNodes).toEqual(["th-gk0l", "th-0s7c"]);
     expect(diff.addedEdges).toEqual([
-      { from: "ask-pat-to-play-in-goal", to: "wait-for-pat", on: null },
-      { from: "wait-for-pat", to: "goalie-confirmed", on: "satisfied" },
+      { from: "th-gk0l", to: "th-0s7c", on: null },
+      { from: "th-0s7c", to: "th-ymld", on: "satisfied" },
     ]);
     expect(diff.statusChanged).toEqual([
-      { id: "wait-for-priya", from: "active", to: "dropped" },
+      { id: "th-1ppl", from: "active", to: "dropped" },
     ]);
-    expect(diff.outcomeAdded).toEqual(["wait-for-priya"]);
+    expect(diff.outcomeAdded).toEqual(["th-1ppl"]);
   });
 
   test("a supersede with no replacement shows up as a drop, not as a supersede", () => {
-    // That version supersedes `wait-for-priya` with no `by`, so `superseded_by` stays null
+    // That version supersedes `th-1ppl` with no `by`, so `superseded_by` stays null
     // and the only trace in the graph is the status going `dropped`. Reporting it under
     // `superseded` would mean inventing a replacement that the log does not name.
     const diff = step(V.patPlanned);
     expect(diff.superseded).toEqual([]);
-    expect(folded(V.patPlanned).graph.nodes.get("wait-for-priya")?.provenance.superseded_by).toBe(
+    expect(folded(V.patPlanned).graph.nodes.get("th-1ppl")?.provenance.superseded_by).toBe(
       null,
     );
     expect(diff.statusChanged).toContainEqual({
-      id: "wait-for-priya",
+      id: "th-1ppl",
       from: "active",
       to: "dropped",
     });
@@ -204,7 +204,7 @@ describe("versions that change the shape", () => {
 describe("supersede, on its own", () => {
   test("a supersede alone unsticks the layout, though it adds nothing", () => {
     const before = folded(V.samRefers).graph;
-    const retired = before.nodes.get("confirm-roster-availability");
+    const retired = before.nodes.get("th-ahf6");
     expect(retired?.status.state).toBe("done");
     expect(retired?.provenance.superseded_by).toBe(null);
 
@@ -214,8 +214,8 @@ describe("supersede, on its own", () => {
     const after = applied(before, [
       {
         op: "supersede_node",
-        node: "confirm-roster-availability",
-        by: "check-marcus-is-eligible",
+        node: "th-ahf6",
+        by: "th-etsk",
       },
     ]);
 
@@ -227,7 +227,7 @@ describe("supersede, on its own", () => {
     expect(diff.statusChanged).toEqual([]);
     expect(diff.outcomeAdded).toEqual([]);
     expect(diff.superseded).toEqual([
-      { id: "confirm-roster-availability", by: "check-marcus-is-eligible" },
+      { id: "th-ahf6", by: "th-etsk" },
     ]);
     // ...so it alone has to re-run dagre. The replacement must be drawn beside the node it
     // replaces with the chain between them, and leaving this stable would lay one on top of
@@ -237,12 +237,12 @@ describe("supersede, on its own", () => {
 
   test("a bare supersede retires a branch without moving the picture", () => {
     const before = folded(6).graph;
-    expect(before.nodes.get("wait-for-priya")?.status.state).toBe("active");
+    expect(before.nodes.get("th-1ppl")?.status.state).toBe("active");
 
     // No `by` — what v7 does to Priya's wait once her address bounces. §6.4: `superseded_by`
     // stays null because no replacement was named, and the node stops being work instead.
-    const after = applied(before, [{ op: "supersede_node", node: "wait-for-priya" }]);
-    expect(after.nodes.get("wait-for-priya")?.provenance.superseded_by).toBe(null);
+    const after = applied(before, [{ op: "supersede_node", node: "th-1ppl" }]);
+    expect(after.nodes.get("th-1ppl")?.provenance.superseded_by).toBe(null);
 
     const diff = diffGraphs(before, after);
     // These two answers are consistent, not contradictory. `superseded` is empty because
@@ -254,7 +254,7 @@ describe("supersede, on its own", () => {
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);
     expect(diff.statusChanged).toEqual([
-      { id: "wait-for-priya", from: "active", to: "dropped" },
+      { id: "th-1ppl", from: "active", to: "dropped" },
     ]);
     expect(diff.topologyStable).toBe(true);
   });
@@ -266,7 +266,7 @@ describe("status ticks", () => {
     // `sending` is not terminal: the intent is fsynced and nobody knows the answer yet.
     // Priya's stays exactly here for four versions, which is what makes it renderable.
     expect(diff.statusChanged).toEqual([
-      { id: "ask-priya-to-play-in-goal", from: "active", to: "in_flight" },
+      { id: "th-t2yo", from: "active", to: "in_flight" },
     ]);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);
@@ -278,11 +278,11 @@ describe("status ticks", () => {
 
   test("Dana's refusal is recorded against an unchanged shape", () => {
     const diff = step(V.danaDeclines);
-    expect(diff.statusChanged).toEqual([{ id: "wait-for-dana", from: "active", to: "done" }]);
-    expect(diff.outcomeAdded).toEqual(["wait-for-dana"]);
+    expect(diff.statusChanged).toEqual([{ id: "th-es9m", from: "active", to: "done" }]);
+    expect(diff.outcomeAdded).toEqual(["th-es9m"]);
     expect(diff.topologyStable).toBe(true);
     // `declined` closes the wait, so the node is `done`. It did not fail; somebody answered.
-    expect(folded(V.danaDeclines).graph.nodes.get("wait-for-dana")?.status.outcome?.verdict).toBe(
+    expect(folded(V.danaDeclines).graph.nodes.get("th-es9m")?.status.outcome?.verdict).toBe(
       "declined",
     );
   });
@@ -311,8 +311,8 @@ describe("the first paint", () => {
     expect(diff.toVersion).toBe(V.patReserved);
     expect(diff.topologyStable).toBe(false);
     // Additions in insertion order (rule 7), so the canvas can pin visual order to it.
-    expect(diff.addedNodes[0]).toBe("confirm-roster-availability");
-    expect(diff.addedNodes.at(-1)).toBe("wait-for-pat");
+    expect(diff.addedNodes[0]).toBe("th-ahf6");
+    expect(diff.addedNodes.at(-1)).toBe("th-0s7c");
     // A node that appears for the first time is an addition, never a transition — there is
     // no earlier state for it to have moved from.
     expect(diff.statusChanged).toEqual([]);
@@ -327,33 +327,33 @@ describe("diffs across more than one version", () => {
     expect(diff.fromVersion).toBe(V.plan);
     expect(diff.toVersion).toBe(V.patReserved);
     expect(diff.addedNodes).toEqual([
-      "check-marcus-is-eligible",
-      "wait-for-eligibility-ruling",
-      "confirm-roster-availability-and-eligibility",
-      "ask-pat-to-play-in-goal",
-      "wait-for-pat",
+      "th-etsk",
+      "th-9xi1",
+      "th-five",
+      "th-gk0l",
+      "th-0s7c",
     ]);
     expect(diff.addedEdges).toHaveLength(4);
     expect(diff.superseded).toEqual([
       {
-        id: "confirm-roster-availability",
-        by: "confirm-roster-availability-and-eligibility",
+        id: "th-ahf6",
+        by: "th-five",
       },
     ]);
     // Priya went active -> sending -> failed across three separate versions; the diff
     // reports the endpoints, which is the whole point of collapsing a range.
     expect(diff.statusChanged).toContainEqual({
-      id: "ask-priya-to-play-in-goal",
+      id: "th-t2yo",
       from: "active",
       to: "failed",
     });
     // Dana's two commits collapse the same way.
     expect(diff.statusChanged).toContainEqual({
-      id: "ask-dana-to-play-in-goal",
+      id: "th-nhwd",
       from: "active",
       to: "done",
     });
-    expect(diff.outcomeAdded).toEqual(["wait-for-dana", "wait-for-sam", "wait-for-priya"]);
+    expect(diff.outcomeAdded).toEqual(["th-es9m", "th-ocwr", "th-1ppl"]);
   });
 });
 
@@ -384,27 +384,27 @@ describe("nothing is ever removed", () => {
 
 describe("edge keys", () => {
   test("an unconditional edge keys with a null condition", () => {
-    const edge = edgeBetween(folded().graph.edges, "ask-dana-to-play-in-goal", "wait-for-dana");
+    const edge = edgeBetween(folded().graph.edges, "th-nhwd", "th-es9m");
     expect(edgeKey(edge)).toEqual({
-      from: "ask-dana-to-play-in-goal",
-      to: "wait-for-dana",
+      from: "th-nhwd",
+      to: "th-es9m",
       on: null,
     });
   });
 
   test("a conditional edge carries its condition into the key", () => {
     const edges = folded().graph.edges;
-    const edge = edgeBetween(edges, "wait-for-eligibility-ruling", "goalie-confirmed");
+    const edge = edgeBetween(edges, "th-9xi1", "th-ymld");
     expect(edge.condition).toEqual({ on: "accept" });
     expect(edgeKey(edge)).toEqual({
-      from: "wait-for-eligibility-ruling",
-      to: "goalie-confirmed",
+      from: "th-9xi1",
+      to: "th-ymld",
       on: "accept",
     });
   });
 
   test("the condition is part of the identity, so the same pair keys differently", () => {
-    const pair = { from: "wait-for-dana", to: "goalie-confirmed" } as const;
+    const pair = { from: "th-es9m", to: "th-ymld" } as const;
     expect(edgeKeyString({ ...pair, on: null })).not.toBe(
       edgeKeyString({ ...pair, on: "satisfied" }),
     );
@@ -418,14 +418,14 @@ describe("edge keys", () => {
 
   test("every edge into the quorum is distinguished by source and condition", () => {
     const into = folded()
-      .graph.edges.filter((edge) => edge.to === "goalie-confirmed")
+      .graph.edges.filter((edge) => edge.to === "th-ymld")
       .map((edge) => edgeKeyString(edgeKey(edge)));
     expect(into).toEqual([
-      "wait-for-dana>goalie-confirmed#satisfied",
-      "wait-for-sam>goalie-confirmed#satisfied",
-      "wait-for-priya>goalie-confirmed#satisfied",
-      "wait-for-eligibility-ruling>goalie-confirmed#accept",
-      "wait-for-pat>goalie-confirmed#satisfied",
+      "th-es9m>th-ymld#satisfied",
+      "th-ocwr>th-ymld#satisfied",
+      "th-1ppl>th-ymld#satisfied",
+      "th-9xi1>th-ymld#accept",
+      "th-0s7c>th-ymld#satisfied",
     ]);
   });
 });

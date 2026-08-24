@@ -74,9 +74,9 @@ describe("readinessOf", () => {
   test("an active node with no in-edges is ready", () => {
     const graph = graphAt();
     for (const id of [
-      "escalate-no-goalie-found",
-      "check-marcus-is-eligible",
-      "confirm-roster-availability-and-eligibility",
+      "th-vipt",
+      "th-etsk",
+      "th-five",
     ]) {
       const node = nodeOf(graph, id);
       expect(node.status.state).toBe("active");
@@ -88,36 +88,36 @@ describe("readinessOf", () => {
 
   test("superseded outranks settled: the roster step is done, and reads as replaced", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "confirm-roster-availability");
+    const node = nodeOf(graph, "th-ahf6");
     expect(node.status.state).toBe("done");
-    expect(node.provenance.superseded_by).toBe("confirm-roster-availability-and-eligibility");
+    expect(node.provenance.superseded_by).toBe("th-five");
     expect(readinessOf(graph, node)).toBe("superseded");
   });
 
   test("every terminal status settles, including the two that never satisfy anything", () => {
     const graph = graphAt();
-    expect(readinessOf(graph, nodeOf(graph, "wait-for-dana"))).toBe("settled");
-    expect(nodeOf(graph, "ask-priya-to-play-in-goal").status.state).toBe("failed");
-    expect(readinessOf(graph, nodeOf(graph, "ask-priya-to-play-in-goal"))).toBe("settled");
-    expect(nodeOf(graph, "wait-for-priya").status.state).toBe("dropped");
-    expect(readinessOf(graph, nodeOf(graph, "wait-for-priya"))).toBe("settled");
+    expect(readinessOf(graph, nodeOf(graph, "th-es9m"))).toBe("settled");
+    expect(nodeOf(graph, "th-t2yo").status.state).toBe("failed");
+    expect(readinessOf(graph, nodeOf(graph, "th-t2yo"))).toBe("settled");
+    expect(nodeOf(graph, "th-1ppl").status.state).toBe("dropped");
+    expect(readinessOf(graph, nodeOf(graph, "th-1ppl"))).toBe("settled");
   });
 
   test("sending is running, not settled — the world's answer is unknown", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "ask-pat-to-play-in-goal");
+    const node = nodeOf(graph, "th-gk0l");
     expect(node.status.state).toBe("in_flight");
     expect(readinessOf(graph, node)).toBe("running");
     expect(blockedReason(graph, node)).toBeNull();
   });
 
-  test("goalie-confirmed is blocked at head even though two of its waits fired satisfied", () => {
+  test("th-ymld is blocked at head even though two of its waits fired satisfied", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "goalie-confirmed");
+    const node = nodeOf(graph, "th-ymld");
     expect(node.status.state).toBe("active");
-    expect(inEdges(graph, "goalie-confirmed")).toHaveLength(5);
-    expect(resolutionOf(nodeOf(graph, "wait-for-dana"))).toBe("satisfied");
-    expect(resolutionOf(nodeOf(graph, "wait-for-sam"))).toBe("satisfied");
+    expect(inEdges(graph, "th-ymld")).toHaveLength(5);
+    expect(resolutionOf(nodeOf(graph, "th-es9m"))).toBe("satisfied");
+    expect(resolutionOf(nodeOf(graph, "th-ocwr"))).toBe("satisfied");
     // The predicate is `count{confirmed, role=goalie} >= 1`, but readiness is an edge
     // question, not a predicate one: `isReady` wants every in-edge satisfied.
     expect(isReady(graph, node)).toBe(false);
@@ -144,14 +144,14 @@ describe("blockedReason", () => {
     }
   });
 
-  test("a source still in flight: wait-for-pat behind Pat's open reservation", () => {
+  test("a source still in flight: th-0s7c behind Pat's open reservation", () => {
     // The fixture's ending, and the state rule 8's third colour exists for: the slot is
     // fsynced, the bytes may or may not have moved, and nothing downstream may proceed.
     const graph = graphAt(V.patReserved);
-    const reason = reasonOf(graph, "wait-for-pat");
+    const reason = reasonOf(graph, "th-0s7c");
     expect(reason.causes).toHaveLength(1);
     expect(reason.causes[0]).toEqual({
-      from: "ask-pat-to-play-in-goal",
+      from: "th-gk0l",
       fromLabel: "Ask Pat to play in goal",
       wants: null,
       fired: null,
@@ -166,9 +166,9 @@ describe("blockedReason", () => {
 
   test("an unfinished task source reads as unfinished, an unanswered wait as unanswered", () => {
     const graph = graphAt();
-    const ruling = reasonOf(graph, "wait-for-eligibility-ruling");
+    const ruling = reasonOf(graph, "th-9xi1");
     expect(ruling.causes[0]?.text).toBe("Check Marcus is eligible has not finished yet");
-    const goalie = reasonOf(graph, "goalie-confirmed");
+    const goalie = reasonOf(graph, "th-ymld");
     const texts = goalie.causes.map((cause) => cause.text);
     expect(texts).toContain("Wait for Pat has not answered yet");
     expect(texts).toContain("Wait for eligibility ruling has not answered yet");
@@ -176,12 +176,12 @@ describe("blockedReason", () => {
 
   test("a dropped source is named as dropped and never as a mismatch (§6.4)", () => {
     const graph = graphAt();
-    const priya = nodeOf(graph, "wait-for-priya");
+    const priya = nodeOf(graph, "th-1ppl");
     expect(priya.status.state).toBe("dropped");
     expect(resolutionOf(priya)).toBe("bounced");
-    const reason = reasonOf(graph, "goalie-confirmed");
+    const reason = reasonOf(graph, "th-ymld");
     expect(reason.causes[0]).toEqual({
-      from: "wait-for-priya",
+      from: "th-1ppl",
       fromLabel: "Wait for Priya",
       wants: "satisfied",
       fired: "bounced",
@@ -195,16 +195,16 @@ describe("blockedReason", () => {
     // at exactly that resolution: §6.4 still refuses it, because only `done` satisfies a
     // blocking edge, and the reader must be told the branch is dead rather than mismatched.
     const graph = graphAt();
-    const index = edgeIndex(graph, "wait-for-priya", "goalie-confirmed");
+    const index = edgeIndex(graph, "th-1ppl", "th-ymld");
     withEdge(graph, index, {
-      from: "wait-for-priya",
-      to: "goalie-confirmed",
+      from: "th-1ppl",
+      to: "th-ymld",
       condition: { on: "bounced" },
     });
     const edge = graph.edges[index];
     if (edge === undefined) throw new Error("spliced edge vanished");
     expect(isEdgeSatisfied(graph, edge)).toBe(false);
-    const cause = reasonOf(graph, "goalie-confirmed").causes[0];
+    const cause = reasonOf(graph, "th-ymld").causes[0];
     expect(cause?.kind).toBe("dropped");
     expect(cause?.wants).toBe("bounced");
     expect(cause?.fired).toBe("bounced");
@@ -212,15 +212,15 @@ describe("blockedReason", () => {
 
   test("causes come in edge order and count against every in-edge", () => {
     const graph = graphAt();
-    const reason = reasonOf(graph, "goalie-confirmed");
-    const unsatisfied = inEdges(graph, "goalie-confirmed")
+    const reason = reasonOf(graph, "th-ymld");
+    const unsatisfied = inEdges(graph, "th-ymld")
       .filter((edge) => !isEdgeSatisfied(graph, edge))
       .map((edge) => edge.from);
     expect(reason.causes.map((cause) => cause.from)).toEqual(unsatisfied);
     expect(reason.causes.map((cause) => cause.from)).toEqual([
-      "wait-for-priya",
-      "wait-for-eligibility-ruling",
-      "wait-for-pat",
+      "th-1ppl",
+      "th-9xi1",
+      "th-0s7c",
     ]);
     // Three unmet of five in-edges: Dana's and Sam's declines both fired `satisfied`.
     expect(reason.summary).toBe("3 of 5 dependencies unmet");
@@ -228,15 +228,15 @@ describe("blockedReason", () => {
 
   test("one dead in-edge is already fatal: the quorum can never reach the frontier", () => {
     const graph = graphAt();
-    const reason = reasonOf(graph, "goalie-confirmed");
+    const reason = reasonOf(graph, "th-ymld");
 
     // Priya's wait is terminal and did not succeed, so `satisfiesBlockingEdge` refuses her
     // edge for the rest of the log — and `isReady` wants ALL five in-edges, so Pat and the
     // ruling coming good later cannot rescue it. `kona next` will never list this node.
-    const priya = nodeOf(graph, "wait-for-priya");
+    const priya = nodeOf(graph, "th-1ppl");
     expect(isTerminal(priya.status.state)).toBe(true);
     expect(satisfiesBlockingEdge(priya)).toBe(false);
-    expect(readyFrontier(graph).map((node) => node.id)).not.toContain("goalie-confirmed");
+    expect(readyFrontier(graph).map((node) => node.id)).not.toContain("th-ymld");
 
     // Two of the three blockers are still live, and that is exactly what does NOT matter:
     // reporting `false` here would paint an already-dead branch as merely waiting.
@@ -255,21 +255,21 @@ describe("blockedReason", () => {
     expect(after.edges).toEqual(before.edges);
     expect([...after.nodes.keys()]).toEqual([...before.nodes.keys()]);
 
-    expect(readinessOf(before, nodeOf(before, "wait-for-dana"))).toBe("ready");
-    expect(readinessOf(after, nodeOf(after, "wait-for-dana"))).toBe("settled");
+    expect(readinessOf(before, nodeOf(before, "th-es9m"))).toBe("ready");
+    expect(readinessOf(after, nodeOf(after, "th-es9m"))).toBe("settled");
 
-    expect(reasonOf(before, "goalie-confirmed").causes.map((cause) => cause.from)).toEqual([
-      "wait-for-dana",
-      "wait-for-sam",
-      "wait-for-priya",
+    expect(reasonOf(before, "th-ymld").causes.map((cause) => cause.from)).toEqual([
+      "th-es9m",
+      "th-ocwr",
+      "th-1ppl",
     ]);
     // Dana declined, and `declined` maps to the resolution `satisfied` — the wait *was*
     // answered — so her edge drops out of the reason entirely.
-    expect(reasonOf(after, "goalie-confirmed").causes.map((cause) => cause.from)).toEqual([
-      "wait-for-sam",
-      "wait-for-priya",
+    expect(reasonOf(after, "th-ymld").causes.map((cause) => cause.from)).toEqual([
+      "th-ocwr",
+      "th-1ppl",
     ]);
-    expect(reasonOf(after, "goalie-confirmed").summary).toBe("2 of 3 dependencies unmet");
+    expect(reasonOf(after, "th-ymld").summary).toBe("2 of 3 dependencies unmet");
   });
 });
 
@@ -283,16 +283,16 @@ describe("blockedReason", () => {
 describe("blockedReason, on shapes the log has not produced yet", () => {
   test("a source that resolved something else is a mismatch, and it is permanent", () => {
     const graph = graphAt();
-    const index = edgeIndex(graph, "wait-for-dana", "goalie-confirmed");
+    const index = edgeIndex(graph, "th-es9m", "th-ymld");
     withEdge(graph, index, {
-      from: "wait-for-dana",
-      to: "goalie-confirmed",
+      from: "th-es9m",
+      to: "th-ymld",
       condition: { on: "accept" },
     });
-    const reason = reasonOf(graph, "goalie-confirmed");
-    const cause = reason.causes.find((entry) => entry.from === "wait-for-dana");
+    const reason = reasonOf(graph, "th-ymld");
+    const cause = reason.causes.find((entry) => entry.from === "th-es9m");
     expect(cause).toEqual({
-      from: "wait-for-dana",
+      from: "th-es9m",
       fromLabel: "Wait for Dana",
       wants: "accept",
       fired: "satisfied",
@@ -310,13 +310,13 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
     // Isolate the mismatch: hang Pat's wait off Dana's, which answered `satisfied`, and ask
     // that edge for `accept`. Nothing else is unmet, so `unreachable` is this cause alone.
     const graph = graphAt();
-    const index = edgeIndex(graph, "ask-pat-to-play-in-goal", "wait-for-pat");
+    const index = edgeIndex(graph, "th-gk0l", "th-0s7c");
     withEdge(graph, index, {
-      from: "wait-for-dana",
-      to: "wait-for-pat",
+      from: "th-es9m",
+      to: "th-0s7c",
       condition: { on: "accept" },
     });
-    const reason = reasonOf(graph, "wait-for-pat");
+    const reason = reasonOf(graph, "th-0s7c");
     expect(reason.causes).toHaveLength(1);
     expect(reason.causes[0]?.kind).toBe("wrong-resolution");
     expect(reason.causes[0]?.fired).toBe("satisfied");
@@ -331,26 +331,26 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
     const graph = applied(graphAt(), [
       {
         op: "set_status",
-        node: "check-marcus-is-eligible",
+        node: "th-etsk",
         status: "done",
         evidence_ref: "roster.csv#v3",
       },
     ]);
-    const source = nodeOf(graph, "check-marcus-is-eligible");
+    const source = nodeOf(graph, "th-etsk");
     expect(source.status.outcomes).toEqual([]);
     expect(resolutionOf(source)).toBeNull();
 
-    const index = edgeIndex(graph, "check-marcus-is-eligible", "wait-for-eligibility-ruling");
+    const index = edgeIndex(graph, "th-etsk", "th-9xi1");
     withEdge(graph, index, {
-      from: "check-marcus-is-eligible",
-      to: "wait-for-eligibility-ruling",
+      from: "th-etsk",
+      to: "th-9xi1",
       condition: { on: "satisfied" },
     });
 
-    const reason = reasonOf(graph, "wait-for-eligibility-ruling");
+    const reason = reasonOf(graph, "th-9xi1");
     expect(reason.causes).toEqual([
       {
-        from: "check-marcus-is-eligible",
+        from: "th-etsk",
         fromLabel: "Check Marcus is eligible",
         wants: "satisfied",
         fired: null,
@@ -364,9 +364,9 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
   test("a failed source is the whole reason, and the node is unreachable", () => {
     const graph = graphAt();
     // Priya's send failed. Hang Pat's wait off it instead of Pat's own send.
-    const index = edgeIndex(graph, "ask-pat-to-play-in-goal", "wait-for-pat");
-    withEdge(graph, index, { from: "ask-priya-to-play-in-goal", to: "wait-for-pat" });
-    const reason = reasonOf(graph, "wait-for-pat");
+    const index = edgeIndex(graph, "th-gk0l", "th-0s7c");
+    withEdge(graph, index, { from: "th-t2yo", to: "th-0s7c" });
+    const reason = reasonOf(graph, "th-0s7c");
     expect(reason.causes).toHaveLength(1);
     expect(reason.causes[0]?.kind).toBe("failed");
     expect(reason.summary).toBe("Ask Priya to play in goal failed and can never satisfy this");
@@ -375,28 +375,28 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
 
   test("an edge into a node that is not there names the id, since there is no label", () => {
     const graph = graphAt();
-    graph.nodes.delete("ask-pat-to-play-in-goal");
-    const reason = reasonOf(graph, "wait-for-pat");
+    graph.nodes.delete("th-gk0l");
+    const reason = reasonOf(graph, "th-0s7c");
     expect(reason.causes[0]).toEqual({
-      from: "ask-pat-to-play-in-goal",
-      fromLabel: "ask-pat-to-play-in-goal",
+      from: "th-gk0l",
+      fromLabel: "th-gk0l",
       wants: null,
       fired: null,
       kind: "missing",
-      text: "ask-pat-to-play-in-goal is missing from the graph",
+      text: "th-gk0l is missing from the graph",
     });
     expect(reason.unreachable).toBe(true);
   });
 
   test("a superseded node that is still active reads as superseded, not as work to do", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "check-marcus-is-eligible");
+    const node = nodeOf(graph, "th-etsk");
     expect(readinessOf(graph, node)).toBe("ready");
     graph.nodes.set(node.id, {
       ...node,
-      provenance: { ...node.provenance, superseded_by: "escalate-no-goalie-found" },
+      provenance: { ...node.provenance, superseded_by: "th-vipt" },
     });
-    const replaced = nodeOf(graph, "check-marcus-is-eligible");
+    const replaced = nodeOf(graph, "th-etsk");
     expect(replaced.status.state).toBe("active");
     expect(readinessOf(graph, replaced)).toBe("superseded");
     expect(blockedReason(graph, replaced)).toBeNull();

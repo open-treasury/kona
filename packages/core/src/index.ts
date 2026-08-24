@@ -2,6 +2,7 @@
 
 export * from "./vocab.ts";
 export * from "./ids.ts";
+export * from "./named.ts";
 export * from "./schema.ts";
 export * from "./graph.ts";
 export * from "./result.ts";

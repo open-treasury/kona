@@ -11,6 +11,7 @@
  * missing input read as "no objection" rather than "unknown".
  */
 
+import { named } from "./named.ts";
 import { type Graph, type Node, inEdges, isEdgeSatisfied, outEdges } from "./graph.ts";
 import type { Identity, MutationRecord, PursuitConfig } from "./schema.ts";
 import { hasSentEffect } from "./effect.ts";
@@ -221,7 +222,7 @@ export function buildBrief(
         ok: false,
         reason: "NO_IDENTITY",
         message:
-          `'${node.id}' sends to '${node.spec.effect.recipient_ref}', and this pursuit has no ` +
+          `${named(node)} sends to '${node.spec.effect.recipient_ref}', and this pursuit has no ` +
           "identity configured; an executor cannot speak for someone the graph cannot name",
       };
     }

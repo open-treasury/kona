@@ -48,6 +48,7 @@ import {
   isNodeTerminal,
 } from "./graph.ts";
 import { applyOps } from "./apply.ts";
+import { named, namedHere, namedIn } from "./named.ts";
 import { normalizeBatch } from "./normalize.ts";
 import { resolveBranches } from "./branch.ts";
 import { evidencedKeys, isEvidencedRecipient } from "./evidence.ts";
@@ -114,7 +115,7 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
       return violate(
         1,
         "TERMINAL_NODE_PROTECTED",
-        `cannot add a blocking edge into '${op.to}', which is already terminal`,
+        `cannot add a blocking edge into ${namedIn(pre, op.to)}, which is already terminal`,
         { node: op.to, op_index: index },
       );
     }
@@ -123,7 +124,7 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
       return violate(
         1,
         "TERMINAL_NODE_PROTECTED",
-        `'${op.node}' is terminal; only supersede_node, record_outcome and record_output may target it`,
+        `${namedIn(pre, op.node)} is terminal; only supersede_node, record_outcome and record_output may target it`,
         { node: op.node, op_index: index },
       );
     }
@@ -138,7 +139,7 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
         return violate(
           1,
           "UNCOMPENSATED_SUPERSEDE",
-          `'${op.node}' has already moved bytes; superseding it requires a compensation in the same batch`,
+          `${namedIn(pre, op.node)} has already moved bytes; superseding it requires a compensation in the same batch`,
           { node: op.node, op_index: index },
         );
       }
@@ -186,7 +187,8 @@ function checkClaimExclusivity(pre: Graph, ops: readonly CommittedOp[]): Result<
     if (pre.nodes.get(op.node)?.status.state !== "in_flight") continue;
     return refuse(
       "ALREADY_CLAIMED",
-      `'${op.node}' is already in flight — somebody else claimed it and has not finished. ` +
+      `${namedHere(pre, ops, op.node)} is already in flight — somebody else claimed it and ` +
+      `has not finished. ` +
         "Take another node from `kona next`, or run `kona resume` if you believe the holder is gone",
       { node: op.node, op_index: index },
     );
@@ -213,7 +215,9 @@ function checkWaitEdgeConditions(
     if (nodeTypeOf(pre, ops, op.from) !== "wait") continue;
     return refuse(
       "UNCONDITIONED_WAIT_EDGE",
-      `edge '${op.from}' -> '${op.to}' leaves a wait without a condition; an ignored or ` +
+      `edge ${namedHere(pre, ops, op.from)} -> ${namedHere(pre, ops, op.to)} leaves a wait ` +
+        `without a ` +
+        `condition; an ignored or ` +
         `timed-out wait would clear it and fire the branch unapproved (§6.2)`,
       { node: op.from, op_index: index },
     );
@@ -246,13 +250,14 @@ function checkDeadOnArrivalEdge(
     };
     if (!isEdgeDead(interim, edge)) continue;
     const source = interim.nodes.get(op.from);
+    const from = namedHere(interim, ops, op.from);
     const because =
       source?.status.state === "dropped"
-        ? `originates at '${op.from}', which is dropped`
-        : `is conditioned on '${op.condition?.on}', but '${op.from}' has already resolved otherwise`;
+        ? `originates at ${from}, which is dropped`
+        : `is conditioned on '${op.condition?.on}', but ${from} has already resolved otherwise`;
     return refuse(
       "DEAD_ON_ARRIVAL_EDGE",
-      `edge '${op.from}' -> '${op.to}' ${because}; it can never fire`,
+      `edge ${from} -> ${namedHere(interim, ops, op.to)} ${because}; it can never fire`,
       { node: op.to, op_index: index },
     );
   }
@@ -331,7 +336,8 @@ function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<nul
     }
     return refuse(
       "MALFORMED_RECIPIENT_REF",
-      `recipient_ref '${raw}' is not a '<scope>#<key>' reference: expected exactly one '#', ` +
+      `recipient_ref '${raw}' on ${named(op)} is not a '<scope>#<key>' reference: expected ` +
+        `exactly one '#', ` +
         `a dotted lowercase scope, and a key matching [a-z0-9][a-z0-9-]* of at most ` +
         `${MAX_NODE_ID_LENGTH} characters (§6.2, e.g. 'roster.contacts#dana')`,
       { node: op.id, op_index: index },
@@ -431,7 +437,7 @@ function checkPredicateGrammar(ops: readonly CommittedOp[]): Result<null> {
     if (!op.spec.match.conditions.some((condition) => condition.predicate !== undefined)) {
       return refuse(
         "MISSING_PREDICATE",
-        `'${op.id}' declares match.kind 'predicate' but carries no predicate; nothing would ` +
+        `${named(op)} declares match.kind 'predicate' but carries no predicate; nothing would ` +
           `ever count against it, and invariant 2 could never judge it (§6.7)`,
         { node: op.id, op_index: index },
       );
@@ -441,7 +447,7 @@ function checkPredicateGrammar(ops: readonly CommittedOp[]): Result<null> {
       if (parseCountPredicate(condition.predicate) !== null) continue;
       return refuse(
         "MALFORMED_PREDICATE",
-        `predicate on '${op.id}' is not the §6.7 form ` +
+        `predicate on ${named(op)} is not the §6.7 form ` +
           `{"count":{"verdict":…,"attrs":…},"op":">=","n":…}: 'op' must be '>=', 'n' an ` +
           `integer of at least 1, 'verdict' a resolving verdict, and 'attrs' flat primitives`,
         { node: op.id, op_index: index },
@@ -614,10 +620,12 @@ export function checkInvariant2(
     return violate(
       2,
       "PREDICATE_UNSATISFIABLE",
-      `'${wait.id}' can no longer reach ${arm.n} '${arm.count.verdict}': ` +
+      `${named(wait)} can no longer reach ${arm.n} '${arm.count.verdict}': ` +
         `${counted.matching_confirmed} matching + ${counted.still_live} still live of ` +
         `${counted.population} blocking in-edges (${counted.excluded} dropped)` +
-        (killed.length > 0 ? `; branch resolution dropped ${killed.join(", ")}` : "") +
+        (killed.length > 0
+          ? `; branch resolution dropped ${killed.map((id) => namedIn(pre, id)).join(", ")}`
+          : "") +
         `; add a live member in this batch, or supersede the wait`,
       { node: wait.id },
     );
@@ -634,6 +642,8 @@ export interface ValidateInput {
   actor: Actor;
   /** The version this batch would commit as. */
   version: number;
+  /** The pursuit's id prefix, read off the genesis record. */
+  prefix: string;
 }
 
 export interface ValidateOutput {
@@ -660,7 +670,7 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
   const authorized = checkAuthority(input.actor, parsed.value);
   if (!authorized.ok) return authorized;
 
-  const normalized = normalizeBatch(input.graph, parsed.value);
+  const normalized = normalizeBatch(input.graph, parsed.value, input.prefix, input.version);
   if (!normalized.ok) return normalized;
 
   // Parser-class, but graph-dependent, so it cannot live in zod: `add_edge` carries `from`

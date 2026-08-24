@@ -51,9 +51,9 @@ describe("viewEdges", () => {
   });
 
   test("the escalation is reachable on the canvas, not stranded", () => {
-    // The bug this file exists for: `escalate-no-goalie-found` has no in-edge and no out-edge
+    // The bug this file exists for: `th-vipt` has no in-edge and no out-edge
     // in `graph.edges`, and was drawn floating while every wait in the pursuit pointed at it.
-    const escalation = "escalate-no-goalie-found";
+    const escalation = "th-vipt";
     expect(GRAPH.edges.some((e) => e.from === escalation || e.to === escalation)).toBe(false);
     expect(viewEdges(GRAPH).some((e) => e.to === escalation)).toBe(true);
   });
@@ -79,7 +79,7 @@ describe("viewEdges", () => {
     const before = readyFrontier(GRAPH).map((n) => n.id);
     viewEdges(GRAPH);
     expect(readyFrontier(GRAPH).map((n) => n.id)).toEqual(before);
-    const escalation = GRAPH.nodes.get("escalate-no-goalie-found");
+    const escalation = GRAPH.nodes.get("th-vipt");
     if (escalation === undefined) throw new Error("the fixture has no escalation node");
     expect(isReady(GRAPH, escalation)).toBe(true);
   });
@@ -93,20 +93,20 @@ describe("viewEdges", () => {
     // `add_node` permits a forward reference, and time travel to a version before the target
     // landed produces exactly this. Minting it would hand dagre a zero-size phantom.
     const graph = variant((g) => {
-      const wait = g.nodes.get("wait-for-dana");
-      if (wait === undefined) throw new Error("no wait-for-dana");
+      const wait = g.nodes.get("th-es9m");
+      if (wait === undefined) throw new Error("no th-es9m");
       wait.spec.on_timeout = "a-node-added-later";
     });
     const arcs = viewEdges(graph).filter((e) => e.kind === "timeout");
-    expect(arcs.some((e) => e.from === "wait-for-dana")).toBe(false);
+    expect(arcs.some((e) => e.from === "th-es9m")).toBe(false);
     expect(arcs.every((e) => graph.nodes.has(e.to))).toBe(true);
   });
 
   test("a wait whose timeout is itself is not drawn as a self-loop", () => {
     const graph = variant((g) => {
-      const wait = g.nodes.get("wait-for-dana");
-      if (wait === undefined) throw new Error("no wait-for-dana");
-      wait.spec.on_timeout = "wait-for-dana";
+      const wait = g.nodes.get("th-es9m");
+      if (wait === undefined) throw new Error("no th-es9m");
+      wait.spec.on_timeout = "th-es9m";
     });
     expect(viewEdges(graph).some((e) => e.from === e.to)).toBe(false);
   });
@@ -226,9 +226,9 @@ describe("flowTerminals", () => {
     // Without counting timeout routes as flow it has no in-edge at all and would read as the
     // place the pursuit begins, which is the exact opposite of what it is.
     const { starts, ends } = flowTerminals(GRAPH);
-    expect(GRAPH.edges.some((e) => e.to === "escalate-no-goalie-found")).toBe(false);
-    expect(starts.has("escalate-no-goalie-found")).toBe(false);
-    expect(ends.has("escalate-no-goalie-found")).toBe(true);
+    expect(GRAPH.edges.some((e) => e.to === "th-vipt")).toBe(false);
+    expect(starts.has("th-vipt")).toBe(false);
+    expect(ends.has("th-vipt")).toBe(true);
   });
 
   test("no wait is ever an end — §6.4 gives every one of them somewhere to go", () => {

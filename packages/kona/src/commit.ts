@@ -15,6 +15,7 @@ import {
   type ReasonCode,
   SCHEMA_VERSION,
   formatRejection,
+  pursuitConfig,
   validate,
 } from "@kona/core";
 import type { KonaPaths } from "./paths.ts";
@@ -87,12 +88,26 @@ export async function commitBatch(
     const decision = build(folded.graph, folded.records);
     if ("refused" in decision) return { ok: false as const, code: decision.refused };
 
+    // Every v3 pursuit declares its prefix at init, so a missing one means a log this store
+    // did not write. Minting under an invented prefix would put two id shapes in one file.
+    const { prefix } = pursuitConfig(folded.records);
+    if (prefix === undefined) {
+      io.err(
+        "REFUSED NO_PREFIX the genesis record declares no id prefix; " +
+          "this pursuit was not created by `kona init --prefix <p>`",
+      );
+      return { ok: false as const, code: EXIT_REFUSED };
+    }
+
     const version = folded.graph.version + 1;
     const validated = validate({
       graph: folded.graph,
       ops: decision.commit.ops,
       actor: decision.commit.actor,
       version,
+      // Read off the genesis record every time rather than cached: the log is the only
+      // system of record, and a prefix held anywhere else would be a second one.
+      prefix,
     });
     if (!validated.ok) {
       io.err(formatRejection(validated.rejection));

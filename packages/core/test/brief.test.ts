@@ -20,7 +20,7 @@ import {
   pursuitConfig,
   waitAddresses,
 } from "../src/index.ts";
-import { commit, record, rostered, seeded, task, wait } from "./fixtures.ts";
+import { commit, record, rostered, seeded, slugOr, task, wait, nid, slugOf } from "./fixtures.ts";
 
 const IDENTITY: Identity = {
   mailbox: "ilya@example.com",
@@ -39,7 +39,7 @@ function pivot(label: string, extra: Record<string, unknown> = {}): AuthoredOp {
 }
 
 function briefOf(graph: Graph, id: string, config: PursuitConfig = CONFIG) {
-  const result = buildBrief(graph, id, config);
+  const result = buildBrief(graph, slugOr(graph, id), config);
   if (!result.ok) throw new Error(`${result.reason}: ${result.message}`);
   return result.brief;
 }
@@ -141,7 +141,7 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
     const matches = matchInbound(graph, IDENTITY.mailbox, [
       { message_id: "<m-1@mail>", from: "dana@example.com", to: [replyTo] },
     ]);
-    expect(matches.map((match) => match.node_id)).toEqual(["wait-for-dana"]);
+    expect(matches.map((match) => slugOf(match.node_id))).toEqual(["wait-for-dana"]);
   });
 
   test("nothing waiting means no reply address, and that is not a failure", () => {
@@ -161,7 +161,9 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
     const graph = wired([wait("Wait again")], [{ op: "add_edge", from: "ask-dana", to: "wait-again" }]);
     const check = checkNamed(graph, "ask-dana", "correlation_expanded");
     expect(check.ok).toBe(false);
-    expect(check.detail).toContain("wait-for-dana, wait-again");
+    // Two waits on one send: the detail names both, by id, because that is what the
+    // author has to disambiguate.
+    expect(check.detail).toContain(`${nid(graph, "wait-for-dana")}, ${nid(graph, "wait-again")}`);
     expect(briefOf(graph, "ask-dana").correlation).toBeNull();
     // And the brief as a whole refuses, so nothing dispatches on a guess.
     expect(briefOf(graph, "ask-dana").preconditions_satisfied.ok).toBe(false);
@@ -173,7 +175,7 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
       { op: "supersede_node", node: "wait-for-dana", by: "wait-again" },
     ]);
     expect(briefOf(graph, "ask-dana").correlation?.reply_to).toBe(
-      "ilya+kona-wait-again@example.com",
+      `ilya+kona-${nid(graph, "wait-again")}@example.com`,
     );
   });
 
@@ -214,7 +216,7 @@ describe("brief refuses rather than guessing (§6.9)", () => {
         effect: { channel: "email", recipient_ref: "roster#dana" },
       }),
     ]);
-    const result = buildBrief(graph, "ask-dana", {});
+    const result = buildBrief(graph, nid(graph, "ask-dana"), {});
     expect(result.ok).toBe(false);
     expect(!result.ok && result.reason).toBe("NO_IDENTITY");
     // The refusal names the recipient, so the reader knows which send it is standing in front of.
@@ -225,7 +227,8 @@ describe("brief refuses rather than guessing (§6.9)", () => {
     // Refusing this made effect-free pursuits unusable without inventing a mailbox nobody
     // reads, and §6.2 makes `effect_class: "pure"` first-class rather than degenerate. The
     // correlation check already says the true thing in words.
-    const result = buildBrief(seeded([task("A")]), "a", {});
+    const pure = seeded([task("A")]);
+    const result = buildBrief(pure, nid(pure, "a"), {});
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(result.brief.identity).toBeNull();
@@ -246,7 +249,7 @@ describe("preconditions FAIL CLOSED", () => {
     const graph = commit(seeded([task("A"), task("B")]), [{ op: "add_edge", from: "a", to: "b" }]);
     const check = checkNamed(graph, "b", "dependencies_satisfied");
     expect(check.ok).toBe(false);
-    expect(check.detail).toContain("'a'");
+    expect(check.detail).toContain(`'${nid(graph, "a")}'`);
   });
 
   test.each([
@@ -368,7 +371,7 @@ describe("what the brief carries", () => {
 
   test("the correlation is FULLY EXPANDED — a template variable correlates nothing", () => {
     const brief = briefOf(graph, "ask-dana");
-    expect(brief.correlation?.reply_to).toBe("ilya+kona-wait-for-dana@example.com");
+    expect(brief.correlation?.reply_to).toBe(`ilya+kona-${nid(graph, "wait-for-dana")}@example.com`);
     expect(brief.correlation?.reply_to).not.toContain("{");
     expect(brief.correlation?.reply_to).not.toContain("$");
   });
@@ -380,10 +383,10 @@ describe("what the brief carries", () => {
   test("the immediate neighbourhood, with edge conditions and upstream outputs", () => {
     const brief = briefOf(graph, "ask-dana");
     expect(brief.subgraph.upstream).toEqual([
-      { id: "roster", label: "Roster", state: "active", condition: "satisfied", output: null },
+      { id: nid(graph, "roster"), label: "Roster", state: "active", condition: "satisfied", output: null },
     ]);
     expect(briefOf(graph, "roster").subgraph.downstream).toEqual([
-      { id: "ask-dana", label: "Ask Dana", condition: "satisfied" },
+      { id: nid(graph, "ask-dana"), label: "Ask Dana", condition: "satisfied" },
     ]);
   });
 
@@ -501,7 +504,7 @@ describe("the checks PASS as well as fail, which is the half that was untested",
     const brief = briefOf(satisfied, "ask-dana");
     expect(brief.preconditions_satisfied.checks.filter((check) => !check.ok)).toEqual([]);
     expect(brief.preconditions_satisfied.ok).toBe(true);
-    expect(brief.correlation?.reply_to).toBe("ilya+kona-wait-for-dana@example.com");
+    expect(brief.correlation?.reply_to).toBe(`ilya+kona-${nid(satisfied, "wait-for-dana")}@example.com`);
   });
 
   test("the budget check goes red exactly at the cap, not after it", () => {
@@ -550,8 +553,9 @@ describe("each check says what it looked at, not just whether it passed", () => 
     const graph = commit(rostered(["dana"], [pivot("Ask Dana"), wait("Wait for Dana")]), [
       { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
     ]);
+    const waitId = nid(graph, "wait-for-dana");
     expect(checkNamed(graph, "ask-dana", "correlation_expanded").detail).toBe(
-      "replies correlate to ilya+kona-wait-for-dana@example.com — wait-for-dana",
+      `replies correlate to ilya+kona-${waitId}@example.com — ${waitId}`,
     );
   });
 
@@ -588,7 +592,7 @@ describe("each check says what it looked at, not just whether it passed", () => 
       { op: "add_edge", from: "b", to: "c" },
     ]);
     expect(checkNamed(graph, "c", "dependencies_satisfied").detail).toBe(
-      "waiting on 'a'; waiting on 'b'",
+      `waiting on '${nid(graph, "a")}'; waiting on '${nid(graph, "b")}'`,
     );
   });
 });

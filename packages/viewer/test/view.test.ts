@@ -94,8 +94,8 @@ describe("the head view covers every node exactly once", () => {
     // not exercised here — what is asserted is that the real groups arrive intact.
     const groups = new Map(view.nodes.map((entry) => [entry.node.id, entry.group]));
     expect(new Set(groups.values())).toEqual(new Set(["setup", "goalies", "marcus"]));
-    expect(groups.get("check-marcus-is-eligible")).toBe("marcus");
-    expect(groups.get("goalie-confirmed")).toBe("setup");
+    expect(groups.get("th-etsk")).toBe("marcus");
+    expect(groups.get("th-ymld")).toBe("setup");
   });
 });
 
@@ -109,28 +109,28 @@ describe("readiness, as the store sees it", () => {
     expect(spread).toEqual({
       // `done`, and superseded at v6 — replaced outranks finished, because the replacement is
       // the thing the reader has to follow.
-      "confirm-roster-availability": "superseded",
-      "escalate-no-goalie-found": "ready",
-      "ask-dana-to-play-in-goal": "settled",
-      "wait-for-dana": "settled",
-      "ask-sam-to-play-in-goal": "settled",
-      "wait-for-sam": "settled",
-      "ask-priya-to-play-in-goal": "settled", // failed: terminal, and not a success
-      "wait-for-priya": "settled", // dropped by a supersede that named no replacement
-      "goalie-confirmed": "blocked",
-      "check-marcus-is-eligible": "ready",
-      "wait-for-eligibility-ruling": "blocked",
-      "confirm-roster-availability-and-eligibility": "ready",
-      "ask-pat-to-play-in-goal": "running", // `sending` is not terminal (§6.2)
-      "wait-for-pat": "blocked",
+      "th-ahf6": "superseded",
+      "th-vipt": "ready",
+      "th-nhwd": "settled",
+      "th-es9m": "settled",
+      "th-gyre": "settled",
+      "th-ocwr": "settled",
+      "th-t2yo": "settled", // failed: terminal, and not a success
+      "th-1ppl": "settled", // dropped by a supersede that named no replacement
+      "th-ymld": "blocked",
+      "th-etsk": "ready",
+      "th-9xi1": "blocked",
+      "th-five": "ready",
+      "th-gk0l": "running", // `sending` is not terminal (§6.2)
+      "th-0s7c": "blocked",
     });
   });
 
   test("the frontier is core's, in insertion order", () => {
     expect(view.frontier).toEqual([
-      "escalate-no-goalie-found",
-      "check-marcus-is-eligible",
-      "confirm-roster-availability-and-eligibility",
+      "th-vipt",
+      "th-etsk",
+      "th-five",
     ]);
     expect(view.frontier).toEqual(readyFrontier(folded().graph).map((node) => node.id));
   });
@@ -155,19 +155,19 @@ describe("the reason a node is blocked, in words", () => {
   const view = headView();
 
   test("the quorum wait names all three unmet dependencies and not the two met ones", () => {
-    const blocked = at(view, "goalie-confirmed").blocked;
+    const blocked = at(view, "th-ymld").blocked;
     expect(blocked).not.toBeNull();
     expect(blocked?.summary).toBe("3 of 5 dependencies unmet");
     expect(blocked?.causes.map((cause) => [cause.from, cause.kind])).toEqual([
       // Dana and Sam both declined, and `declined` fires `satisfied` — those two edges are MET.
-      ["wait-for-priya", "dropped"],
-      ["wait-for-eligibility-ruling", "not-finished"],
-      ["wait-for-pat", "not-finished"],
+      ["th-1ppl", "dropped"],
+      ["th-9xi1", "not-finished"],
+      ["th-0s7c", "not-finished"],
     ]);
   });
 
   test("a dropped source never satisfies readiness, and says so", () => {
-    const cause = at(view, "goalie-confirmed").blocked?.causes[0];
+    const cause = at(view, "th-ymld").blocked?.causes[0];
     expect(cause?.wants).toBe("satisfied");
     expect(cause?.text).toBe("Wait for Priya was dropped and can never satisfy this");
   });
@@ -179,18 +179,18 @@ describe("the reason a node is blocked, in words", () => {
     // else on the canvas would say so: the node is `active`, two of its blockers are live,
     // and it looks exactly like a step that is waiting its turn.
     const graph = folded().graph;
-    const goalie = at(view, "goalie-confirmed");
-    const priya = at(view, "wait-for-priya").node;
+    const goalie = at(view, "th-ymld");
+    const priya = at(view, "th-1ppl").node;
 
     expect(isTerminal(priya.status.state)).toBe(true);
     expect(satisfiesBlockingEdge(priya)).toBe(false);
-    expect(goalie.blocked?.causes.some((c) => c.from === "wait-for-priya")).toBe(true);
+    expect(goalie.blocked?.causes.some((c) => c.from === "th-1ppl")).toBe(true);
     expect(goalie.blocked?.unreachable).toBe(true);
     expect(isReady(graph, goalie.node)).toBe(false);
   });
 
   test("a wait behind a node that is still in flight is blocked, not ready", () => {
-    const blocked = at(view, "wait-for-pat").blocked;
+    const blocked = at(view, "th-0s7c").blocked;
     expect(blocked?.causes).toHaveLength(1);
     expect(blocked?.summary).toBe("Ask Pat to play in goal is still in flight");
     expect(blocked?.unreachable).toBe(false);
@@ -201,30 +201,30 @@ describe("waits carry their own clock", () => {
   const view = headView();
 
   test("a task has no wait state at all", () => {
-    expect(at(view, "ask-dana-to-play-in-goal").wait).toBeNull();
-    expect(at(view, "confirm-roster-availability").wait).toBeNull();
+    expect(at(view, "th-nhwd").wait).toBeNull();
+    expect(at(view, "th-ahf6").wait).toBeNull();
   });
 
   test("both absolute deadlines are already blown at NOW", () => {
-    for (const id of ["goalie-confirmed", "wait-for-eligibility-ruling"]) {
+    for (const id of ["th-ymld", "th-9xi1"]) {
       const wait = at(view, id).wait;
       expect(wait?.phase).toBe("blown");
       expect(wait?.remainingMs).toBeLessThan(0);
-      expect(wait?.onTimeout).toBe("escalate-no-goalie-found");
+      expect(wait?.onTimeout).toBe("th-vipt");
     }
-    expect(at(view, "goalie-confirmed").wait?.deadlineAt).toBe(
+    expect(at(view, "th-ymld").wait?.deadlineAt).toBe(
       Date.parse("2026-08-21T17:00:00.000Z"),
     );
   });
 
   test("a relative deadline is unarmed while its anchor is still in flight", () => {
-    // `48h after ask-pat-to-play-in-goal`, and Pat's send is `sending` at head. There is no
+    // `48h after th-gk0l`, and Pat's send is `sending` at head. There is no
     // instant to count down to yet, and inventing one would paint the node the wrong colour.
-    const wait = at(view, "wait-for-pat").wait;
+    const wait = at(view, "th-0s7c").wait;
     expect(wait?.phase).toBe("unarmed");
     expect(wait?.deadlineAt).toBeNull();
     expect(wait?.remainingMs).toBeNull();
-    expect(wait?.deadlineLabel).toBe("48h after ask-pat-to-play-in-goal");
+    expect(wait?.deadlineLabel).toBe("48h after th-gk0l");
     expect(wait?.unresolvedReason).toContain("still in flight");
   });
 
@@ -235,7 +235,7 @@ describe("waits carry their own clock", () => {
     // version earlier: `sending` is not finished, and a wait behind it has not started.
     const sent = folded().records[V.danaSent];
     expect(sent?.v).toBe(V.danaSent);
-    const wait = at(view, "wait-for-dana").wait;
+    const wait = at(view, "th-es9m").wait;
     expect(wait?.deadlineAt).toBe(Date.parse(sent?.observed_at ?? "") + HOURS_48);
     // Answered, so the clock is moot: a wait that closed is resolved, never blown.
     expect(wait?.phase).toBe("resolved");
@@ -245,7 +245,7 @@ describe("waits carry their own clock", () => {
     // The plan change superseded Priya's wait with no replacement, so `superseded_by` stays null and the
     // store dropped it instead. It also carries a `bounced` outcome — the drop is the fact
     // that decides what happens next, so it wins.
-    const priya = at(view, "wait-for-priya");
+    const priya = at(view, "th-1ppl");
     expect(priya.node.provenance.superseded_by).toBeNull();
     expect(priya.node.status.state).toBe("dropped");
     expect(priya.node.status.outcome?.verdict).toBe("bounced");
@@ -254,7 +254,7 @@ describe("waits carry their own clock", () => {
   });
 
   test("the quorum counter counts outcomes, not fired edges", () => {
-    const predicate = at(view, "goalie-confirmed").wait?.predicate;
+    const predicate = at(view, "th-ymld").wait?.predicate;
     // Dana and Sam both `declined`, which fires `satisfied` on their edges and counts for
     // nothing here: the whole point of the counter is to tell a refusal from a confirmation.
     expect(predicate?.have).toBe(0);
@@ -273,10 +273,10 @@ describe("irreversibility is read off the effect class", () => {
     const view = headView();
     const marked = view.nodes.filter((entry) => entry.irreversible).map((entry) => entry.node.id);
     expect(marked).toEqual([
-      "ask-dana-to-play-in-goal",
-      "ask-sam-to-play-in-goal",
-      "ask-priya-to-play-in-goal",
-      "ask-pat-to-play-in-goal",
+      "th-nhwd",
+      "th-gyre",
+      "th-t2yo",
+      "th-gk0l",
     ]);
     for (const entry of view.nodes) {
       expect(entry.irreversible).toBe(entry.node.spec.effect_class === "pivot");
@@ -285,7 +285,7 @@ describe("irreversibility is read off the effect class", () => {
 
   test("the two versions on a node answer different questions", () => {
     const view = headView();
-    const roster = at(view, "confirm-roster-availability");
+    const roster = at(view, "th-ahf6");
     expect(roster.createdAtVersion).toBe(1); // decided on when the pursuit opened
     expect(roster.observedAtVersion).toBe(1); // and read in the same version, before anyone
                                               // could be addressed from it (invariant 3(b))
@@ -299,9 +299,9 @@ describe("completionTime — the moment a node actually finished", () => {
     for (const entry of headView().nodes) {
       expect(HEAD.completionTime.has(entry.node.id)).toBe(entry.node.status.state === "done");
     }
-    expect(HEAD.completionTime.has("ask-priya-to-play-in-goal")).toBe(false);
-    expect(HEAD.completionTime.has("wait-for-priya")).toBe(false);
-    expect(HEAD.completionTime.has("ask-pat-to-play-in-goal")).toBe(false);
+    expect(HEAD.completionTime.has("th-t2yo")).toBe(false);
+    expect(HEAD.completionTime.has("th-1ppl")).toBe(false);
+    expect(HEAD.completionTime.has("th-gk0l")).toBe(false);
   });
 
   test("the instant is the record's, at the version whose op said `done`", () => {
@@ -309,13 +309,13 @@ describe("completionTime — the moment a node actually finished", () => {
     // Each ask finished when the outbox RECORDED it, not when it reserved the slot — two
     // adjacent versions with different timestamps, and taking the wrong one would arm every
     // downstream deadline early.
-    expect(HEAD.completionTime.get("ask-dana-to-play-in-goal")).toBe(
+    expect(HEAD.completionTime.get("th-nhwd")).toBe(
       Date.parse(records[V.danaSent]?.observed_at ?? ""),
     );
-    expect(HEAD.completionTime.get("ask-sam-to-play-in-goal")).toBe(
+    expect(HEAD.completionTime.get("th-gyre")).toBe(
       Date.parse(records[V.samSent]?.observed_at ?? ""),
     );
-    expect(HEAD.completionTime.get("wait-for-sam")).toBe(
+    expect(HEAD.completionTime.get("th-ocwr")).toBe(
       Date.parse(records[V.samRefers]?.observed_at ?? ""),
     );
   });
@@ -329,8 +329,8 @@ describe("completionTime — the moment a node actually finished", () => {
     // Dana's wait only closes when she declines, so one version earlier there is no instant
     // for it — and inventing one from head would be the scrubber quietly showing the reader a
     // fact from their future.
-    expect(past.completionTime.has("wait-for-dana")).toBe(false);
-    expect(HEAD.completionTime.has("wait-for-dana")).toBe(true);
+    expect(past.completionTime.has("th-es9m")).toBe(false);
+    expect(HEAD.completionTime.has("th-es9m")).toBe(true);
   });
 
   test("a second `done` on the same node does not move its clock", () => {
@@ -345,7 +345,7 @@ describe("completionTime — the moment a node actually finished", () => {
         mutation(V.patReserved + 1, first, [
           {
             op: "set_status",
-            node: "ask-pat-to-play-in-goal",
+            node: "th-gk0l",
             status: "done",
             evidence_ref: "msg:pat-outbound",
           },
@@ -353,14 +353,14 @@ describe("completionTime — the moment a node actually finished", () => {
         mutation(V.patReserved + 2, again, [
           {
             op: "set_status",
-            node: "ask-pat-to-play-in-goal",
+            node: "th-gk0l",
             status: "done",
             evidence_ref: "msg:pat-outbound-reobserved",
           },
         ]),
     );
     expect(pursuit.records).toHaveLength(V.patReserved + 3);
-    expect(pursuit.completionTime.get("ask-pat-to-play-in-goal")).toBe(Date.parse(first));
+    expect(pursuit.completionTime.get("th-gk0l")).toBe(Date.parse(first));
     expect(completionTimeOf(pursuit.records)).toEqual(pursuit.completionTime);
   });
 
@@ -377,7 +377,7 @@ describe("completionTime — the moment a node actually finished", () => {
         mutation(V.patReserved + 1, sentAt, [
           {
             op: "set_status",
-            node: "ask-pat-to-play-in-goal",
+            node: "th-gk0l",
             status: "done",
             evidence_ref: "msg:pat-outbound",
           },
@@ -389,7 +389,7 @@ describe("completionTime — the moment a node actually finished", () => {
           // what bumps `observed_at_version`.
           {
             op: "record_outcome",
-            node: "ask-pat-to-play-in-goal",
+            node: "th-gk0l",
             verdict: "late",
             evidence_ref: "smtp:250-queued",
           },
@@ -399,13 +399,13 @@ describe("completionTime — the moment a node actually finished", () => {
     expect(pursuit.graph.version).toBe(V.patReserved + 2);
 
     const view = viewOf(pursuit, Date.parse("2026-08-24T12:00:00.000Z"));
-    const pat = at(view, "ask-pat-to-play-in-goal");
+    const pat = at(view, "th-gk0l");
     // The receipt is the last thing we learned.
     expect(pat.observedAtVersion).toBe(V.patReserved + 2);
-    expect(HEAD.completionTime.has("ask-pat-to-play-in-goal")).toBe(false);
-    expect(pursuit.completionTime.get("ask-pat-to-play-in-goal")).toBe(Date.parse(sentAt));
+    expect(HEAD.completionTime.has("th-gk0l")).toBe(false);
+    expect(pursuit.completionTime.get("th-gk0l")).toBe(Date.parse(sentAt));
 
-    const wait = at(view, "wait-for-pat").wait;
+    const wait = at(view, "th-0s7c").wait;
     expect(wait?.deadlineAt).toBe(Date.parse(sentAt) + HOURS_48);
     expect(wait?.phase).toBe("blown");
     // Spelled out: the version-time answer is still in the future at that clock, which is
@@ -446,11 +446,11 @@ describe("buildPursuit — the entry point", () => {
 
   test("the past is the past: the roster step had not been superseded at v2", () => {
     const view = viewOf(buildPursuit(logText(), 2));
-    const roster = at(view, "confirm-roster-availability");
+    const roster = at(view, "th-ahf6");
     expect(roster.readiness).toBe("settled");
     expect(roster.node.provenance.superseded_by).toBeNull();
     // Marcus does not exist yet; the referral that created him arrives at v5.
-    expect(view.byId.has("check-marcus-is-eligible")).toBe(false);
+    expect(view.byId.has("th-etsk")).toBe(false);
   });
 
   test("v2's frontier is the three asks the fan-out just unblocked", () => {
@@ -459,21 +459,21 @@ describe("buildPursuit — the entry point", () => {
       view.nodes.map((entry) => [entry.node.id, entry.readiness]),
     );
     expect(view.frontier).toEqual([
-      "escalate-no-goalie-found",
-      "ask-dana-to-play-in-goal",
-      "ask-sam-to-play-in-goal",
-      "ask-priya-to-play-in-goal",
+      "th-vipt",
+      "th-nhwd",
+      "th-gyre",
+      "th-t2yo",
     ]);
-    expect(spread.get("goalie-confirmed")).toBe("blocked");
-    expect(spread.get("wait-for-dana")).toBe("blocked");
+    expect(spread.get("th-ymld")).toBe("blocked");
+    expect(spread.get("th-es9m")).toBe("blocked");
   });
 
   test("a deadline anchored past the ceiling stays unarmed while travelling", () => {
     // Dana's ask only goes `done` at v3, so at v2 there is no clock — the same wait that is
     // `resolved` at head, seen honestly from the version the reader chose.
     const past = buildPursuit(logText(), 2);
-    expect(past.completionTime.has("ask-dana-to-play-in-goal")).toBe(false);
-    const wait = at(viewOf(past), "wait-for-dana").wait;
+    expect(past.completionTime.has("th-nhwd")).toBe(false);
+    const wait = at(viewOf(past), "th-es9m").wait;
     expect(wait?.phase).toBe("unarmed");
     expect(wait?.deadlineAt).toBeNull();
     expect(wait?.unresolvedReason).toContain("still active");
@@ -563,8 +563,8 @@ describe("a log that is not the happy one", () => {
  * canvas shows head. The property survives it, because it is a property of the model. A
  * `PursuitView` carries a graph AND the two time indexes that graph must be read against, and
  * the bug these assertions exist for was pairing them from different folds — an earlier graph
- * read against HEAD's completion index, so `wait-for-dana` counted down from a clock that
- * `ask-dana-to-play-in-goal` does not start until v3. Typecheck, lint, knip and 589 tests all
+ * read against HEAD's completion index, so `th-es9m` counted down from a clock that
+ * `th-nhwd` does not start until v3. Typecheck, lint, knip and 589 tests all
  * passed with that in, because **nothing in this package tests a `.tsx` file**: there is no
  * jsdom, no testing-library, no component test, and `bun test --coverage` does not so much as
  * list the React tree. Judgment left in a component is judgment no mutant can reach, which is
@@ -580,15 +580,15 @@ describe("buildPursuit at an earlier version", () => {
   });
 
   test("an earlier version carries its OWN completion index, never head's", () => {
-    // The bug, named. `ask-dana-to-play-in-goal` goes `done` at v3, so at v2 there is no clock
-    // for `wait-for-dana` to count down — and reading head's index would invent one.
+    // The bug, named. `th-nhwd` goes `done` at v3, so at v2 there is no clock
+    // for `th-es9m` to count down — and reading head's index would invent one.
     const at2 = buildPursuit(logText(), 2);
     expect(at2.graph.version).toBe(2);
-    expect(head.completionTime.has("ask-dana-to-play-in-goal")).toBe(true);
-    expect(at2.completionTime.has("ask-dana-to-play-in-goal")).toBe(false);
+    expect(head.completionTime.has("th-nhwd")).toBe(true);
+    expect(at2.completionTime.has("th-nhwd")).toBe(false);
 
-    const wait = at2.graph.nodes.get("wait-for-dana");
-    if (wait === undefined) throw new Error("the fixture has no wait-for-dana at v2");
+    const wait = at2.graph.nodes.get("th-es9m");
+    if (wait === undefined) throw new Error("the fixture has no th-es9m at v2");
     const state = waitStateOf(at2.graph, wait, at2.completionTime, NOW);
     expect(state?.phase).toBe("unarmed");
     expect(state?.deadlineAt).toBeNull();

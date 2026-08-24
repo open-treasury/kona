@@ -15,7 +15,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph } from "../src/index.ts";
 import { evidencedKeys, isEvidencedRecipient } from "../src/index.ts";
-import { commit, seeded, task, wait } from "./fixtures.ts";
+import { commit, seeded, task, wait, nodeAt } from "./fixtures.ts";
 
 /** A graph whose one node has recorded `value` as its declared output. */
 function output(value: unknown): Graph {
@@ -124,7 +124,7 @@ describe("the guarantee this function relies on instead of re-checking", () => {
       const { output: recorded, output_evidence: evidence } = node.status;
       expect(Object.keys(recorded ?? {}).toSorted()).toEqual(Object.keys(evidence ?? {}).toSorted());
     }
-    expect(graph.nodes.get("a")?.status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
+    expect(nodeAt(graph, "a")?.status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
   });
 });
 

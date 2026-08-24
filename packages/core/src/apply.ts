@@ -7,6 +7,7 @@
  */
 
 import type { CommittedOp } from "./schema.ts";
+import { namedIn } from "./named.ts";
 import { parseEffectEvidence } from "./effect.ts";
 import type { Edge, Graph, Node, NodeSpec, OutcomeRecord } from "./graph.ts";
 import { isNodeTerminal, resolvingOutcome } from "./graph.ts";
@@ -133,7 +134,7 @@ function applyOne(
 
     case "add_edge": {
       if (op.from === op.to) {
-        return refuse("SELF_EDGE", `'${op.from}' cannot require itself`, {
+        return refuse("SELF_EDGE", `${namedIn(graph, op.from)} cannot require itself`, {
           node: op.from,
           ...at,
         });
@@ -154,7 +155,7 @@ function applyOne(
       if (graph.edges.some((existing) => sameEdge(existing, edge))) {
         return refuse(
           "DUPLICATE_EDGE",
-          `an identical edge '${op.from}' -> '${op.to}' already exists`,
+          `an identical edge ${namedIn(graph, op.from)} -> ${namedIn(graph, op.to)} already exists`,
           { node: op.to, ...at },
         );
       }
@@ -238,7 +239,7 @@ function applyOne(
       if (!node.spec.outputs.some((declared) => declared.name === op.output_name)) {
         return refuse(
           "UNDECLARED_OUTPUT",
-          `node '${op.node}' declares no output named '${op.output_name}'`,
+          `node ${namedIn(graph, op.node)} declares no output named '${op.output_name}'`,
           { node: op.node, ...at },
         );
       }

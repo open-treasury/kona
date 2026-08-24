@@ -9,14 +9,21 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph, InboundMessage } from "../src/index.ts";
 import { matchInbound, matchWait, waitAddresses } from "../src/index.ts";
-import { commit, seeded, task, wait } from "./fixtures.ts";
+import { commit, seeded, task, wait, nodeAt, nid, slugOf } from "./fixtures.ts";
 
 const MAILBOX = "ilya@example.com";
 
+/**
+ * A plausible inbound reply.
+ *
+ * The default `to` used to be spelled out, because a slug id was predictable. It is a hash
+ * now, so the caller passes the address it wants — every test that depends on which wait the
+ * message is for was already doing that.
+ */
 function message(over: Partial<InboundMessage> & { message_id: string }): InboundMessage {
   return {
     from: "Dana <dana@example.com>",
-    to: ["ilya+kona-await-dana@example.com"],
+    to: ["ilya@example.com"],
     subject: "Re: Thursday",
     received_at: "2026-08-22T10:00:00.000Z",
     ...over,
@@ -44,18 +51,21 @@ function waiting(...names: string[]): Graph {
 }
 
 function nodeOf(graph: Graph, id: string) {
-  const node = graph.nodes.get(id);
+  const node = nodeAt(graph, id);
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }
 
 describe("which addresses are worth polling", () => {
   test("an armed event-wait, with its fully expanded reply address", () => {
-    expect(waitAddresses(waiting("Await Dana"), MAILBOX)).toEqual([
+    const graph = waiting("Await Dana");
+    const id = nid(graph, "await-dana");
+    expect(waitAddresses(graph, MAILBOX)).toEqual([
       {
-        node_id: "await-dana",
+        node_id: id,
         label: "Await Dana",
-        address: "ilya+kona-await-dana@example.com",
+        // The reply address is built from the node id, so it moves with it.
+        address: `ilya+kona-${id}@example.com`,
         armed: true,
       },
     ]);
@@ -66,11 +76,12 @@ describe("which addresses are worth polling", () => {
       { op: "record_outcome", node: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
       { op: "set_status", node: "await-dana", status: "done", evidence_ref: "<m-1>" },
     ]);
+    const id = nid(resolved, "await-dana");
     expect(waitAddresses(resolved, MAILBOX)).toEqual([
       {
-        node_id: "await-dana",
+        node_id: id,
         label: "Await Dana",
-        address: "ilya+kona-await-dana@example.com",
+        address: `ilya+kona-${id}@example.com`,
         armed: false,
       },
     ]);
@@ -114,25 +125,25 @@ describe("which addresses are worth polling", () => {
   });
 
   test("each arm of a fan-out gets its own tag on the one inbox", () => {
-    const addresses = waitAddresses(waiting("Await Dana", "Await Sam", "Await Priya"), MAILBOX).map(
-      (target) => target.address,
+    const graph = waiting("Await Dana", "Await Sam", "Await Priya");
+    const addresses = waitAddresses(graph, MAILBOX).map((target) => target.address);
+    // Each arm's address is built from its own node id, so three arms give three addresses.
+    expect(addresses).toEqual(
+      ["await-dana", "await-sam", "await-priya"].map(
+        (slug) => `ilya+kona-${nid(graph, slug)}@example.com`,
+      ),
     );
-    expect(addresses).toEqual([
-      "ilya+kona-await-dana@example.com",
-      "ilya+kona-await-sam@example.com",
-      "ilya+kona-await-priya@example.com",
-    ]);
     expect(new Set(addresses).size).toBe(3);
   });
 });
 
 describe("matching one wait", () => {
   const graph = waiting("Await Dana");
-  const address = "ilya+kona-await-dana@example.com";
+  const address = `ilya+kona-${nid(graph, "await-dana")}@example.com`;
   const options = { ownMailbox: MAILBOX };
 
   test("a reply to the wait's own address matches", () => {
-    const match = matchWait(nodeOf(graph, "await-dana"), [message({ message_id: "<m-1>" })], address, options);
+    const match = matchWait(nodeOf(graph, "await-dana"), [message({ message_id: "<m-1>", to: [address] })], address, options);
     expect(match?.message_id).toBe("<m-1>");
     expect(match?.on).toBe("satisfied");
     expect(match?.late).toBe(false);
@@ -147,7 +158,9 @@ describe("matching one wait", () => {
   });
 
   test("mail to a different tag belongs to a different wait", () => {
-    const other = message({ message_id: "<m-2>", to: ["ilya+kona-await-sam@example.com"] });
+    // Some other wait's tag. It does not have to exist — the point is that it is not this
+    // node's address, and correlation is what decides.
+    const other = message({ message_id: "<m-2>", to: ["ilya+kona-someone-else@example.com"] });
     expect(matchWait(nodeOf(graph, "await-dana"), [other], address, options)).toBeNull();
   });
 
@@ -162,7 +175,7 @@ describe("matching one wait", () => {
   });
 
   test("addresses compare case-insensitively, as mail does", () => {
-    const shouted = message({ message_id: "<m-5>", to: ["ILYA+KONA-AWAIT-DANA@EXAMPLE.COM"] });
+    const shouted = message({ message_id: "<m-5>", to: [address.toUpperCase()] });
     expect(matchWait(nodeOf(graph, "await-dana"), [shouted], address, options)?.message_id).toBe("<m-5>");
   });
 
@@ -172,7 +185,7 @@ describe("matching one wait", () => {
     const seen = commit(graph, [
       { op: "record_outcome", node: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
     ]);
-    const messages = [message({ message_id: "<m-1>" }), message({ message_id: "<m-6>" })];
+    const messages = [message({ message_id: "<m-1>", to: [address] }), message({ message_id: "<m-6>", to: [address] })];
     expect(matchWait(nodeOf(seen, "await-dana"), messages, address, options)?.message_id).toBe("<m-6>");
   });
 
@@ -180,7 +193,7 @@ describe("matching one wait", () => {
     const tentative = commit(graph, [
       { op: "record_outcome", node: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
     ]);
-    const match = matchWait(nodeOf(tentative, "await-dana"), [message({ message_id: "<m-7>" })], address, options);
+    const match = matchWait(nodeOf(tentative, "await-dana"), [message({ message_id: "<m-7>", to: [address] })], address, options);
     expect(match?.late).toBe(false);
   });
 
@@ -189,7 +202,7 @@ describe("matching one wait", () => {
       { op: "record_outcome", node: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
       { op: "set_status", node: "await-dana", status: "done", evidence_ref: "<m-1>" },
     ]);
-    const match = matchWait(nodeOf(resolved, "await-dana"), [message({ message_id: "<m-8>" })], address, options);
+    const match = matchWait(nodeOf(resolved, "await-dana"), [message({ message_id: "<m-8>", to: [address] })], address, options);
     expect(match?.late).toBe(true);
   });
 
@@ -208,7 +221,7 @@ describe("matching one wait", () => {
         },
       }),
     ]);
-    expect(matchWait(nodeOf(twoWays, "await-dana"), [message({ message_id: "<m-9>" })], address, options)?.on)
+    expect(matchWait(nodeOf(twoWays, "await-dana"), [message({ message_id: "<m-9>", to: [address] })], address, options)?.on)
       .toBe("respond");
   });
 
@@ -225,8 +238,8 @@ describe("matching one wait", () => {
       }),
     ]);
     const node = nodeOf(fromDana, "await-dana");
-    const sam = message({ message_id: "<m-10>", from: "sam@example.com" });
-    const dana = message({ message_id: "<m-11>", from: "DANA@example.com" });
+    const sam = message({ message_id: "<m-10>", from: "sam@example.com" , to: [address] });
+    const dana = message({ message_id: "<m-11>", from: "DANA@example.com" , to: [address] });
     expect(matchWait(node, [sam], address, options)).toBeNull();
     expect(matchWait(node, [dana], address, options)?.message_id).toBe("<m-11>");
   });
@@ -244,9 +257,9 @@ describe("matching one wait", () => {
       }),
     ]);
     const node = nodeOf(threaded, "await-dana");
-    expect(matchWait(node, [message({ message_id: "<a>", in_reply_to: "<other>" })], address, options)).toBeNull();
-    expect(matchWait(node, [message({ message_id: "<b>" })], address, options)).toBeNull();
-    expect(matchWait(node, [message({ message_id: "<c>", in_reply_to: "<sent-1>" })], address, options)?.message_id)
+    expect(matchWait(node, [message({ message_id: "<a>", in_reply_to: "<other>", to: [address] })], address, options)).toBeNull();
+    expect(matchWait(node, [message({ message_id: "<b>", to: [address] })], address, options)).toBeNull();
+    expect(matchWait(node, [message({ message_id: "<c>", in_reply_to: "<sent-1>", to: [address] })], address, options)?.message_id)
       .toBe("<c>");
   });
 
@@ -259,12 +272,12 @@ describe("matching one wait", () => {
         match: { kind: "event", conditions: [{ kind: "deadline", on: "timeout" }] },
       }),
     ]);
-    expect(matchWait(nodeOf(clockOnly, "await-dana"), [message({ message_id: "<m-12>" })], address, options))
+    expect(matchWait(nodeOf(clockOnly, "await-dana"), [message({ message_id: "<m-12>", to: [address] })], address, options))
       .toBeNull();
   });
 
   test("messages are considered oldest first", () => {
-    const messages = [message({ message_id: "<first>" }), message({ message_id: "<second>" })];
+    const messages = [message({ message_id: "<first>", to: [address] }), message({ message_id: "<second>", to: [address] })];
     expect(matchWait(nodeOf(graph, "await-dana"), messages, address, options)?.message_id).toBe("<first>");
   });
 });
@@ -276,20 +289,20 @@ describe("matching a batch across waits", () => {
     const graph = waiting("Await Dana", "Await Sam");
     const shared = message({
       message_id: "<m-1>",
-      to: ["ilya+kona-await-dana@example.com", "ilya+kona-await-sam@example.com"],
+      to: [`ilya+kona-${nid(graph, "await-dana")}@example.com`, `ilya+kona-${nid(graph, "await-sam")}@example.com`],
     });
     const matches = matchInbound(graph, MAILBOX, [shared]);
     expect(matches).toHaveLength(1);
-    expect(matches[0]?.node_id).toBe("await-dana");
+    expect(slugOf(matches[0]?.node_id ?? "")).toBe("await-dana");
   });
 
   test("distinct replies advance their own arms", () => {
     const graph = waiting("Await Dana", "Await Sam");
     const matches = matchInbound(graph, MAILBOX, [
-      message({ message_id: "<m-sam>", to: ["ilya+kona-await-sam@example.com"] }),
-      message({ message_id: "<m-dana>", to: ["ilya+kona-await-dana@example.com"] }),
+      message({ message_id: "<m-sam>", to: [`ilya+kona-${nid(graph, "await-sam")}@example.com`] }),
+      message({ message_id: "<m-dana>", to: [`ilya+kona-${nid(graph, "await-dana")}@example.com`] }),
     ]);
-    expect(matches.map((m) => [m.node_id, m.message_id])).toEqual([
+    expect(matches.map((m) => [slugOf(m.node_id), m.message_id])).toEqual([
       ["await-dana", "<m-dana>"],
       ["await-sam", "<m-sam>"],
     ]);
@@ -297,21 +310,29 @@ describe("matching a batch across waits", () => {
 
   test("one wait takes at most one message per poll", () => {
     const graph = waiting("Await Dana");
+    const to = [`ilya+kona-${nid(graph, "await-dana")}@example.com`];
     const matches = matchInbound(graph, MAILBOX, [
-      message({ message_id: "<m-1>" }),
-      message({ message_id: "<m-2>" }),
+      message({ message_id: "<m-1>", to }),
+      message({ message_id: "<m-2>", to }),
     ]);
     expect(matches).toHaveLength(1);
   });
 
   test("an empty inbox and an empty graph both yield nothing", () => {
     expect(matchInbound(waiting("Await Dana"), MAILBOX, [])).toEqual([]);
-    expect(matchInbound(seeded([task("A")]), MAILBOX, [message({ message_id: "<m-1>" })])).toEqual([]);
+    // A graph with no waits matches nothing, whatever the message is addressed to.
+    expect(
+      matchInbound(seeded([task("A")]), MAILBOX, [
+        message({ message_id: "<m-1>", to: ["ilya+kona-nobody@example.com"] }),
+      ]),
+    ).toEqual([]);
   });
 
   test("it is idempotent once the orchestrator has recorded the outcome", () => {
     const graph = waiting("Await Dana");
-    const inbox = [message({ message_id: "<m-1>" })];
+    const inbox = [
+      message({ message_id: "<m-1>", to: [`ilya+kona-${nid(graph, "await-dana")}@example.com`] }),
+    ];
     expect(matchInbound(graph, MAILBOX, inbox)).toHaveLength(1);
 
     const recorded = commit(graph, [

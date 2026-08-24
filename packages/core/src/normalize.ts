@@ -111,6 +111,10 @@ function normalizeSpec<S extends object>(
 export function normalizeBatch(
   graph: Graph,
   ops: readonly AuthoredOp[],
+  /** The pursuit's id prefix, from the genesis config. Every minted id opens with it. */
+  prefix: string,
+  /** The version this batch commits as — part of the mint seed, so ids do not repeat. */
+  version: number,
 ): Result<CommittedOp[]> {
   const scope: RefScope = {
     committed: new Set(graph.nodes.keys()),
@@ -124,7 +128,7 @@ export function normalizeBatch(
       case "add_node": {
         const spec = normalizeSpec(op.spec, scope, opIndex);
         if (!spec.ok) return spec;
-        const id = mintNodeId(op.label, scope.taken);
+        const id = mintNodeId(prefix, op.label, version, opIndex, scope.taken);
         scope.taken.add(id);
         scope.minted.set(`$${opIndex}`, id);
         committed.push({ ...op, id, spec: spec.value });

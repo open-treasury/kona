@@ -10,19 +10,65 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 cd "${WORK}"
 
+# Ids are hashes, so a batch cannot name a node from an EARLIER commit by guessing its id the
+# way a slug once let you. `$N` still covers references inside one batch; across batches the
+# id has to be read back out of the graph. This script keeps writing the readable name and
+# resolves it here, which is exactly what an agent does with `kona graph --json` — the only
+# difference is that the agent reads the id instead of predicting it.
+resolve() {
+  ${KONA} graph --json > graph.json 2>/dev/null || { cat > ops.resolved.json; return; }
+  python3 - "$1" <<'PY'
+import json, re, sys
+
+graph = json.load(open("graph.json"))
+def slug(label):
+    s = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:48].rstrip("-")
+    return s or "node"
+
+by_slug = {slug(n["label"]): n["id"] for n in graph.get("nodes", [])}
+ids = {n["id"] for n in graph.get("nodes", [])}
+
+def fix(value):
+    if not isinstance(value, str) or value.startswith("$") or value in ids:
+        return value
+    head, dot, tail = value.partition(".")
+    if dot and head in by_slug:
+        return by_slug[head] + dot + tail
+    return by_slug.get(value, value)
+
+def walk(node):
+    if isinstance(node, dict):
+        return {k: (fix(v) if k in ("node", "from", "to", "by", "on_timeout", "compensates", "ref", "after") else walk(v)) for k, v in node.items()}
+    if isinstance(node, list):
+        return [walk(v) for v in node]
+    return node
+
+json.dump(walk(json.load(open(sys.argv[1]))), open("ops.resolved.json", "w"))
+PY
+}
+
 ops() { cat > ops.json; }
-commit() { ${KONA} mutate --ops ops.json --base-version "$1" --why "$2" --reason-code "$3" "${@:4}" >/dev/null; }
+commit() {
+  resolve ops.json
+  ${KONA} mutate --ops ops.resolved.json --base-version "$1" --why "$2" --reason-code "$3" "${@:4}" >/dev/null
+}
 
 # §6.6's outbox, as two shell verbs. Every send here is three commits — reserve, (the bytes),
 # record — because that is the only order that survives a crash: append and fsync the intent
 # BEFORE anything leaves, so a machine that dies mid-send leaves a slot a human can be shown.
 # The fixture used to hand-write `set_status done` instead, which produced a log the CLI
 # itself could never emit.
+nodeid() { ${KONA} graph --json | python3 -c "'''resolve one label-slug to its id'''
+import json,re,sys
+g=json.load(sys.stdin)
+s=lambda l:(re.sub(r'[^a-z0-9]+','-',l.lower()).strip('-')[:48].rstrip('-') or 'node')
+print(next((n['id'] for n in g['nodes'] if s(n['label'])==sys.argv[1]), sys.argv[1]))" "$1"; }
+
 reserve() {
-  ${KONA} effect reserve "$1" --payload-hash "$2" --why "$3" --json \
+  ${KONA} effect reserve "$(nodeid "$1")" --payload-hash "$2" --why "$3" --json \
     | sed -n 's/.*"effect_key":"\([^"]*\)".*/\1/p'
 }
-record() { ${KONA} effect record "$1" --key "$2" --outcome "$3" --message-id "$4" --why "$5" >/dev/null; }
+record() { ${KONA} effect record "$(nodeid "$1")" --key "$2" --outcome "$3" --message-id "$4" --why "$5" >/dev/null; }
 
 cat > config.json <<'EOF'
 {
@@ -35,7 +81,9 @@ cat > config.json <<'EOF'
   "effect_budget": 12
 }
 EOF
-${KONA} init --actor-id ilya --config config.json >/dev/null
+# `--prefix` is required: every node id opens with it, and it is fixed for the life of the
+# pursuit. `th` for thursday, so the fixture's ids read as this fixture's ids.
+${KONA} init --actor-id ilya --config config.json --prefix th >/dev/null
 
 # v1 — READ THE ROSTER, and nothing else. Invariant 3(b) rejects "a recipient existing only
 # in the proposing batch", so nothing may email Dana until a COMMITTED record names her.

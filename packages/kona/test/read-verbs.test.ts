@@ -76,11 +76,11 @@ const PLAN = [
 async function initWith(config: unknown): Promise<void> {
   h = harness();
   if (config === null) {
-    expect(await run(["init"], h.io)).toBe(0);
+    expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
   } else {
     const path = join(h.dir, "config.json");
     writeFileSync(path, JSON.stringify(config));
-    expect(await run(["init", "--config", path], h.io)).toBe(0);
+    expect(await run(["init", "--config", path, "--prefix", "t"], h.io)).toBe(0);
   }
   await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PLAN);
@@ -97,7 +97,7 @@ afterEach(() => h.cleanup());
 
 async function briefJson(node: string): Promise<{ code: number; brief: Brief }> {
   h.reset();
-  const code = await run(["brief", node, "--json"], h.io);
+  const code = await run(["brief", h.id(node), "--json"], h.io);
   return { code, brief: JSON.parse(h.out[0] ?? "{}") as Brief };
 }
 
@@ -115,14 +115,14 @@ describe("kona next", () => {
   test("reports only what is ready, and says which version it read", async () => {
     expect(await run(["next"], h.io)).toBe(0);
     expect(h.out[0]).toBe("version 3 · 1 ready");
-    expect(h.out.join("\n")).toContain("confirm-roster");
-    expect(h.out.join("\n")).not.toContain("ask-dana");
+    expect(h.out.join("\n")).toContain(h.id("confirm-roster"));
+    expect(h.out.join("\n")).not.toContain(h.id("ask-dana"));
   });
 
   test("marks a node that will move bytes, so the loop can gate on it", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "record_output", node: "confirm-roster", output_name: "availability", value: ["dana"], evidence_ref: "e" },
-      { op: "set_status", node: "confirm-roster", status: "done", evidence_ref: "e" },
+      { op: "record_output", node: h.id("confirm-roster"), output_name: "availability", value: ["dana"], evidence_ref: "e" },
+      { op: "set_status", node: h.id("confirm-roster"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "read", "--reason-code", "OTHER"], h.io),
@@ -134,7 +134,7 @@ describe("kona next", () => {
 
   test("says so plainly when nothing is ready", async () => {
     const ops = h.writeOps("stop.json", [
-      { op: "set_status", node: "confirm-roster", status: "dropped", evidence_ref: "e" },
+      { op: "set_status", node: h.id("confirm-roster"), status: "dropped", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
@@ -149,7 +149,7 @@ describe("kona next", () => {
     expect(await run(["next", "--json"], h.io)).toBe(0);
     const payload = JSON.parse(h.out[0] ?? "{}") as { version: number; nodes: { id: string }[] };
     expect(payload.version).toBe(3);
-    expect(payload.nodes.map((n) => n.id)).toEqual(["confirm-roster"]);
+    expect(payload.nodes.map((n) => n.id)).toEqual([h.id("confirm-roster")]);
   });
 
   test("refuses outside a pursuit", async () => {
@@ -172,13 +172,13 @@ describe("kona next", () => {
 
 describe("kona brief", () => {
   test("exits 0 when preconditions are met", async () => {
-    const { code, brief } = await briefJson("confirm-roster");
+    const { code, brief } = await briefJson(h.id("confirm-roster"));
     expect(code).toBe(0);
     expect(brief.preconditions_satisfied.ok).toBe(true);
   });
 
   test("exits NON-ZERO when they are not, so a shell cannot dispatch anyway", async () => {
-    const { code, brief } = await briefJson("ask-dana");
+    const { code, brief } = await briefJson(h.id("ask-dana"));
     expect(code).toBe(1);
     expect(brief.preconditions_satisfied.ok).toBe(false);
     const failing = brief.preconditions_satisfied.checks.filter((c) => !c.ok).map((c) => c.name);
@@ -186,19 +186,19 @@ describe("kona brief", () => {
   });
 
   test("carries the effect key the executor will need to record against", async () => {
-    const { brief } = await briefJson("ask-dana");
+    const { brief } = await briefJson(h.id("ask-dana"));
     expect(brief.effect_key).toMatch(/^ek_[0-9a-f]{16}$/);
   });
 
   test("a node that sends nothing carries no key and no reply address", async () => {
-    const { brief } = await briefJson("confirm-roster");
+    const { brief } = await briefJson(h.id("confirm-roster"));
     expect(brief.effect_key).toBeNull();
     expect(brief.correlation).toBeNull();
   });
 
   test("the human rendering shows identity, authority and every check", async () => {
     h.reset();
-    expect(await run(["brief", "confirm-roster"], h.io)).toBe(0);
+    expect(await run(["brief", h.id("confirm-roster")], h.io)).toBe(0);
     const text = h.out.join("\n");
     expect(text).toContain("Ilya Vorobiev <ilya@example.com>");
     expect(text).toContain("You may not commit funds.");
@@ -217,20 +217,20 @@ describe("kona brief", () => {
 
   test("the human rendering shows the reply-to and the dependency it waits on", async () => {
     h.reset();
-    expect(await run(["brief", "ask-dana"], h.io)).toBe(1);
+    expect(await run(["brief", h.id("ask-dana")], h.io)).toBe(1);
     const text = h.out.join("\n");
     // The wait's tag, not the sender's — the address `kona poll` will actually watch.
-    expect(text).toContain("ilya+kona-wait-for-dana@example.com");
-    expect(text).toContain("[kona-wait-for-dana]");
+    expect(text).toContain(`ilya+kona-${h.id("wait-for-dana")}@example.com`);
+    expect(text).toContain(`[kona-${h.id("wait-for-dana")}]`);
     expect(text).toContain("depends on");
-    expect(text).toContain("confirm-roster");
+    expect(text).toContain(h.id("confirm-roster"));
     expect(text).toContain("preconditions NOT SATISFIED");
     expect(text).toContain("FAIL");
   });
 
   test("it always states what may NOT be disclosed", async () => {
     h.reset();
-    expect(await run(["brief", "confirm-roster"], h.io)).toBe(0);
+    expect(await run(["brief", h.id("confirm-roster")], h.io)).toBe(0);
     const text = h.out.join("\n");
     expect(text).toContain("NEVER");
     expect(text).toContain("deadline");
@@ -239,7 +239,7 @@ describe("kona brief", () => {
 
   test("refuses a node that does not exist", async () => {
     h.reset();
-    expect(await run(["brief", "ghost"], h.io)).toBe(1);
+    expect(await run(["brief", h.id("ghost")], h.io)).toBe(1);
     expect(h.err[0]).toContain("UNKNOWN_NODE");
   });
 
@@ -253,7 +253,7 @@ describe("kona brief", () => {
     h.cleanup();
     await initWith(null);
     h.reset();
-    expect(await run(["brief", "ask-dana"], h.io)).toBe(1);
+    expect(await run(["brief", h.id("ask-dana")], h.io)).toBe(1);
     expect(h.err[0]).toContain("NO_IDENTITY");
   });
 
@@ -261,9 +261,9 @@ describe("kona brief", () => {
     h.cleanup();
     await initWith(null);
     h.reset();
-    expect(await run(["brief", "confirm-roster"], h.io)).toBe(0);
+    expect(await run(["brief", h.id("confirm-roster")], h.io)).toBe(0);
     const out = h.out.join("\n");
-    expect(out).toContain("confirm-roster");
+    expect(out).toContain(h.id("confirm-roster"));
     expect(out).not.toContain("  as  ");
     expect(out).not.toContain("authority");
   });
@@ -271,7 +271,7 @@ describe("kona brief", () => {
   test("an unconfigured budget blocks a send — an unknown cap is not an unlimited one", async () => {
     h.cleanup();
     await initWith({ identity: CONFIG.identity });
-    const { brief } = await briefJson("ask-dana");
+    const { brief } = await briefJson(h.id("ask-dana"));
     const budget = brief.preconditions_satisfied.checks.find((c) => c.name === "budget_remaining");
     expect(budget?.ok).toBe(false);
     expect(budget?.detail).toContain("unknown cap");
@@ -280,14 +280,14 @@ describe("kona brief", () => {
   test("surfaces a damaged log rather than briefing from it", async () => {
     corruptMidLog();
     h.reset();
-    expect(await run(["brief", "confirm-roster"], h.io)).toBe(1);
+    expect(await run(["brief", h.id("confirm-roster")], h.io)).toBe(1);
     expect(h.err[0]).toContain("UNPARSEABLE_RECORD");
   });
 });
 
 describe("kona init --config", () => {
   test("writes the config onto the genesis record, where it is versioned", async () => {
-    const { brief } = await briefJson("confirm-roster");
+    const { brief } = await briefJson(h.id("confirm-roster"));
     expect(brief.identity?.display_name).toBe("Ilya Vorobiev");
   });
 
@@ -296,7 +296,7 @@ describe("kona init --config", () => {
     try {
       const path = join(fresh.dir, "config.json");
       writeFileSync(path, "{not json");
-      expect(await run(["init", "--config", path], fresh.io)).toBe(1);
+      expect(await run(["init", "--config", path, "--prefix", "t"], fresh.io)).toBe(1);
       expect(fresh.err[0]).toContain("UNREADABLE_CONFIG");
     } finally {
       fresh.cleanup();
@@ -308,7 +308,7 @@ describe("kona init --config", () => {
     try {
       const path = join(fresh.dir, "config.json");
       writeFileSync(path, JSON.stringify({ identity: { mailbox: "x" } }));
-      expect(await run(["init", "--config", path], fresh.io)).toBe(1);
+      expect(await run(["init", "--config", path, "--prefix", "t"], fresh.io)).toBe(1);
       expect(fresh.err[0]).toContain("MALFORMED_CONFIG");
     } finally {
       fresh.cleanup();
@@ -320,7 +320,7 @@ describe("kona init --config", () => {
     try {
       const path = join(fresh.dir, "config.json");
       writeFileSync(path, JSON.stringify({ ...CONFIG, effect_budgets: 500 }));
-      expect(await run(["init", "--config", path], fresh.io)).toBe(1);
+      expect(await run(["init", "--config", path, "--prefix", "t"], fresh.io)).toBe(1);
       expect(fresh.err[0]).toContain("effect_budgets");
     } finally {
       fresh.cleanup();

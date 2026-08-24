@@ -19,13 +19,13 @@ import {
   settledAt,
   waitStatus,
 } from "../src/index.ts";
-import { commit, record, rostered, seeded, task, wait } from "./fixtures.ts";
+import { commit, record, rostered, seeded, task, wait, nodeAt, slugOf, slugOps, nid } from "./fixtures.ts";
 
 const T0 = "2026-08-21T12:00:00.000Z";
 const LATER = "2026-08-25T12:00:00.000Z";
 
 function nodeOf(graph: Graph, id: string) {
-  const node = graph.nodes.get(id);
+  const node = nodeAt(graph, id);
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }
@@ -162,7 +162,7 @@ describe("armed waits are live waits only", () => {
   const graph = gated({ at: T0 });
 
   test("a task is never an armed wait, however overdue anything is", () => {
-    expect(armedWaits(graph).map((n) => n.id)).toEqual(["gate"]);
+    expect(armedWaits(graph).map((n) => slugOf(n.id))).toEqual(["gate"]);
   });
 
   test.each(["done", "failed", "dropped", "in_flight"])("a '%s' wait is not armed", (state) => {
@@ -177,23 +177,24 @@ describe("armed waits are live waits only", () => {
       wait("Gate prime", { on_timeout: "escalate", deadline: { at: T0 } }),
       { op: "supersede_node", node: "gate", by: "$0" },
     ]);
-    expect(superseded.nodes.get("gate")?.status.state).toBe("dropped");
-    expect(armedWaits(superseded).map((n) => n.id)).toEqual(["gate-prime"]);
+    expect(nodeAt(superseded, "gate")?.status.state).toBe("dropped");
+    expect(armedWaits(superseded).map((n) => slugOf(n.id))).toEqual(["gate-prime"]);
   });
 
   test("overdueWaits is armed AND expired", () => {
-    expect(overdueWaits([], graph, LATER).map((s) => s.node.id)).toEqual(["gate"]);
+    expect(overdueWaits([], graph, LATER).map((s) => slugOf(s.node.id))).toEqual(["gate"]);
     expect(overdueWaits([], graph, "2020-01-01T00:00:00.000Z")).toEqual([]);
   });
 });
 
 describe("the resume plan", () => {
   test("reports state counts, the frontier and armed waits", () => {
-    const plan = planResume([], gated({ at: LATER }), T0);
+    const graph = gated({ at: LATER });
+    const plan = planResume([], graph, T0);
     expect(plan.report.counts).toEqual({ active: 2 });
-    expect(plan.report.frontier).toEqual(["escalate", "gate"]);
+    expect(plan.report.frontier.map(slugOf)).toEqual(["escalate", "gate"]);
     expect(plan.report.waits).toEqual([
-      { node_id: "gate", label: "Gate", deadline: LATER, basis: "fixed instant", overdue: false },
+      { node_id: nid(graph, "gate"), label: "Gate", deadline: LATER, basis: "fixed instant", overdue: false },
     ]);
   });
 
@@ -205,7 +206,7 @@ describe("the resume plan", () => {
     // `on_timeout` is a declaration, not an edge. Without the edge, a timed-out wait
     // resolves into nothing and §6.2's reason for demanding on_timeout evaporates.
     const plan = planResume([], gated({ at: T0 }), LATER);
-    expect(plan.repairs).toEqual([
+    expect(plan.repairs.map(slugOps)).toEqual([
       { op: "add_edge", from: "gate", to: "escalate", condition: { on: "timeout" } },
       { op: "record_outcome", node: "gate", verdict: "timed_out", evidence_ref: `deadline:${T0}` },
       { op: "set_status", node: "gate", status: "done", evidence_ref: `deadline:${T0}` },
@@ -225,13 +226,13 @@ describe("the resume plan", () => {
   test("the repairs actually apply, and leave the escape route ready", () => {
     const plan = planResume([], gated({ at: T0 }), LATER);
     const repaired = commit(gated({ at: T0 }), plan.repairs);
-    expect(repaired.nodes.get("gate")?.status.state).toBe("done");
-    expect(repaired.nodes.get("gate")?.status.outcome?.verdict).toBe("timed_out");
+    expect(nodeAt(repaired, "gate")?.status.state).toBe("done");
+    expect(nodeAt(repaired, "gate")?.status.outcome?.verdict).toBe("timed_out");
     expect(planResume([], repaired, LATER).repairs).toEqual([]);
   });
 
   test("the rationale names the waits, singular and plural", () => {
-    expect(planResume([], gated({ at: T0 }), LATER).rationale).toContain("'gate'");
+    expect(planResume([], gated({ at: T0 }), LATER).rationale).toContain("'Gate'");
     const two = commit(gated({ at: T0 }), [
       wait("Second gate", { on_timeout: "escalate", deadline: { at: T0 } }),
     ]);
@@ -254,7 +255,7 @@ describe("a claimed PURE node is returned to the frontier", () => {
 
   test("it is repaired to active, and is NOT reported as an unknown send", () => {
     const plan = planResume([], claimed, LATER);
-    expect(plan.repairs).toEqual([
+    expect(plan.repairs.map(slugOps)).toEqual([
       {
         op: "set_status",
         node: "read-the-schemas",
@@ -293,10 +294,10 @@ describe("resume NEVER repairs an open reservation", () => {
     // Crash windows 2 and 3 leave identical bytes. Guessing which one happened sends a
     // second email; §6.5 makes the mailbox, not the log, the thing that can tell them apart.
     const plan = planResume([], reserved, LATER);
-    expect(plan.repairs).toEqual([]);
+    expect(plan.repairs.map(slugOps)).toEqual([]);
     expect(plan.report.unknown_sends).toEqual([
       {
-        node_id: "ask-dana",
+        node_id: nid(reserved, "ask-dana"),
         label: "Ask Dana",
         effect_key: "ek_1",
         payload_hash: "sha256:aaa",
@@ -334,7 +335,7 @@ describe("the escape route must still be runnable", () => {
       { op: "set_status", node: "escalate", status: "done", evidence_ref: "e" },
     ]);
     const repaired = commit(graph, planResume([], graph, LATER).repairs);
-    expect(repaired.nodes.get("gate")?.status.outcome?.verdict).toBe("timed_out");
+    expect(nodeAt(repaired, "gate")?.status.outcome?.verdict).toBe("timed_out");
   });
 
   test("a timeout target that does not exist is skipped rather than invented", () => {

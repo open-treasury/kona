@@ -95,7 +95,7 @@ describe("topologySignature", () => {
     const graph = folded().graph;
     const before = topologySignature(graph);
 
-    const node = nodeOf(graph, "ask-pat-to-play-in-goal");
+    const node = nodeOf(graph, "th-gk0l");
     node.status.state = "dropped";
     node.status.output = { transcript_ref: "msg-999" };
     node.status.observed_at_version = 99;
@@ -107,7 +107,7 @@ describe("topologySignature", () => {
       outcome: null,
       message_id: null,
     });
-    nodeOf(graph, "goalie-confirmed").status.outcomes.push({
+    nodeOf(graph, "th-ymld").status.outcomes.push({
       verdict: "confirmed",
       evidence_ref: "msg-998",
       at_version: 99,
@@ -119,16 +119,16 @@ describe("topologySignature", () => {
   test("a supersede changes it even when no node or edge is added", () => {
     const graph = folded().graph;
     const before = topologySignature(graph);
-    // `escalate-no-goalie-found` is already in the fixture, so this is a supersession and
+    // `th-vipt` is already in the fixture, so this is a supersession and
     // nothing else — no new node, no new edge.
-    nodeOf(graph, "ask-pat-to-play-in-goal").provenance.superseded_by = "escalate-no-goalie-found";
+    nodeOf(graph, "th-gk0l").provenance.superseded_by = "th-vipt";
     expect(topologySignature(graph)).not.toBe(before);
   });
 
   test("an edge condition is part of the shape", () => {
     const graph = folded().graph;
     const before = topologySignature(graph);
-    // `wait-for-eligibility-ruling -> goalie-confirmed` fires on `accept`; the three goalie
+    // `th-9xi1 -> th-ymld` fires on `accept`; the three goalie
     // waits fire on `satisfied`. Flipping one is a different graph, same node set.
     const edge = graph.edges.find((e) => e.condition?.on === "accept");
     if (edge?.condition === undefined) throw new Error("the fixture lost its `accept` edge");
@@ -200,8 +200,8 @@ describe("layoutGraph", () => {
     // dagre lays this chain out straight, so the two sit on the same row with the same centre
     // — and because a wait is 20px taller, identical `y` values would mean the centre never
     // got converted.
-    const task = boxOf(layout, "ask-dana-to-play-in-goal");
-    const wait = boxOf(layout, "wait-for-dana");
+    const task = boxOf(layout, "th-nhwd");
+    const wait = boxOf(layout, "th-es9m");
 
     expect(task.height).not.toBe(wait.height);
     expect(task.y + task.height / 2).toBe(wait.y + wait.height / 2);

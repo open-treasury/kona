@@ -17,10 +17,10 @@ import {
   readyFrontier,
   validate,
 } from "../src/index.ts";
-import { ORCHESTRATOR, SUBAGENT, commit, rostered, seeded, task, wait } from "./fixtures.ts";
+import { ORCHESTRATOR, SUBAGENT, commit, rostered, seeded, task, wait, nodeAt, resolveSlugs, slugOf } from "./fixtures.ts";
 
 function attempt(graph: Graph, ops: AuthoredOp[], actor = ORCHESTRATOR) {
-  return validate({ graph, ops, actor, version: graph.version + 1 });
+  return validate({ graph, ops: resolveSlugs(graph, ops), actor, version: graph.version + 1, prefix: "t" });
 }
 
 function rejection<T>(result: Result<T>) {
@@ -35,7 +35,7 @@ function accepted<T>(result: Result<T>) {
 }
 
 function nodeOf(graph: Graph, id: string): Node {
-  const node = graph.nodes.get(id);
+  const node = nodeAt(graph, id);
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }
@@ -163,7 +163,7 @@ describe("the predicate grammar is closed (§6.7)", () => {
     );
     expect(r.code).toBe("REFUSED");
     expect(r.reason).toBe("MALFORMED_PREDICATE");
-    expect(r.node).toBe("quorum");
+    expect(r.message).toContain("'Quorum'");
   });
 
   test("a wait with no predicate arm is untouched by the grammar check", () => {
@@ -235,7 +235,7 @@ describe("countPredicate — the three counts (§6.7)", () => {
     const graph = commit(quorum(), [
       { op: "add_edge", from: "dana", to: "quorum", condition: { on: "satisfied" } },
     ]);
-    expect(graph.edges.filter((e) => e.to === "quorum")).toHaveLength(2);
+    expect(graph.edges.filter((e) => slugOf(e.to) === "quorum")).toHaveLength(2);
     expect(counted(graph).population).toBe(1);
   });
 
@@ -267,7 +267,7 @@ describe("invariant 2 — predicate-waits stay satisfiable", () => {
     expect(r.code).toBe("INVARIANT_VIOLATION");
     expect(r.invariant).toBe(2);
     expect(r.reason).toBe("PREDICATE_UNSATISFIABLE");
-    expect(r.node).toBe("quorum");
+    expect(r.message).toContain("'Quorum'");
     // A post-state predicate cannot honestly name an op; guessing one would mislead.
     expect(r.op_index).toBeUndefined();
   });
@@ -354,7 +354,7 @@ describe("invariant 2 — predicate-waits stay satisfiable", () => {
   test("a derived drop that breaks a quorum is named in the rejection", () => {
     const r = rejection(attempt(gatedQuorum(), [outcome("gate", "ignore"), close("gate")]));
     expect(r.reason).toBe("PREDICATE_UNSATISFIABLE");
-    expect(r.message).toContain("branch resolution dropped dana");
+    expect(r.message).toContain("branch resolution dropped 'Dana'");
   });
 
   /**
@@ -371,7 +371,7 @@ describe("invariant 2 — predicate-waits stay satisfiable", () => {
       ],
     );
     const value = accepted(attempt(soleMember, [outcome("gate", "ignore"), close("gate")]));
-    expect(value.derived.map((op) => op.op === "set_status" && op.node)).toEqual(["dana", "quorum"]);
+    expect(value.derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["dana", "quorum"]);
   });
 });
 
@@ -391,7 +391,7 @@ describe("invariant 3(b) — recipient refs are refs, not addresses (§6.2)", ()
     const r = rejection(attempt(seeded([task("A")]), [pivot("person:club-reserve/goalie-1")]));
     expect(r.code).toBe("REFUSED");
     expect(r.reason).toBe("MALFORMED_RECIPIENT_REF");
-    expect(r.node).toBe("ask-marcus");
+    expect(r.message).toContain("'Ask Marcus'");
     expect(r.op_index).toBe(0);
   });
 
@@ -461,7 +461,7 @@ describe("parser-class refusals zod cannot express (§6.7)", () => {
     const r = rejection(attempt(gate(), [{ op: "add_edge", from: "gate", to: "ignored" }]));
     expect(r.code).toBe("REFUSED");
     expect(r.reason).toBe("UNCONDITIONED_WAIT_EDGE");
-    expect(r.node).toBe("gate");
+    expect(r.message).toContain("'Gate'");
     expect(r.message).toContain("fire the branch unapproved");
   });
 
@@ -474,7 +474,7 @@ describe("parser-class refusals zod cannot express (§6.7)", () => {
       ]),
     );
     expect(r.reason).toBe("UNCONDITIONED_WAIT_EDGE");
-    expect(r.node).toBe("fresh");
+    expect(r.message).toContain("'Fresh'");
   });
 
   test("an unconditioned edge INTO a wait is fine — the rule is about out-edges", () => {
@@ -492,7 +492,7 @@ describe("parser-class refusals zod cannot express (§6.7)", () => {
     );
     expect(r.code).toBe("REFUSED");
     expect(r.reason).toBe("DEAD_ON_ARRIVAL_EDGE");
-    expect(r.node).toBe("ignored");
+    expect(r.message).toContain("'Ignored'");
     expect(r.message).toContain("can never fire");
   });
 
@@ -835,7 +835,7 @@ describe("hardening — the wait-out-edge rule resolves the source's type correc
       ]),
     );
     expect(r.reason).toBe("UNCONDITIONED_WAIT_EDGE");
-    expect(r.node).toBe("gate");
+    expect(r.message).toContain("'Gate'");
   });
 
   test("an unknown source is not a wait, and is left to the apply stage to reject", () => {
@@ -868,7 +868,7 @@ describe("review regressions", () => {
   test("a merge:'any' root with no in-edges is ready", () => {
     const graph = seeded([task("Root any", { merge: "any" })]);
     expect(isReady(graph, nodeOf(graph, "root-any"))).toBe(true);
-    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["root-any"]);
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["root-any"]);
   });
 
   test("and merge:'all' with no in-edges is ready too", () => {
@@ -916,7 +916,7 @@ describe("review regressions", () => {
     );
     expect(r.code).toBe("REFUSED");
     expect(r.reason).toBe("MISSING_PREDICATE");
-    expect(r.node).toBe("quorum");
+    expect(r.message).toContain("'Quorum'");
   });
 
   test("one parseable arm is enough — the other conditions may be plain", () => {
@@ -963,8 +963,8 @@ describe("rejection messages are contract", () => {
   }
 
   test("UNCONDITIONED_WAIT_EDGE names both ends and the harm", () => {
-    expect(messageOf(attempt(gate(), [{ op: "add_edge", from: "gate", to: "ignored" }]))).toBe(
-      "edge 'gate' -> 'ignored' leaves a wait without a condition; an ignored or timed-out " +
+    expect(messageOf(attempt(gate(), [{ op: "add_edge", from: "gate", to: "ignored" }]))).toContain(
+      "leaves a wait without a condition; an ignored or timed-out " +
         "wait would clear it and fire the branch unapproved (§6.2)",
     );
   });
@@ -977,20 +977,25 @@ describe("rejection messages are contract", () => {
           { op: "add_edge", from: "gate", to: "ignored", condition: { on: "ignore" } },
         ]),
       ),
-    ).toBe(
-      "edge 'gate' -> 'ignored' is conditioned on 'ignore', but 'gate' has already resolved " +
-        "otherwise; it can never fire",
-    );
+    ).toContain("is conditioned on 'ignore', but ");
+    // The sentence names the source; the id inside that name is minted, so it is not spelled.
+    expect(
+      messageOf(
+        attempt(resolved, [
+          { op: "add_edge", from: "gate", to: "ignored", condition: { on: "ignore" } },
+        ]),
+      ),
+    ).toContain("has already resolved otherwise; it can never fire");
 
     const dropped = commit(gate(), [close("ignored", "dropped")]);
     expect(
       messageOf(attempt(dropped, [task("Later"), { op: "add_edge", from: "ignored", to: "$0" }])),
-    ).toBe("edge 'ignored' -> 'later' originates at 'ignored', which is dropped; it can never fire");
+    ).toContain("which is dropped; it can never fire");
   });
 
   test("MALFORMED_RECIPIENT_REF teaches the grammar and gives an example", () => {
-    expect(messageOf(attempt(seeded([task("A")]), [pivot("person:club/goalie-1")]))).toBe(
-      "recipient_ref 'person:club/goalie-1' is not a '<scope>#<key>' reference: expected " +
+    expect(messageOf(attempt(seeded([task("A")]), [pivot("person:club/goalie-1")]))).toContain(
+      "is not a '<scope>#<key>' reference: expected " +
         "exactly one '#', a dotted lowercase scope, and a key matching [a-z0-9][a-z0-9-]* of " +
         "at most 48 characters (§6.2, e.g. 'roster.contacts#dana')",
     );
@@ -1014,8 +1019,8 @@ describe("rejection messages are contract", () => {
           }),
         ]),
       ),
-    ).toBe(
-      "'quorum' declares match.kind 'predicate' but carries no predicate; nothing would ever " +
+    ).toContain(
+      "declares match.kind 'predicate' but carries no predicate; nothing would ever " +
         "count against it, and invariant 2 could never judge it (§6.7)",
     );
   });
@@ -1027,25 +1032,24 @@ describe("rejection messages are contract", () => {
           predicateWait("Quorum", { count: { verdict: "confirmed" }, op: ">", n: 1 }, "a"),
         ]),
       ),
-    ).toBe(
-      'predicate on \'quorum\' is not the §6.7 form {"count":{"verdict":…,"attrs":…},' +
+    ).toContain(
+      'is not the §6.7 form {"count":{"verdict":…,"attrs":…},' +
         '"op":">=","n":…}: \'op\' must be \'>=\', \'n\' an integer of at least 1, \'verdict\' a ' +
         "resolving verdict, and 'attrs' flat primitives",
     );
   });
 
   test("PREDICATE_UNSATISFIABLE shows the arithmetic and both remedies", () => {
-    expect(messageOf(attempt(quorum(), [outcome("dana", "declined")]))).toBe(
-      "'quorum' can no longer reach 1 'confirmed': 0 matching + 0 still live of 1 blocking " +
+    expect(messageOf(attempt(quorum(), [outcome("dana", "declined")]))).toContain(
+      "can no longer reach 1 'confirmed': 0 matching + 0 still live of 1 blocking " +
         "in-edges (0 dropped); add a live member in this batch, or supersede the wait",
     );
   });
 
   test("and names the derived drops when branch resolution is what broke it", () => {
-    expect(messageOf(attempt(gatedQuorum(), [outcome("gate", "ignore"), close("gate")]))).toBe(
-      "'quorum' can no longer reach 1 'confirmed': 0 matching + 0 still live of 2 blocking " +
-        "in-edges (1 dropped); branch resolution dropped dana; add a live member in this " +
-        "batch, or supersede the wait",
+    expect(messageOf(attempt(gatedQuorum(), [outcome("gate", "ignore"), close("gate")]))).toContain(
+      "can no longer reach 1 'confirmed': 0 matching + 0 still live of 2 blocking " +
+        "in-edges (1 dropped); branch resolution dropped 'Dana'",
     );
   });
 });
@@ -1113,7 +1117,7 @@ describe("a claim is exclusive, not advice", () => {
       ]),
     );
     expect(r.reason).toBe("ALREADY_CLAIMED");
-    expect(r.node).toBe("read-the-schemas");
+    expect(r.message).toContain("'Read the schemas'");
   });
 
   test("claiming an ACTIVE node is exactly what the rule permits", () => {

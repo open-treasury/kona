@@ -12,7 +12,7 @@ import {
   projectGraph,
   satisfiesBlockingEdge,
 } from "../src/index.ts";
-import { commit, record, seeded, task } from "./fixtures.ts";
+import { commit, record, seeded, task, nodeAt, slugOr, nid, slugOf } from "./fixtures.ts";
 
 const WIRED = commit(seeded([task("A"), task("B"), task("C")]), [
   { op: "add_edge", from: "a", to: "b" },
@@ -46,37 +46,37 @@ describe("status vocabulary", () => {
 
   test("isNodeTerminal reads the node's own state", () => {
     const done = commit(WIRED, [{ op: "set_status", node: "a", status: "done", evidence_ref: "e" }]);
-    expect(isNodeTerminal(done.nodes.get("a") as never)).toBe(true);
-    expect(isNodeTerminal(done.nodes.get("b") as never)).toBe(false);
+    expect(isNodeTerminal(nodeAt(done, "a") as never)).toBe(true);
+    expect(isNodeTerminal(nodeAt(done, "b") as never)).toBe(false);
   });
 });
 
 describe("edge projections", () => {
   test("in-edges are the blocking dependencies — with one edge kind, all of them", () => {
-    expect(inEdges(WIRED, "c")).toEqual([
-      { from: "a", to: "c" },
-      { from: "b", to: "c" },
+    expect(inEdges(WIRED, slugOr(WIRED, "c"))).toEqual([
+      { from: nid(WIRED, "a"), to: nid(WIRED, "c") },
+      { from: nid(WIRED, "b"), to: nid(WIRED, "c") },
     ]);
-    expect(inEdges(WIRED, "a")).toEqual([]);
+    expect(inEdges(WIRED, slugOr(WIRED, "a"))).toEqual([]);
   });
 
   test("out-edges are what this node unblocks", () => {
-    expect(outEdges(WIRED, "a")).toEqual([
-      { from: "a", to: "b" },
-      { from: "a", to: "c" },
+    expect(outEdges(WIRED, slugOr(WIRED, "a"))).toEqual([
+      { from: nid(WIRED, "a"), to: nid(WIRED, "b") },
+      { from: nid(WIRED, "a"), to: nid(WIRED, "c") },
     ]);
-    expect(outEdges(WIRED, "c")).toEqual([]);
+    expect(outEdges(WIRED, slugOr(WIRED, "c"))).toEqual([]);
   });
 
   test("nodeIds is the set of committed ids", () => {
-    expect([...nodeIds(WIRED)]).toEqual(["a", "b", "c"]);
+    expect([...nodeIds(WIRED)].map(slugOf)).toEqual(["a", "b", "c"]);
   });
 });
 
 describe("the read contract", () => {
   test("projection is ordered and plain, so two stringifies match", () => {
     const projection = projectGraph(WIRED);
-    expect(projection.nodes.map((n) => n.id)).toEqual(["a", "b", "c"]);
+    expect(projection.nodes.map((n) => slugOf(n.id))).toEqual(["a", "b", "c"]);
     expect(JSON.stringify(projectGraph(WIRED))).toBe(JSON.stringify(projection));
   });
 

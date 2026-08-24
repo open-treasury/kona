@@ -17,14 +17,14 @@ import {
   resolutionOf,
   resolvingOutcome,
 } from "../src/index.ts";
-import { commit, seeded, task, wait } from "./fixtures.ts";
+import { commit, seeded, task, wait, nodeAt, slugOr, slugOf } from "./fixtures.ts";
 
 function outcome(node: string, verdict: Verdict, evidence: string): AuthoredOp {
   return { op: "record_outcome", node, verdict, evidence_ref: evidence };
 }
 
 function nodeOf(graph: Graph, id: string) {
-  const node = graph.nodes.get(id);
+  const node = nodeAt(graph, id);
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }
@@ -163,7 +163,7 @@ describe("readiness fails safe (§6.4)", () => {
       const graph = commit(chain(), [
         { op: "set_status", node: "a", status: state, evidence_ref: "e" } as AuthoredOp,
       ]);
-      expect(isEdgeSatisfied(graph, { from: "a", to: "b" })).toBe(ready);
+      expect(isEdgeSatisfied(graph, { from: slugOr(graph, "a"), to: slugOr(graph, "b") })).toBe(ready);
       expect(isReady(graph, nodeOf(graph, "b"))).toBe(ready);
     }
   });
@@ -175,7 +175,7 @@ describe("readiness fails safe (§6.4)", () => {
       { op: "set_status", node: "a", status: "dropped", evidence_ref: "e" },
     ]);
     expect(isReady(graph, nodeOf(graph, "b"))).toBe(false);
-    expect(readyFrontier(graph).map((n) => n.id)).not.toContain("b");
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).not.toContain("b");
   });
 
   test("a dropped or superseded node is never itself ready", () => {
@@ -207,21 +207,21 @@ describe("conditional edges fire only on their own resolution", () => {
 
   test("an accepted gate opens only the accept arm", () => {
     const graph = branched("accept");
-    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["accepted"]);
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["accepted"]);
   });
 
   test("an ignored gate opens only the ignore arm", () => {
     const graph = branched("ignore");
-    expect(readyFrontier(graph).map((n) => n.id)).toEqual(["ignored"]);
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["ignored"]);
   });
 
   test("a resolution matching neither opens nothing — a pivot never fires unapproved", () => {
     const graph = branched("edit");
-    expect(readyFrontier(graph).map((n) => n.id)).toEqual([]);
+    expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual([]);
   });
 
   test("the frontier comes back in insertion order, so the viewer is stable", () => {
-    expect(readyFrontier(seeded([task("A"), task("B"), task("C")])).map((n) => n.id)).toEqual([
+    expect(readyFrontier(seeded([task("A"), task("B"), task("C")])).map((n) => slugOf(n.id))).toEqual([
       "a",
       "b",
       "c",

@@ -7,13 +7,14 @@ import {
   orderOps,
   validate,
 } from "../src/index.ts";
-import { ORCHESTRATOR, commit, seeded, task, wait } from "./fixtures.ts";
+import { ORCHESTRATOR, commit, seeded, task, wait, nodeAt, slugOf, resolveSlugs, nid } from "./fixtures.ts";
 
 function committedOps(ops: Parameters<typeof commit>[1]): CommittedOp[] {
   const result = validate({
     graph: emptyGraph(SCHEMA_VERSION),
     ops,
     actor: ORCHESTRATOR,
+    prefix: "t",
     version: 1,
   });
   if (!result.ok) throw new Error(result.rejection.message);
@@ -29,17 +30,17 @@ function expectRefusal(result: ReturnType<typeof applyOps>, reason: string): voi
 describe("add_node", () => {
   test("creates an active node stamped with the committing version", () => {
     const graph = seeded([task("Ask Dana")]);
-    const node = graph.nodes.get("ask-dana");
+    const node = nodeAt(graph, "ask-dana");
     expect(node?.status.state).toBe("active");
     expect(node?.status.outcome).toBeNull();
     expect(node?.status.output).toBeNull();
     expect(node?.provenance.created_by_version).toBe(1);
-    expect(node?.provenance.supersedes).toBeNull();
+    expect(slugOf(node?.provenance.supersedes)).toBeNull();
   });
 
   test("carries scope through to provenance.group", () => {
     const graph = seeded([{ ...task("Ask Dana"), scope: "goalies" } as never]);
-    expect(graph.nodes.get("ask-dana")?.provenance.group).toBe("goalies");
+    expect(nodeAt(graph, "ask-dana")?.provenance.group).toBe("goalies");
   });
 
   test("refuses a duplicate id", () => {
@@ -47,7 +48,7 @@ describe("add_node", () => {
     const ops: CommittedOp[] = [
       { ...(committedOps([task("Ask Dana")])[0] as CommittedOp) },
     ];
-    expectRefusal(applyOps(graph, ops, 2), "DUPLICATE_NODE_ID");
+    expectRefusal(applyOps(graph, resolveSlugs(graph, ops) as CommittedOp[], 2), "DUPLICATE_NODE_ID");
   });
 });
 
@@ -56,7 +57,7 @@ describe("add_edge", () => {
     const graph = commit(seeded([task("A"), task("B")]), [
       { op: "add_edge", from: "a", to: "b" },
     ]);
-    expect(graph.edges).toEqual([{ from: "a", to: "b" }]);
+    expect(graph.edges).toEqual([{ from: nid(graph, "a"), to: nid(graph, "b") }]);
   });
 
   test("keeps the condition when one is given", () => {
@@ -68,13 +69,13 @@ describe("add_edge", () => {
 
   test("refuses a self-edge — 'B requires B' has no reading", () => {
     const graph = seeded([task("A")]);
-    expectRefusal(applyOps(graph, [{ op: "add_edge", from: "a", to: "a" }], 2), "SELF_EDGE");
+    expectRefusal(applyOps(graph, resolveSlugs(graph, [{ op: "add_edge", from: "a", to: "a" }]) as CommittedOp[], 2), "SELF_EDGE");
   });
 
   test("refuses an endpoint that does not exist", () => {
     const graph = seeded([task("A")]);
-    expectRefusal(applyOps(graph, [{ op: "add_edge", from: "a", to: "ghost" }], 2), "UNKNOWN_NODE");
-    expectRefusal(applyOps(graph, [{ op: "add_edge", from: "ghost", to: "a" }], 2), "UNKNOWN_NODE");
+    expectRefusal(applyOps(graph, resolveSlugs(graph, [{ op: "add_edge", from: "a", to: "ghost" }]) as CommittedOp[], 2), "UNKNOWN_NODE");
+    expectRefusal(applyOps(graph, resolveSlugs(graph, [{ op: "add_edge", from: "ghost", to: "a" }]) as CommittedOp[], 2), "UNKNOWN_NODE");
   });
 
   test("refuses an exact duplicate, but allows two conditions between the same pair", () => {
@@ -86,7 +87,7 @@ describe("add_edge", () => {
     ]);
     expect(withDecline.edges).toHaveLength(2);
     expectRefusal(
-      applyOps(withDecline, [{ op: "add_edge", from: "a", to: "b", condition: { on: "accept" } }], 3),
+      applyOps(withDecline, resolveSlugs(withDecline, [{ op: "add_edge", from: "a", to: "b", condition: { on: "accept" } }]) as CommittedOp[], 3),
       "DUPLICATE_EDGE",
     );
   });
@@ -97,7 +98,7 @@ describe("the three observed fields answer three different questions", () => {
     const graph = commit(seeded([task("A")]), [
       { op: "set_status", node: "a", status: "in_flight", evidence_ref: "ev-1" },
     ]);
-    const node = graph.nodes.get("a");
+    const node = nodeAt(graph, "a");
     expect(node?.status.state).toBe("in_flight");
     expect(node?.status.outcome).toBeNull();
     expect(node?.status.output).toBeNull();
@@ -108,7 +109,7 @@ describe("the three observed fields answer three different questions", () => {
     const graph = commit(seeded([task("A")]), [
       { op: "record_outcome", node: "a", verdict: "declined", evidence_ref: "m-101", attrs: { role: "goalie" } },
     ]);
-    const node = graph.nodes.get("a");
+    const node = nodeAt(graph, "a");
     expect(node?.status.outcome).toEqual({
       verdict: "declined",
       evidence_ref: "m-101",
@@ -123,7 +124,7 @@ describe("the three observed fields answer three different questions", () => {
     const graph = commit(seeded([task("A")]), [
       { op: "record_output", node: "a", output_name: "reply", value: "yes", evidence_ref: "m-101" },
     ]);
-    expect(graph.nodes.get("a")?.status.output).toEqual({ reply: "yes" });
+    expect(nodeAt(graph, "a")?.status.output).toEqual({ reply: "yes" });
   });
 
   test("a second output merges rather than replacing", () => {
@@ -132,13 +133,13 @@ describe("the three observed fields answer three different questions", () => {
       commit(base, [{ op: "record_output", node: "a", output_name: "reply", value: "yes", evidence_ref: "e1" }]),
       [{ op: "record_output", node: "a", output_name: "note", value: "late", evidence_ref: "e2" }],
     );
-    expect(graph.nodes.get("a")?.status.output).toEqual({ reply: "yes", note: "late" });
+    expect(nodeAt(graph, "a")?.status.output).toEqual({ reply: "yes", note: "late" });
   });
 
   test("refuses an output nobody declared — an unreferenceable value is an authoring error", () => {
     const graph = seeded([task("A")]);
     expectRefusal(
-      applyOps(graph, [{ op: "record_output", node: "a", output_name: "ghost", value: 1, evidence_ref: "e" }], 2),
+      applyOps(graph, resolveSlugs(graph, [{ op: "record_output", node: "a", output_name: "ghost", value: 1, evidence_ref: "e" }]) as CommittedOp[], 2),
       "UNDECLARED_OUTPUT",
     );
   });
@@ -151,7 +152,7 @@ describe("the three observed fields answer three different questions", () => {
       { op: "record_output", node: "ghost", output_name: "reply", value: 1, evidence_ref: "e" },
       { op: "supersede_node", node: "ghost" },
     ] as CommittedOp[]) {
-      expectRefusal(applyOps(graph, [op], 2), "UNKNOWN_NODE");
+      expectRefusal(applyOps(graph, resolveSlugs(graph, [op]) as CommittedOp[], 2), "UNKNOWN_NODE");
     }
   });
 });
@@ -159,10 +160,10 @@ describe("the three observed fields answer three different questions", () => {
 describe("supersede_node — never delete", () => {
   test("an in-flight node stops being work", () => {
     const graph = commit(seeded([task("A")]), [{ op: "supersede_node", node: "a" }]);
-    const node = graph.nodes.get("a");
+    const node = nodeAt(graph, "a");
     expect(node).toBeDefined();
     expect(node?.status.state).toBe("dropped");
-    expect(node?.provenance.superseded_by).toBeNull();
+    expect(slugOf(node?.provenance.superseded_by)).toBeNull();
   });
 
   test("a node that already ran keeps its terminal status — superseding does not un-send", () => {
@@ -170,20 +171,20 @@ describe("supersede_node — never delete", () => {
       { op: "set_status", node: "a", status: "done", evidence_ref: "e" },
     ]);
     const graph = commit(done, [{ op: "supersede_node", node: "a" }]);
-    expect(graph.nodes.get("a")?.status.state).toBe("done");
+    expect(nodeAt(graph, "a")?.status.state).toBe("done");
   });
 
   test("wires provenance in both directions, replacement compensating the original", () => {
     const base = seeded([task("A")]);
     const graph = commit(base, [task("A prime"), { op: "supersede_node", node: "a", by: "$0" }]);
-    expect(graph.nodes.get("a")?.provenance.superseded_by).toBe("a-prime");
-    expect(graph.nodes.get("a-prime")?.provenance.supersedes).toBe("a");
+    expect(slugOf(nodeAt(graph, "a")?.provenance.superseded_by)).toBe("a-prime");
+    expect(slugOf(nodeAt(graph, "a-prime")?.provenance.supersedes)).toBe("a");
   });
 
   test("refuses a self-supersede and an unknown replacement", () => {
     const graph = seeded([task("A")]);
-    expectRefusal(applyOps(graph, [{ op: "supersede_node", node: "a", by: "a" }], 2), "SELF_SUPERSEDE");
-    expectRefusal(applyOps(graph, [{ op: "supersede_node", node: "a", by: "ghost" }], 2), "UNKNOWN_NODE");
+    expectRefusal(applyOps(graph, resolveSlugs(graph, [{ op: "supersede_node", node: "a", by: "a" }]) as CommittedOp[], 2), "SELF_SUPERSEDE");
+    expectRefusal(applyOps(graph, resolveSlugs(graph, [{ op: "supersede_node", node: "a", by: "ghost" }]) as CommittedOp[], 2), "UNKNOWN_NODE");
   });
 });
 
@@ -211,7 +212,7 @@ describe("applyOps never mutates its input", () => {
   test("head is untouched, which is what lets invariant 1 compare against it", () => {
     const graph = seeded([task("A")]);
     const before = JSON.stringify([...graph.nodes.values()]);
-    const result = applyOps(graph, [{ op: "set_status", node: "a", status: "done", evidence_ref: "e" }], 2);
+    const result = applyOps(graph, resolveSlugs(graph, [{ op: "set_status", node: "a", status: "done", evidence_ref: "e" }]) as CommittedOp[], 2);
     expect(result.ok).toBe(true);
     expect(JSON.stringify([...graph.nodes.values()])).toBe(before);
     expect(graph.version).toBe(1);
@@ -219,7 +220,7 @@ describe("applyOps never mutates its input", () => {
 
   test("edges added to the result do not appear in the input", () => {
     const graph = seeded([task("A"), task("B")]);
-    applyOps(graph, [{ op: "add_edge", from: "a", to: "b" }], 2);
+    applyOps(graph, resolveSlugs(graph, [{ op: "add_edge", from: "a", to: "b" }]) as CommittedOp[], 2);
     expect(graph.edges).toHaveLength(0);
   });
 });

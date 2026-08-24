@@ -41,7 +41,7 @@ function fakeViewer(): { serve: ServeViewer; calls: { root: string; port?: numbe
 
 beforeEach(async () => {
   h = harness();
-  expect(await run(["init"], h.io)).toBe(0);
+  expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
   const ops = h.writeOps("ops.json", PLAN);
   expect(
     await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),

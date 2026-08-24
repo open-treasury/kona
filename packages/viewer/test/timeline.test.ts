@@ -3,7 +3,7 @@
  * `reason_code` the schema made impossible to omit.
  *
  * The assertions are on the wording as much as on the counts, because the wording is the
- * product here — a row that says `add_edge · wait-for-dana` and nothing else is a row that
+ * product here — a row that says `add_edge · th-es9m` and nothing else is a row that
  * sends the reader back to the log. In particular the edge direction is asserted verbatim:
  * §6.2 says `{from: A, to: B}` means **B requires A**, getting it backwards is the mistake
  * this codebase has made most often, and it is invisible in a picture because every arrow
@@ -124,29 +124,29 @@ describe("A6 — every version, newest first, every one explained", () => {
 
 describe("op details — the wording is the product", () => {
   test("the roster version: an edge reads as what the TARGET requires", () => {
-    // `{from: confirm-roster-availability, to: ask-dana-to-play-in-goal}` means the ask
+    // `{from: th-ahf6, to: th-nhwd}` means the ask
     // requires the roster check. The row hangs off the ask, and names the roster check.
     // It reads the roster and addresses nobody: invariant 3(b) rejects "a recipient
     // existing only in the proposing batch", so the record naming these people has to be
     // committed before any node may email one of them.
     expect(opRows(V.roster)).toEqual([
-      ["add_node", "confirm-roster-availability", "added task"],
-      ["add_node", "escalate-no-goalie-found", "added task"],
-      ["record_output", "confirm-roster-availability", "output availability"],
-      ["set_status", "confirm-roster-availability", "-> done"],
+      ["add_node", "th-ahf6", "added task"],
+      ["add_node", "th-vipt", "added task"],
+      ["record_output", "th-ahf6", "output availability"],
+      ["set_status", "th-ahf6", "-> done"],
     ]);
   });
 
   test("a conditional edge names the resolution it fires on", () => {
     const converging = opRows(V.plan).filter(([kind]) => kind === "add_edge");
     expect(converging).toEqual([
-      ["add_edge", "ask-dana-to-play-in-goal", "requires confirm-roster-availability"],
-      ["add_edge", "wait-for-dana", "requires ask-dana-to-play-in-goal"],
-      ["add_edge", "wait-for-sam", "requires ask-sam-to-play-in-goal"],
-      ["add_edge", "wait-for-priya", "requires ask-priya-to-play-in-goal"],
-      ["add_edge", "goalie-confirmed", "requires wait-for-dana on satisfied"],
-      ["add_edge", "goalie-confirmed", "requires wait-for-sam on satisfied"],
-      ["add_edge", "goalie-confirmed", "requires wait-for-priya on satisfied"],
+      ["add_edge", "th-nhwd", "requires th-ahf6"],
+      ["add_edge", "th-es9m", "requires th-nhwd"],
+      ["add_edge", "th-ocwr", "requires th-gyre"],
+      ["add_edge", "th-1ppl", "requires th-t2yo"],
+      ["add_edge", "th-ymld", "requires th-es9m on satisfied"],
+      ["add_edge", "th-ymld", "requires th-ocwr on satisfied"],
+      ["add_edge", "th-ymld", "requires th-1ppl on satisfied"],
     ]);
   });
 
@@ -154,7 +154,7 @@ describe("op details — the wording is the product", () => {
     // The roster is a list of real people; the timeline says one was produced and leaves
     // the reading of it to somebody who opened the node.
     expect(opRows(V.roster).filter(([kind]) => kind === "record_output")).toEqual([
-      ["record_output", "confirm-roster-availability", "output availability"],
+      ["record_output", "th-ahf6", "output availability"],
     ]);
   });
 
@@ -162,32 +162,32 @@ describe("op details — the wording is the product", () => {
     // The whole of §6.6, as two timeline rows. Nobody watching a pursuit has to be told what
     // the outbox is; they can see the node sit in `sending` and then move.
     expect(opRows(V.danaReserved)).toEqual([
-      ["set_status", "ask-dana-to-play-in-goal", "-> in flight"],
+      ["set_status", "th-nhwd", "-> in flight"],
     ]);
-    expect(opRows(V.danaSent)).toEqual([["set_status", "ask-dana-to-play-in-goal", "-> done"]]);
+    expect(opRows(V.danaSent)).toEqual([["set_status", "th-nhwd", "-> done"]]);
     // And the one that never got its second row until four versions later.
     expect(opRows(V.priyaReserved)).toEqual([
-      ["set_status", "ask-priya-to-play-in-goal", "-> in flight"],
+      ["set_status", "th-t2yo", "-> in flight"],
     ]);
     expect(opRows(V.priyaFailed)).toEqual([
-      ["set_status", "ask-priya-to-play-in-goal", "-> failed"],
+      ["set_status", "th-t2yo", "-> failed"],
     ]);
   });
 
   test("an outcome leads with the verdict and keeps the attrs a quorum counts on", () => {
     expect(opRows(V.danaDeclines)).toEqual([
-      ["record_outcome", "wait-for-dana", "declined · role=goalie · reason=away that week"],
-      ["set_status", "wait-for-dana", "-> done"],
+      ["record_outcome", "th-es9m", "declined · role=goalie · reason=away that week"],
+      ["set_status", "th-es9m", "-> done"],
     ]);
   });
 
   test("the supersede names its replacement", () => {
     expect(opRows(V.rosterSuperseded)).toEqual([
-      ["add_node", "confirm-roster-availability-and-eligibility", "added task"],
+      ["add_node", "th-five", "added task"],
       [
         "supersede_node",
-        "confirm-roster-availability",
-        "superseded by confirm-roster-availability-and-eligibility",
+        "th-ahf6",
+        "superseded by th-five",
       ],
     ]);
   });
@@ -198,20 +198,20 @@ describe("op details — the wording is the product", () => {
     expect(opRows(V.patPlanned)).toEqual([
       [
         "record_outcome",
-        "wait-for-priya",
+        "th-1ppl",
         "bounced · role=goalie · smtp=550 5.1.1 user unknown",
       ],
-      ["supersede_node", "wait-for-priya", "superseded"],
-      ["add_node", "ask-pat-to-play-in-goal", "added task"],
-      ["add_node", "wait-for-pat", "added wait"],
-      ["add_edge", "wait-for-pat", "requires ask-pat-to-play-in-goal"],
-      ["add_edge", "goalie-confirmed", "requires wait-for-pat on satisfied"],
+      ["supersede_node", "th-1ppl", "superseded"],
+      ["add_node", "th-gk0l", "added task"],
+      ["add_node", "th-0s7c", "added wait"],
+      ["add_edge", "th-0s7c", "requires th-gk0l"],
+      ["add_edge", "th-ymld", "requires th-0s7c on satisfied"],
     ]);
 
     // Pat's reservation is a version of its own, after the plan that created his node. It
     // has to be: `kona effect reserve` is the only thing that issues a slot, and it appends.
     expect(opRows(V.patReserved)).toEqual([
-      ["set_status", "ask-pat-to-play-in-goal", "-> in flight"],
+      ["set_status", "th-gk0l", "-> in flight"],
     ]);
   });
 
@@ -242,12 +242,12 @@ describe("each entry carries what its version did to the shape", () => {
     const diff = entry(V.rosterSuperseded).diff;
     expect(diff?.fromVersion).toBe(V.rosterSuperseded - 1);
     expect(diff?.toVersion).toBe(V.rosterSuperseded);
-    expect(diff?.addedNodes).toEqual(["confirm-roster-availability-and-eligibility"]);
+    expect(diff?.addedNodes).toEqual(["th-five"]);
     expect(diff?.addedEdges).toEqual([]);
     expect(diff?.superseded).toEqual([
       {
-        id: "confirm-roster-availability",
-        by: "confirm-roster-availability-and-eligibility",
+        id: "th-ahf6",
+        by: "th-five",
       },
     ]);
   });
@@ -256,8 +256,8 @@ describe("each entry carries what its version did to the shape", () => {
     const diff = entry(V.danaDeclines).diff;
     expect(diff?.addedNodes).toEqual([]);
     expect(diff?.addedEdges).toEqual([]);
-    expect(diff?.statusChanged).toEqual([{ id: "wait-for-dana", from: "active", to: "done" }]);
-    expect(diff?.outcomeAdded).toEqual(["wait-for-dana"]);
+    expect(diff?.statusChanged).toEqual([{ id: "th-es9m", from: "active", to: "done" }]);
+    expect(diff?.outcomeAdded).toEqual(["th-es9m"]);
   });
 
   test("the incremental fold agrees with folding the log once per version", () => {

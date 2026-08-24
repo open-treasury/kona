@@ -16,7 +16,7 @@ import { ASK_DANA, harness, seedRoster, type Harness } from "./harness.ts";
 let h: Harness;
 beforeEach(async () => {
   h = harness();
-  expect(await run(["init"], h.io)).toBe(0);
+  expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
   // ASK_DANA emails Dana, so the graph must already attest to her. Head lands at v2.
   await seedRoster(h, ["dana"]);
 });
@@ -98,7 +98,7 @@ describe("engine-stamped fields", () => {
   test("versions increment by exactly one", async () => {
     expect(await mutate()).toBe(0);
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
@@ -113,7 +113,7 @@ describe("what mutate reports", () => {
     expect(JSON.parse(h.out[0] ?? "{}")).toEqual({
       ok: true,
       version: 3,
-      minted_ids: ["ask-dana-to-play-thursday", "wait-for-dana"],
+      minted_ids: [h.id("ask-dana-to-play-thursday"), h.id("wait-for-dana")],
       ops: 3,
     });
   });
@@ -122,7 +122,7 @@ describe("what mutate reports", () => {
     await mutate();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
@@ -133,7 +133,7 @@ describe("what mutate reports", () => {
   test("the human line names the version, the count and the ids", async () => {
     expect(await mutate()).toBe(0);
     expect(h.out[0]).toBe(
-      "committed v3 · 3 ops · minted ask-dana-to-play-thursday, wait-for-dana",
+      `committed v3 · 3 ops · minted ${h.id("ask-dana-to-play-thursday")}, ${h.id("wait-for-dana")}`,
     );
   });
 
@@ -141,7 +141,7 @@ describe("what mutate reports", () => {
     await mutate();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: "wait-for-dana", status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("wait-for-dana"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER", "--json"], h.io),

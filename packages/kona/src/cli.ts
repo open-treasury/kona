@@ -62,7 +62,12 @@ function usage(): string {
  * useful thing help can contain is a line that already works.
  */
 const VERB_EXAMPLES: Record<string, string[]> = {
-  init: ["kona init", "kona init --config /opt/kona/config.json"],
+  init: [
+    "kona init --prefix acme      # every node id becomes acme-a1b2",
+    "kona init --config /opt/kona/config.json",
+    "",
+    "The prefix is fixed for the life of the pursuit; minted ids cannot be re-minted.",
+  ],
   mutate: [
     `kona mutate --steps 'read the tables' --steps 'build the schedule' \\`,
     `  --base-version 0 --why 'read before scheduling' --reason-code MISSING_STEP`,
@@ -171,6 +176,7 @@ const VERB_OPTIONS: Record<string, Options> = {
     force: { type: "boolean", default: false },
     "actor-id": { type: "string", default: "operator" },
     config: { type: "string" },
+    prefix: { type: "string" },
   },
   graph: {
     ...COMMON,
@@ -296,10 +302,12 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 
   if (verb === "init") {
     const configFile = values["config"];
+    const prefix = values["prefix"];
     return await runInit(io, {
       force: values["force"] === true,
       actorId: String(values["actor-id"]),
       ...(typeof configFile === "string" ? { configFile } : {}),
+      ...(typeof prefix === "string" ? { prefix } : {}),
       json,
     });
   }

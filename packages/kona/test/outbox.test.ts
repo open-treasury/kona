@@ -40,7 +40,10 @@ const PIVOT = [
 
 /** The key for `ask-dana`, created at v1. Computed the same way the CLI computes it. */
 /** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
-const KEY = effectKey("ask-dana", 3);
+// Derived from the node id, and ids are minted — so this is a function, called inside a
+// test where a pursuit exists. Lines 301-302 stay literal: they assert the key CHANGES with
+// its inputs, which needs no real node.
+const KEY = (): string => effectKey(h.id("ask-dana"), 3);
 
 /** Invariant 3(a) fails closed on an unconfigured cap, so a pursuit that sends needs one. */
 const CONFIG = {
@@ -57,7 +60,7 @@ beforeEach(async () => {
   h = harness();
   const config = join(h.dir, "config.json");
   writeFileSync(config, JSON.stringify(CONFIG));
-  expect(await run(["init", "--config", config], h.io)).toBe(0);
+  expect(await run(["init", "--config", config, "--prefix", "t"], h.io)).toBe(0);
   await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PIVOT);
   expect(
@@ -71,7 +74,8 @@ async function nodeOf(id: string): Promise<Node> {
   h.reset();
   expect(await run(["graph", "--json"], h.io)).toBe(0);
   const projection = JSON.parse(h.out[0] ?? "{}") as GraphProjection;
-  const node = projection.nodes.find((n) => n.id === id);
+  // Callers name nodes by the slug their label makes; the store minted a hash.
+  const node = projection.nodes.find((n) => n.id === id || n.id === h.id(id));
   if (node === undefined) throw new Error(`no node ${id}`);
   return node;
 }
@@ -83,7 +87,7 @@ function logLineCount(): number {
 async function reserve(payloadHash: string, node = "ask-dana"): Promise<number> {
   h.reset();
   return await run(
-    ["effect", "reserve", node, "--payload-hash", payloadHash, "--why", "sending the invite"],
+    ["effect", "reserve", h.id(node), "--payload-hash", payloadHash, "--why", "sending the invite"],
     h.io,
   );
 }
@@ -91,7 +95,7 @@ async function reserve(payloadHash: string, node = "ask-dana"): Promise<number> 
 async function record(key: string, outcome: string, messageId: string): Promise<number> {
   h.reset();
   return await run(
-    ["effect", "record", "ask-dana", "--key", key, "--outcome", outcome, "--message-id", messageId, "--why", "provider replied"],
+    ["effect", "record", h.id("ask-dana"), "--key", key, "--outcome", outcome, "--message-id", messageId, "--why", "provider replied"],
     h.io,
   );
 }
@@ -102,7 +106,7 @@ describe("reserve", () => {
     const node = await nodeOf("ask-dana");
     expect(node.status.state).toBe("in_flight");
     expect(node.status.effect_log).toHaveLength(1);
-    expect(node.status.effect_log[0]?.effect_key).toBe(KEY);
+    expect(node.status.effect_log[0]?.effect_key).toBe(KEY());
     expect(node.status.effect_log[0]?.payload_hash).toBe("sha256:aaa");
     expect(node.status.effect_log[0]?.completed_at).toBeNull();
   });
@@ -110,7 +114,7 @@ describe("reserve", () => {
   test("the key is payload-independent — the same slot for a different body", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     const first = (await nodeOf("ask-dana")).status.effect_log[0]?.effect_key;
-    expect(first).toBe(effectKey("ask-dana", 3));
+    expect(first).toBe(effectKey(h.id("ask-dana"), 3));
     // Nothing about the payload participates: the key is a function of node and version.
     expect(first).not.toContain("aaa");
   });
@@ -127,13 +131,13 @@ describe("reserve", () => {
 
   test("--payload-hash is required — the hash is what proves the bytes were approved", async () => {
     h.reset();
-    expect(await run(["effect", "reserve", "ask-dana", "--why", "x"], h.io)).toBe(1);
+    expect(await run(["effect", "reserve", h.id("ask-dana"), "--why", "x"], h.io)).toBe(1);
     expect(h.err[0]).toContain("--payload-hash");
   });
 
   test("--why is required, exactly as on every other mutating verb", async () => {
     h.reset();
-    expect(await run(["effect", "reserve", "ask-dana", "--payload-hash", "h"], h.io)).toBe(1);
+    expect(await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h"], h.io)).toBe(1);
     expect(h.err[0]).toContain("--why");
   });
 
@@ -209,7 +213,7 @@ describe("a rewritten body is a loud error, never a second send", () => {
 describe("record", () => {
   test("closes the reservation and completes the node", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
     const node = await nodeOf("ask-dana");
     expect(node.status.state).toBe("done");
     expect(node.status.effect_log[0]?.outcome).toBe("sent");
@@ -220,7 +224,7 @@ describe("record", () => {
   test("attempted_at and completed_at are distinct fields with distinct meanings", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     h.setClock("2026-08-21T12:05:00.000Z");
-    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
     const entry = (await nodeOf("ask-dana")).status.effect_log[0];
     expect(entry?.attempted_at).toBe("2026-08-21T12:00:00.000Z");
     expect(entry?.completed_at).toBe("2026-08-21T12:05:00.000Z");
@@ -228,20 +232,20 @@ describe("record", () => {
 
   test("a message id containing a colon survives the round trip", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "sent", "<m:101:x@mail>")).toBe(0);
+    expect(await record(KEY(), "sent", "<m:101:x@mail>")).toBe(0);
     expect((await nodeOf("ask-dana")).status.effect_log[0]?.message_id).toBe("<m:101:x@mail>");
   });
 
   test("a failure marks the node failed and is NOT a send", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "failed", "550 user unknown")).toBe(0);
+    expect(await record(KEY(), "failed", "550 user unknown")).toBe(0);
     const node = await nodeOf("ask-dana");
     expect(node.status.state).toBe("failed");
     expect(node.status.effect_log[0]?.outcome).toBe("failed");
   });
 
   test("refuses when nothing is open — you cannot record a send you never reserved", async () => {
-    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(1);
+    expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(1);
     expect(h.err[0]).toContain("NO_OPEN_EFFECT");
   });
 
@@ -249,19 +253,19 @@ describe("record", () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record("ek_forged", "sent", "<m-101@mail>")).toBe(1);
     expect(h.err[0]).toContain("EFFECT_KEY_MISMATCH");
-    expect(h.err[0]).toContain(KEY);
+    expect(h.err[0]).toContain(KEY());
   });
 
   test("refuses an outcome outside the closed set", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "maybe", "<m-101@mail>")).toBe(1);
+    expect(await record(KEY(), "maybe", "<m-101@mail>")).toBe(1);
     expect(h.err[0]).toContain("BAD_FLAG");
   });
 
   test("recording twice is refused — the slot is closed", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
-    expect(await record(KEY, "sent", "<m-102@mail>")).toBe(1);
+    expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
+    expect(await record(KEY(), "sent", "<m-102@mail>")).toBe(1);
     expect(h.err[0]).toContain("NO_OPEN_EFFECT");
   });
 });
@@ -269,21 +273,21 @@ describe("record", () => {
 describe("a node that has moved bytes is never re-executed", () => {
   test("reserving after a successful send is refused", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
     expect(await reserve("sha256:aaa")).toBe(1);
     expect(h.err[0]).toContain("EFFECT_ALREADY_SENT");
   });
 
   test("even with a different payload", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "sent", "<m-101@mail>")).toBe(0);
+    expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
     expect(await reserve("sha256:zzz")).toBe(1);
     expect(h.err[0]).toContain("EFFECT_ALREADY_SENT");
   });
 
   test("a node that is not active cannot be dispatched", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "failed", "550")).toBe(0);
+    expect(await record(KEY(), "failed", "550")).toBe(0);
     // `failed` is terminal; the retry path is supersede-with-a-replacement, which mints a
     // new node and therefore a new slot. Nothing re-opens a closed one.
     expect(await reserve("sha256:aaa")).toBe(1);
@@ -293,7 +297,7 @@ describe("a node that has moved bytes is never re-executed", () => {
 
 describe("the effect key", () => {
   test("is a readable, fixed-width slot name", () => {
-    expect(KEY).toMatch(/^ek_[0-9a-f]{16}$/);
+    expect(KEY()).toMatch(/^ek_[0-9a-f]{16}$/);
   });
 
   test("names the slot, and two slots are never the same name", () => {
@@ -308,7 +312,7 @@ describe("--json says exactly what happened", () => {
     h.reset();
     expect(
       await run(
-        ["effect", "reserve", "ask-dana", "--payload-hash", payloadHash, "--why", "send", "--json"],
+        ["effect", "reserve", h.id("ask-dana"), "--payload-hash", payloadHash, "--why", "send", "--json"],
         h.io,
       ),
     ).toBe(0);
@@ -318,7 +322,7 @@ describe("--json says exactly what happened", () => {
   test("a fresh reservation reports the slot and the version it landed at", async () => {
     expect(await reserveJson("sha256:aaa")).toEqual({
       ok: true,
-      effect_key: KEY,
+      effect_key: KEY(),
       reserved: true,
       idempotent: false,
       version: 4,
@@ -331,7 +335,7 @@ describe("--json says exactly what happened", () => {
     // so send it — do not reserve again, and do not treat this as a failure and retry.
     expect(await reserveJson("sha256:aaa")).toEqual({
       ok: true,
-      effect_key: KEY,
+      effect_key: KEY(),
       reserved: false,
       idempotent: true,
     });
@@ -342,13 +346,13 @@ describe("--json says exactly what happened", () => {
     h.reset();
     expect(
       await run(
-        ["effect", "record", "ask-dana", "--key", KEY, "--outcome", "sent", "--message-id", "<m-1>", "--why", "ok", "--json"],
+        ["effect", "record", h.id("ask-dana"), "--key", KEY(), "--outcome", "sent", "--message-id", "<m-1>", "--why", "ok", "--json"],
         h.io,
       ),
     ).toBe(0);
     expect(JSON.parse(h.out[0] ?? "{}")).toEqual({
       ok: true,
-      effect_key: KEY,
+      effect_key: KEY(),
       outcome: "sent",
       message_id: "<m-1>",
       version: 5,
@@ -357,15 +361,15 @@ describe("--json says exactly what happened", () => {
 
   test("the human line names the slot and the version", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(h.out[0]).toBe(`reserved ${KEY} at v4 — fsynced, safe to send`);
+    expect(h.out[0]).toBe(`reserved ${KEY()} at v4 — fsynced, safe to send`);
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(h.out[0]).toBe(`already reserved ${KEY} for this payload — send it, do not re-reserve`);
+    expect(h.out[0]).toBe(`already reserved ${KEY()} for this payload — send it, do not re-reserve`);
   });
 
   test("recording says which slot closed and how", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(await record(KEY, "sent", "<m-1>")).toBe(0);
-    expect(h.out[0]).toBe(`recorded ${KEY} as sent at v5`);
+    expect(await record(KEY(), "sent", "<m-1>")).toBe(0);
+    expect(h.out[0]).toBe(`recorded ${KEY()} as sent at v5`);
   });
 });
 
@@ -374,7 +378,7 @@ describe("dispatch", () => {
     h.reset();
     expect(
       await run(
-        ["effect", "record", "ghost", "--key", KEY, "--outcome", "sent", "--message-id", "<m-1>", "--why", "x"],
+        ["effect", "record", h.id("ghost"), "--key", KEY(), "--outcome", "sent", "--message-id", "<m-1>", "--why", "x"],
         h.io,
       ),
     ).toBe(1);
@@ -384,10 +388,10 @@ describe("dispatch", () => {
   test("--message-id and --key are both required to record", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     h.reset();
-    expect(await run(["effect", "record", "ask-dana", "--outcome", "sent", "--message-id", "<m>", "--why", "x"], h.io)).toBe(1);
+    expect(await run(["effect", "record", h.id("ask-dana"), "--outcome", "sent", "--message-id", "<m>", "--why", "x"], h.io)).toBe(1);
     expect(h.err[0]).toContain("--key");
     h.reset();
-    expect(await run(["effect", "record", "ask-dana", "--key", KEY, "--outcome", "sent", "--why", "x"], h.io)).toBe(1);
+    expect(await run(["effect", "record", h.id("ask-dana"), "--key", KEY(), "--outcome", "sent", "--why", "x"], h.io)).toBe(1);
     expect(h.err[0]).toContain("--message-id");
   });
 
@@ -411,7 +415,7 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
   test("an unconfigured budget refuses the send — an unknown cap is not an unlimited one", async () => {
     const bare = harness();
     try {
-      expect(await run(["init"], bare.io)).toBe(0);
+      expect(await run(["init", "--prefix", "t"], bare.io)).toBe(0);
       await seedRoster(bare, ["dana"]);
       const ops = bare.writeOps("ops.json", PIVOT);
       expect(
@@ -419,7 +423,7 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
       ).toBe(0);
       bare.reset();
       expect(
-        await run(["effect", "reserve", "ask-dana", "--payload-hash", "h", "--why", "send"], bare.io),
+        await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h", "--why", "send"], bare.io),
       ).toBe(1);
       expect(bare.err[0]).toContain("NO_EFFECT_BUDGET");
     } finally {
@@ -433,7 +437,7 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
     try {
       const config = join(spent.dir, "config.json");
       writeFileSync(config, JSON.stringify({ ...CONFIG, effect_budget: 1 }));
-      expect(await run(["init", "--config", config], spent.io)).toBe(0);
+      expect(await run(["init", "--config", config, "--prefix", "t"], spent.io)).toBe(0);
       await seedRoster(spent, ["dana", "sam"]);
       const ops = spent.writeOps("ops.json", [
         ...PIVOT,
@@ -455,12 +459,12 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
 
       spent.reset();
       expect(
-        await run(["effect", "reserve", "ask-dana", "--payload-hash", "h", "--why", "send"], spent.io),
+        await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h", "--why", "send"], spent.io),
       ).toBe(0);
 
       spent.reset();
       expect(
-        await run(["effect", "reserve", "ask-sam", "--payload-hash", "h", "--why", "send"], spent.io),
+        await run(["effect", "reserve", spent.id("ask-sam"), "--payload-hash", "h", "--why", "send"], spent.io),
       ).toBe(1);
       expect(spent.err[0]).toContain("EFFECT_BUDGET_EXHAUSTED");
       expect(spent.err[0]).toContain("1 of 1");

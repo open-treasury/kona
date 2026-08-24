@@ -27,7 +27,7 @@ function logLines(dir = h.dir): string[] {
 }
 
 async function init(): Promise<void> {
-  expect(await run(["init"], h.io)).toBe(0);
+  expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
   // ASK_DANA carries a pivot addressed to `roster.contacts#dana`, and invariant 3(b) wants
   // the graph to have heard of her BEFORE the batch that emails her. Head lands at v2.
   await seedRoster(h, ["dana"]);
@@ -62,7 +62,7 @@ describe("dispatch", () => {
       expect(h.err[0] ?? "").not.toContain("UNKNOWN_VERB");
     }
     h.reset();
-    expect(await run(["init", "--json"], h.io)).toBe(0);
+    expect(await run(["init", "--json", "--prefix", "t"], h.io)).toBe(0);
   });
 
   test("an unknown flag is refused rather than ignored", async () => {
@@ -73,10 +73,10 @@ describe("dispatch", () => {
 
 describe("kona init", () => {
   test("creates the log with a genesis record at version 0", async () => {
-    expect(await run(["init", "--json"], h.io)).toBe(0);
+    expect(await run(["init", "--json", "--prefix", "t"], h.io)).toBe(0);
     const genesis = JSON.parse(logLines()[0] ?? "");
     expect(genesis.v).toBe(0);
-    expect(genesis.schema_version).toBe(2);
+    expect(genesis.schema_version).toBe(3);
     expect(genesis.ops).toEqual([]);
     expect(genesis.rationale.why).toBe("pursuit initialised");
     expect(genesis.observed_at).toBe(T0);
@@ -94,7 +94,7 @@ describe("kona init", () => {
 
   test("refuses to re-initialise — the log is never re-created", async () => {
     await init();
-    expect(await run(["init"], h.io)).toBe(1);
+    expect(await run(["init", "--prefix", "t"], h.io)).toBe(1);
     expect(h.err[0]).toContain("ALREADY_INITIALISED");
   });
 
@@ -102,10 +102,10 @@ describe("kona init", () => {
     const dropbox = join(h.dir, "Dropbox", "pursuit");
     mkdirSync(dropbox, { recursive: true });
     const io = { ...h.io, cwd: dropbox };
-    expect(await run(["init"], io)).toBe(1);
+    expect(await run(["init", "--prefix", "t"], io)).toBe(1);
     expect(h.err[0]).toContain("NETWORK_FILESYSTEM");
     expect(h.err[0]).toContain("Dropbox");
-    expect(await run(["init", "--force"], io)).toBe(0);
+    expect(await run(["init", "--force", "--prefix", "t"], io)).toBe(0);
   });
 });
 
@@ -114,15 +114,19 @@ describe("kona mutate — the only write path", () => {
     await init();
     expect(await commitAskDana()).toBe(0);
     expect(h.out[0]).toContain("committed v3");
-    expect(h.out[0]).toContain("minted ask-dana-to-play-thursday, wait-for-dana");
+    // Minting reports the ids it made; they are hashes, so the assertion names the nodes
+    // through their labels rather than spelling ids that the store chooses.
+    expect(h.out[0]).toContain(
+      `minted ${h.id("ask-dana-to-play-thursday")}, ${h.id("wait-for-dana")}`,
+    );
     const graph = await runGraphJson();
     expect(graph.version).toBe(3);
     // `roster-on-file` is the seed that attests to Dana; §6.7 wants her named before the
     // batch that emails her.
     expect(graph.nodes.map((n) => n.id)).toEqual([
-      "roster-on-file",
-      "ask-dana-to-play-thursday",
-      "wait-for-dana",
+      h.id("roster-on-file"),
+      h.id("ask-dana-to-play-thursday"),
+      h.id("wait-for-dana"),
     ]);
   });
 
@@ -132,11 +136,11 @@ describe("kona mutate — the only write path", () => {
     const line = logLines().at(-1) ?? "";
     expect(line).not.toContain("$0");
     const ops = JSON.parse(line).ops;
-    expect(ops[0].id).toBe("ask-dana-to-play-thursday");
+    expect(ops[0].id).toBe(h.id("ask-dana-to-play-thursday"));
     expect(ops[2]).toEqual({
       op: "add_edge",
-      from: "ask-dana-to-play-thursday",
-      to: "wait-for-dana",
+      from: h.id("ask-dana-to-play-thursday"),
+      to: h.id("wait-for-dana"),
     });
   });
 
@@ -189,7 +193,7 @@ describe("kona mutate — the only write path", () => {
       await run(["mutate", "--ops", again, "--base-version", "4", "--why", "reopen", "--reason-code", "OTHER"], h.io),
     ).toBe(4);
     expect(h.err[0]).toStartWith("TERMINAL_NODE_PROTECTED");
-    expect(h.err[0]).toContain("node=ask-dana-to-play-thursday");
+    expect(h.err[0]).toContain(`node=${h.id("ask-dana-to-play-thursday")}`);
   });
 
   test("a subagent attempting topology is refused", async () => {
@@ -337,7 +341,9 @@ describe("kona graph — the only read contract", () => {
     await commitAskDana();
     h.reset();
     await run(["graph"], h.io);
-    expect(h.out.join("\n")).toContain("wait-for-dana requires ask-dana-to-play-thursday");
+    expect(h.out.join("\n")).toContain(
+      `${h.id("wait-for-dana")} requires ${h.id("ask-dana-to-play-thursday")}`,
+    );
   });
 });
 
@@ -366,7 +372,7 @@ describe("the architecture, asserted", () => {
     const other = harness();
     try {
       for (const target of [h, other]) {
-        expect(await run(["init"], target.io)).toBe(0);
+        expect(await run(["init", "--prefix", "t"], target.io)).toBe(0);
         await seedRoster(target, ["dana"]);
         const ops = target.writeOps("ops.json", ASK_DANA);
         expect(
@@ -398,7 +404,7 @@ describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
     ["poll outside a pursuit", ["poll"]],
     ["view outside a pursuit", ["view"]],
     ["brief with no node", ["brief"]],
-    ["brief outside a pursuit", ["brief", "some-node"]],
+    ["brief outside a pursuit", ["brief", "any-node"]],
     ["effect with no subcommand", ["effect", "--why", "x"]],
     ["effect with an unknown subcommand", ["effect", "cancel", "n", "--why", "x"]],
     ["effect with no node", ["effect", "reserve", "--why", "x", "--payload-hash", "h"]],
@@ -423,7 +429,7 @@ describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
 
   test("and a zero exit writes nothing to stderr", async () => {
     h.reset();
-    expect(await run(["init"], h.io)).toBe(0);
+    expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
     expect(h.err).toEqual([]);
     h.reset();
     expect(await run(["graph"], h.io)).toBe(0);

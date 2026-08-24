@@ -44,7 +44,7 @@ afterAll(() => {
 
 /** Wait for the URL the verb prints, or fail with whatever it said instead. */
 async function start(): Promise<string> {
-  Bun.spawnSync({ cmd: ["bun", BIN, "init"], cwd: pursuit, stdout: "pipe", stderr: "pipe" });
+  Bun.spawnSync({ cmd: ["bun", BIN, "init", "--prefix", "t"], cwd: pursuit, stdout: "pipe", stderr: "pipe" });
   viewer = Bun.spawn(["bun", BIN, "view", "--port", "0", "--json"], {
     cwd: pursuit,
     stdout: "pipe",

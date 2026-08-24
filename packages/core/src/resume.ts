@@ -11,6 +11,7 @@
  */
 
 import type { AuthoredOp, MutationRecord } from "./schema.ts";
+import { named } from "./named.ts";
 import { type Graph, type Node, isNodeTerminal, outEdges, readyFrontier } from "./graph.ts";
 import { openEffect } from "./effect.ts";
 import { type WaitStatus, armedWaits, overdueWaits, waitStatus } from "./deadline.ts";
@@ -161,15 +162,17 @@ export function planResume(
       overdue: isOverdue,
     }));
 
-  const names = overdue.map(({ node }) => node.id);
-  const claimed = stale.map((node) => node.id);
+  // A resume rationale is read by whoever picks the pursuit up, so it names the waits rather
+  // than addressing them: an id alone says nothing about which step timed out.
+  const names = overdue.map(({ node }) => named(node));
+  const claimed = stale.map((node) => named(node));
   const timeoutText =
     names.length === 1
-      ? `deadline passed on '${names[0]}'; resolving it as timed out so its escape route can run`
+      ? `deadline passed on ${names[0]}; resolving it as timed out so its escape route can run`
       : `deadlines passed on ${names.length} waits (${names.join(", ")}); resolving them as timed out`;
   const claimText =
     claimed.length === 1
-      ? `'${claimed[0]}' was claimed and never finished; returning it to the frontier`
+      ? `${claimed[0]} was claimed and never finished; returning it to the frontier`
       : `${claimed.length} claimed nodes (${claimed.join(", ")}) never finished; returning them to the frontier`;
   const rationale =
     names.length > 0 && claimed.length > 0

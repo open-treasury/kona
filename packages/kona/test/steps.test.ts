@@ -21,7 +21,7 @@ import { harness, type Harness } from "./harness.ts";
 let h: Harness;
 beforeEach(async () => {
   h = harness();
-  expect(await run(["init"], h.io)).toBe(0);
+  expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
 });
 afterEach(() => h.cleanup());
 
@@ -60,8 +60,8 @@ describe("--steps", () => {
     expect(edges).toHaveLength(1);
     // `from A to B` means B depends on A, so the chain reads in the order it was typed.
     expect(edges[0]).toMatchObject({
-      from: "read-the-failing-test",
-      to: "fix-the-parser",
+      from: h.id("read-the-failing-test"),
+      to: h.id("fix-the-parser"),
     });
   });
 
@@ -71,7 +71,7 @@ describe("--steps", () => {
     expect(await run(["next", "--json"], h.io)).toBe(0);
 
     const frontier = JSON.parse(h.out.join("\n")) as { nodes: { id: string }[] };
-    expect(frontier.nodes.map((node) => node.id)).toEqual(["first"]);
+    expect(frontier.nodes.map((node) => node.id)).toEqual([h.id("first")]);
   });
 
   test("a single step commits, with no edge to draw", async () => {
