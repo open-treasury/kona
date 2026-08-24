@@ -1,9 +1,9 @@
 /**
- * Where the nodes sit — and, the part that actually matters, when we are allowed to work that
+ * Where the activities sit — and, the part that actually matters, when we are allowed to work that
  * out again.
  *
  * §6.10 rule 2: memoise dagre and never re-lay-out on a status tick. Status ticks are the
- * common case — a reply lands, a node goes `done`, a predicate ticks up — and re-ranking the
+ * common case — a reply lands, an activity goes `done`, a predicate ticks up — and re-ranking the
  * whole graph on each one is what froze Burr's graph view. The fan-out is where it bites: one
  * `wait` gaining an outcome would re-rank its siblings, every box would shift a few pixels,
  * and the canvas would crawl under a reader who is trying to read it.
@@ -15,10 +15,10 @@
 
 import { graphlib, layout as dagreLayout } from "@dagrejs/dagre";
 import type { EdgeLabel, GraphLabel, NodeLabel } from "@dagrejs/dagre";
-import type { Graph, NodeType } from "@kona/core";
+import type { Graph, ActivityType } from "@kona/core";
 import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 
-/** A placed node, in React Flow's coordinates: `x`/`y` are the TOP-LEFT corner. */
+/** A placed activity, in React Flow's coordinates: `x`/`y` are the TOP-LEFT corner. */
 export interface NodeBox {
   x: number;
   y: number;
@@ -31,8 +31,8 @@ export interface Layout {
   boxes: Map<string, NodeBox>;
   /**
    * The two notation circles, placed by the same pass so their arrows are short and land where
-   * the eye expects. Deliberately a SEPARATE map from `boxes`: they are not pursuit nodes, and
-   * anything counting or iterating the graph's nodes must not pick them up by accident.
+   * the eye expects. Deliberately a SEPARATE map from `boxes`: they are not pursuit activities, and
+   * anything counting or iterating the graph's activities must not pick them up by accident.
    */
   markers: Map<string, NodeBox>;
   width: number;
@@ -46,7 +46,7 @@ export interface Layout {
  * Fixed sizes. Nothing is measured, ever — rule 7 wants a deterministic layout, and measuring
  * the DOM makes the geometry a function of the reader's installed fonts: the same log would
  * lay out differently on two machines, and a webfont swapping in mid-render would move every
- * node after the reader had started reading.
+ * activity after the reader had started reading.
  *
  * Fixed **per type** rather than per card — which is the constraint that
  * shapes the card, so it is worth stating plainly.
@@ -64,7 +64,7 @@ export interface Layout {
  * Measured against the 31-arm pursuit: this takes the graph from 5216px tall to about 3300, so
  * `fitView`'s legibility floor now shows about sixteen arms rather than ten (kona-e6-8h7.10).
  */
-export const NODE_SIZE: Readonly<Record<NodeType, { width: number; height: number }>> = {
+export const ACTIVITY_SIZE: Readonly<Record<ActivityType, { width: number; height: number }>> = {
   task: { width: 300, height: 62 },
   wait: { width: 300, height: 82 },
 };
@@ -83,27 +83,27 @@ export const MARKER_SIZE = { width: 20, height: 20 } as const;
  *
  * Ids come out in insertion order because rule 7 pins visual order to it — a reordering really
  * would be a different picture. `type` is in because it picks the box size. `superseded_by` is
- * in because `supersede_node` is a topology op: it retires a node in favour of another, and a
- * retired node is not drawn as a live one. Folding it in buys a re-layout on a supersede, which
+ * in because `supersede_activity` is a topology op: it retires an activity in favour of another, and a
+ * retired activity is not drawn as a live one. Folding it in buys a re-layout on a supersede, which
  * is a shape change a reader should watch move.
  *
  * Deliberately absent: `state`, `outcome`, `output`, `conditions`, `effect_log`,
  * `observed_at_version` and the graph version. Those are exactly what a status tick moves, and
- * a status tick must not move a node.
+ * a status tick must not move an activity.
  *
  * `on_timeout` is in for the same reason `superseded_by` is: the canvas draws it, so it is part
- * of the picture. It is safe to fold in because `spec` is written once by `add_node` and no
+ * of the picture. It is safe to fold in because `spec` is written once by `add_activity` and no
  * other op touches it — a status tick cannot move it, which is the only property this signature
  * has to protect.
  *
- * Node ids are `[a-z0-9][a-z0-9-]*` (§6.2), so `:`, `>` and a newline cannot occur inside one
+ * Activity ids are `[a-z0-9][a-z0-9-]*` (§6.2), so `:`, `>` and a newline cannot occur inside one
  * and the encoding needs no escaping to stay unambiguous.
  */
 export function topologySignature(graph: Graph): string {
   const parts: string[] = [];
-  for (const node of graph.nodes.values()) {
+  for (const activity of graph.activities.values()) {
     parts.push(
-      `n:${node.id}:${node.type}:${node.provenance.superseded_by ?? ""}:${node.spec.on_timeout ?? ""}`,
+      `n:${activity.id}:${activity.type}:${activity.provenance.superseded_by ?? ""}:${activity.spec.on_timeout ?? ""}`,
     );
   }
   for (const edge of graph.edges) {
@@ -122,7 +122,7 @@ export function layoutGraph(graph: Graph): Layout {
  *
  * It hands back the SAME object, not an equal one. React re-renders on identity, so returning
  * a fresh but deeply-equal `Layout` would defeat the memo at the only layer where it pays —
- * every node would re-render on every status tick even though not one of them moved.
+ * every activity would re-render on every status tick even though not one of them moved.
  */
 export function createLayoutCache(): (graph: Graph) => Layout {
   let cached: Layout | null = null;
@@ -142,22 +142,22 @@ function runDagre(graph: Graph, signature: string): Layout {
   g.setGraph({ rankdir: "LR", nodesep: 18, ranksep: 72, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
 
-  for (const node of graph.nodes.values()) {
+  for (const activity of graph.activities.values()) {
     // A copy, because dagre writes `x`, `y` and its own bookkeeping onto the label it is
-    // handed; passing `NODE_SIZE[type]` itself would let one layout scribble on the constant
+    // handed; passing `ACTIVITY_SIZE[type]` itself would let one layout scribble on the constant
     // every later layout reads.
-    g.setNode(node.id, { ...NODE_SIZE[node.type] });
+    g.setNode(activity.id, { ...ACTIVITY_SIZE[activity.type] });
   }
   // Every edge the canvas will DRAW, not just the dependencies — `viewEdges` is the one
   // answer to "what is in the picture", so ranking and drawing cannot disagree. An arc that
-  // dagre never saw gets routed across the whole canvas to reach a node the layout did not
+  // dagre never saw gets routed across the whole canvas to reach an activity the layout did not
   // know it was attached to.
   for (const edge of viewEdges(graph)) {
-    // `setEdge` mints any endpoint it does not already know, and a minted node has no size:
+    // `setEdge` mints any endpoint it does not already know, and a minted activity has no size:
     // dagre would place a phantom and shove the real boxes around it. A dangling edge is a
     // shape the model already names (`BlockedCause.kind === "missing"`), so it is skipped here
     // and reported there.
-    if (graph.nodes.has(edge.from) && graph.nodes.has(edge.to)) {
+    if (graph.activities.has(edge.from) && graph.activities.has(edge.to)) {
       g.setEdge(edge.from, edge.to);
     }
   }
@@ -178,14 +178,14 @@ function runDagre(graph: Graph, signature: string): Layout {
   dagreLayout(g);
 
   const boxes = new Map<string, NodeBox>();
-  for (const node of graph.nodes.values()) {
-    const size = NODE_SIZE[node.type];
-    const placed = g.node(node.id);
+  for (const activity of graph.activities.values()) {
+    const size = ACTIVITY_SIZE[activity.type];
+    const placed = g.node(activity.id);
     // dagre reports the CENTRE; React Flow positions by the TOP-LEFT corner. The subtraction
-    // lives here, once, because getting it wrong is silent: every node sits half a box up and
+    // lives here, once, because getting it wrong is silent: every activity sits half a box up and
     // to the left, the edges still join them, and it reads as a styling mistake rather than an
     // arithmetic one.
-    boxes.set(node.id, {
+    boxes.set(activity.id, {
       x: (placed.x ?? 0) - size.width / 2,
       y: (placed.y ?? 0) - size.height / 2,
       width: size.width,
@@ -210,7 +210,7 @@ function runDagre(graph: Graph, signature: string): Layout {
 }
 
 /**
- * A graph with no nodes — v0 of every log — leaves dagre folding `Math.max` over nothing, so
+ * A graph with no activities — v0 of every log — leaves dagre folding `Math.max` over nothing, so
  * it reports the extent as `-Infinity` rather than as zero or as absent. Normalised once here:
  * a canvas sized from `-Infinity` renders as a blank page, which looks like a broken viewer
  * rather than like an empty pursuit.

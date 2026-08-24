@@ -1,29 +1,29 @@
 /**
- * What a `wait` node is actually waiting for, and whether its clock has run out.
+ * What a `wait` activity is actually waiting for, and whether its clock has run out.
  *
  * Rule 8 gives a wait three colours — fulfilled, awaiting-within-deadline, deadline-blown —
- * and rule 4 says the node renders its own deadline countdown and predicate counter inline.
+ * and rule 4 says the activity renders its own deadline countdown and predicate counter inline.
  * Both need one answer, computed once. Without this module every component that draws a wait
  * would re-derive "is it blown", and the two that disagreed would be a bug nobody could see:
  * a wait rendered as counting down when the store considers it timed out.
  *
- * The hard part is §6.2's second deadline shape. `{after: node, duration: "48h"}` has no
- * absolute instant in it at all — the instant is the anchor node's completion, which lives in
+ * The hard part is §6.2's second deadline shape. `{after: activity, duration: "48h"}` has no
+ * absolute instant in it at all — the instant is the anchor activity's completion, which lives in
  * the mutation log's `observed_at` and not in the graph projection. So this takes a
  * completion index (D1's reason for folding the log rather than shelling out to
  * `kona graph --json`), and when the anchor has not succeeded the honest answer is `unarmed`
  * with the reason in words, never a countdown from a guessed zero.
  *
- * The index is node id → completion instant, and emphatically NOT version → instant looked up
- * by `observed_at_version`: that field is the last version to *touch* the node, and §6.4 lets
- * a delivery receipt land on a node that is already terminal. Anchoring to it would let a
+ * The index is activity id → completion instant, and emphatically NOT version → instant looked up
+ * by `observed_at_version`: that field is the last version to *touch* the activity, and §6.4 lets
+ * a delivery receipt land on an activity that is already terminal. Anchoring to it would let a
  * receipt slide a deadline forward and turn a blown wait back into a running one.
  *
  * `now` is a parameter. A pure module that read the clock would produce a different view for
  * the same log, and the snapshot tests could not pin a blown deadline at all.
  */
 
-import type { Graph, Node } from "@kona/core";
+import type { Graph, Activity } from "@kona/core";
 import { isTerminal, satisfiesBlockingEdge } from "@kona/core";
 import { formatInstant, statusInWords } from "../format.ts";
 import { predicateCount, predicateMatchLabel } from "./predicate.ts";
@@ -67,7 +67,7 @@ interface ResolvedDeadline {
  * `isEdgeSatisfied` asks the same question: a send that bounced never went out, so counting
  * 48 hours from the bounce would put a deadline on a message nobody ever received.
  */
-function noClockYet(id: string, anchor: Node): string {
+function noClockYet(id: string, anchor: Activity): string {
   if (!isTerminal(anchor.status.state)) {
     return (
       `anchored to '${id}', which is still ${statusInWords(anchor.status.state)} — ` +
@@ -91,10 +91,10 @@ function noClockYet(id: string, anchor: Node): string {
 
 function resolveDeadline(
   graph: Graph,
-  node: Node,
+  activity: Activity,
   completionTime: ReadonlyMap<string, Instant>,
 ): ResolvedDeadline {
-  const deadline = node.spec.deadline;
+  const deadline = activity.spec.deadline;
 
   // §6.2 requires a deadline on every wait and the schema enforces it, so this branch means
   // the log carried something the schema would have rejected. Say so rather than crash.
@@ -128,7 +128,7 @@ function resolveDeadline(
         unresolvedReason: `duration '${deadline.duration}' is not a whole number of s/m/h/d`,
       };
     }
-    const anchor = graph.nodes.get(deadline.after);
+    const anchor = graph.activities.get(deadline.after);
     if (anchor === undefined) {
       return {
         at: null,
@@ -167,8 +167,8 @@ function unique(values: readonly string[]): string[] {
 }
 
 /** One line for what would close this wait, read off `match.conditions` and nothing else. */
-function matchLabelOf(node: Node): string {
-  const match = node.spec.match;
+function matchLabelOf(activity: Activity): string {
+  const match = activity.spec.match;
   if (match === undefined) return "no match block — nothing can close this wait";
 
   const kinds = unique(match.conditions.map((c) => c.kind));
@@ -180,7 +180,7 @@ function matchLabelOf(node: Node): string {
       // "human" prefix earns its place: it says a person, not an event, has to act.
       return `human ${kinds.join("/")}: ${ons.join(" | ")}`;
     case "predicate":
-      return predicateMatchLabel(node) ?? `predicate: ${ons.join(" | ")}`;
+      return predicateMatchLabel(activity) ?? `predicate: ${ons.join(" | ")}`;
     default:
       // `event` and anything W2 adds: the condition kinds are already the plain-English list
       // of the ways it can close. Never switch exhaustively on them (D5).
@@ -192,22 +192,22 @@ function matchLabelOf(node: Node): string {
  * Null for a task. Tasks have no deadline, no match and no timeout route, and returning an
  * empty `WaitState` for one would invite the canvas to draw a wait chip on it.
  *
- * `completionTime` is `PursuitView.completionTime`: node id → the instant that node
- * SUCCEEDED, for the nodes that have. A node absent from it has not succeeded — it is still
+ * `completionTime` is `PursuitView.completionTime`: activity id → the instant that activity
+ * SUCCEEDED, for the activities that have. An activity absent from it has not succeeded — it is still
  * in flight, it failed, or the reader has travelled to a version before it finished — and all
  * three of those mean the same thing here: there is no clock.
  */
 export function waitStateOf(
   graph: Graph,
-  node: Node,
+  activity: Activity,
   completionTime: ReadonlyMap<string, Instant>,
   now: Instant,
 ): WaitState | null {
-  if (node.type !== "wait") return null;
+  if (activity.type !== "wait") return null;
 
-  const deadline = resolveDeadline(graph, node, completionTime);
-  const match = node.spec.match;
-  const predicate = predicateCount(graph, node);
+  const deadline = resolveDeadline(graph, activity, completionTime);
+  const match = activity.spec.match;
+  const predicate = predicateCount(graph, activity);
 
   /**
    * The order is the point.
@@ -219,13 +219,13 @@ export function waitStateOf(
    *
    * Then the rest of terminal, split into the two things terminal can mean, and split on
    * `satisfiesBlockingEdge` — the store's own test — rather than on a second reading of
-   * `state`. That predicate is exactly "does this node release what depends on it", which is
+   * `state`. That predicate is exactly "does this activity release what depends on it", which is
    * what rule 8's *fulfilled* colour claims. A `failed` wait does not; a `done` one does.
    *
    * It deliberately does NOT also demand a resolving outcome. It used to, and that was wrong
    * in a way the fixture cannot show: `isEdgeSatisfied` returns true for an *unconditional*
    * edge out of any `done` source, so a `done` wait with no outcome can and does put its
-   * successor on the frontier — and painting it the not-fulfilled red while the node beneath
+   * successor on the frontier — and painting it the not-fulfilled red while the activity beneath
    * it went ready is the same contradiction in the other direction. When the out-edge IS
    * conditional and no outcome has landed, the honest place to say so is the target's blocked
    * reason ("finished without a resolution, this edge needs satisfied"), which is where
@@ -234,7 +234,7 @@ export function waitStateOf(
    * Nothing about an OPEN wait is decided by its outcome either. `record_outcome` and
    * `set_status` are separate ops (§6.4), so a batch can record a verdict without closing the
    * wait — and until the store closes it, it is open: the deadline can still blow, `on_timeout`
-   * can still fire, and every node downstream is still blocked. Reading the outcome as
+   * can still fire, and every activity downstream is still blocked. Reading the outcome as
    * "resolved" there would paint the success green on a wait the CLI still considers running,
    * which is the one disagreement this module exists to prevent.
    *
@@ -242,9 +242,9 @@ export function waitStateOf(
    * `now` against, and `null >= now` is a comparison JavaScript would happily answer wrongly.
    */
   const phase = ((): WaitPhase => {
-    if (node.status.state === "dropped") return "dropped";
-    if (isTerminal(node.status.state)) {
-      return satisfiesBlockingEdge(node) ? "resolved" : "failed";
+    if (activity.status.state === "dropped") return "dropped";
+    if (isTerminal(activity.status.state)) {
+      return satisfiesBlockingEdge(activity) ? "resolved" : "failed";
     }
     if (deadline.at === null) return "unarmed";
     if (now >= deadline.at) return "blown";
@@ -258,8 +258,8 @@ export function waitStateOf(
     deadlineLabel: deadline.label,
     unresolvedReason: deadline.unresolvedReason,
     matchKind: match?.kind ?? null,
-    matchLabel: matchLabelOf(node),
+    matchLabel: matchLabelOf(activity),
     predicate,
-    onTimeout: node.spec.on_timeout ?? null,
+    onTimeout: activity.spec.on_timeout ?? null,
   };
 }

@@ -15,12 +15,12 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph } from "../src/index.ts";
 import { evidencedKeys, isEvidencedRecipient } from "../src/index.ts";
-import { commit, seeded, task, wait, nodeAt } from "./fixtures.ts";
+import { commit, seeded, task, wait, activityAt } from "./fixtures.ts";
 
-/** A graph whose one node has recorded `value` as its declared output. */
+/** A graph whose one activity has recorded `value` as its declared output. */
 function output(value: unknown): Graph {
   return commit(seeded([task("A")]), [
-    { op: "record_output", node: "a", output_name: "reply", value, evidence_ref: "src#1" },
+    { op: "record_output", activity: "a", output_name: "reply", value, evidence_ref: "src#1" },
   ] as AuthoredOp[]);
 }
 
@@ -29,7 +29,7 @@ function outcomeAttrs(attrs: Record<string, unknown> | undefined): Graph {
   const ops: AuthoredOp[] = [
     {
       op: "record_outcome",
-      node: "w",
+      activity: "w",
       verdict: "declined",
       evidence_ref: "<m-1@mail>",
       ...(attrs === undefined ? {} : { attrs }),
@@ -65,7 +65,7 @@ describe("what counts as evidence", () => {
     expect(evidencedKeys(outcomeAttrs(undefined))).toEqual(new Set());
   });
 
-  test("a node that has recorded nothing contributes nothing", () => {
+  test("an activity that has recorded nothing contributes nothing", () => {
     expect(evidencedKeys(seeded([task("A")]))).toEqual(new Set());
   });
 });
@@ -114,17 +114,17 @@ describe("the guarantee this function relies on instead of re-checking", () => {
     // come back and add the check it deliberately does not have.
     const graph = commit(
       commit(seeded([task("A", { outputs: [{ name: "reply", type: "string" }, { name: "note", type: "string" }] })]), [
-        { op: "record_output", node: "a", output_name: "reply", value: "dana", evidence_ref: "src#1" },
+        { op: "record_output", activity: "a", output_name: "reply", value: "dana", evidence_ref: "src#1" },
       ] as AuthoredOp[]),
       [
-        { op: "record_output", node: "a", output_name: "note", value: "sam", evidence_ref: "src#2" },
+        { op: "record_output", activity: "a", output_name: "note", value: "sam", evidence_ref: "src#2" },
       ] as AuthoredOp[],
     );
-    for (const node of graph.nodes.values()) {
-      const { output: recorded, output_evidence: evidence } = node.status;
+    for (const activity of graph.activities.values()) {
+      const { output: recorded, output_evidence: evidence } = activity.status;
       expect(Object.keys(recorded ?? {}).toSorted()).toEqual(Object.keys(evidence ?? {}).toSorted());
     }
-    expect(nodeAt(graph, "a")?.status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
+    expect(activityAt(graph, "a")?.status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
   });
 });
 

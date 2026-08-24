@@ -1,7 +1,7 @@
 /**
- * §6.10 rule 4: **every node renders its own state inline.**
+ * §6.10 rule 4: **every activity renders its own state inline.**
  *
- * Status, wait predicate, deadline countdown, predicate counter, and for a blocked node the
+ * Status, wait predicate, deadline countdown, predicate counter, and for a blocked activity the
  * reason as text. Dify's loudest UX complaint is having to leave the graph to find out what
  * happened; a card that says "blocked" and makes you click to learn why has the same defect in
  * a smaller font.
@@ -15,7 +15,7 @@
  * Where it stops: Actions has one status and one duration per row, and rule 4 asks for more
  * than that. So the glyph and the trailing metric are theirs, and the rows beneath are ours.
  *
- * Everything rendered here was decided in `model/` and arrives on `NodeView`. This component
+ * Everything rendered here was decided in `model/` and arrives on `ActivityView`. This component
  * makes no judgment of its own — that is the rule that keeps the canvas and the CLI agreeing.
  */
 
@@ -34,17 +34,17 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Status } from "@kona/core";
-import type { NodeView, WaitPhase, WaitState } from "../model/types.ts";
-import { NODE_SIZE } from "../layout/dagre.ts";
+import type { ActivityView, WaitPhase, WaitState } from "../model/types.ts";
+import { ACTIVITY_SIZE } from "../layout/dagre.ts";
 import { formatDuration } from "../format.ts";
 import { cn } from "../lib/cn.ts";
 import { Badge } from "../ui/badge.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.tsx";
 
-export const KONA_NODE_TYPE = "kona";
+export const KONA_ACTIVITY_TYPE = "kona";
 
 export interface CardData extends Record<string, unknown> {
-  view: NodeView;
+  view: ActivityView;
   fresh: boolean;
 }
 
@@ -65,7 +65,7 @@ const STATUS_GLYPH: Record<Status, { icon: LucideIcon; tone: string; spin: boole
 /**
  * Rule 8's colours. `resolved` is the success green and `failed` is not — a wait that ended
  * without satisfying anything must not be painted the same as one that did, or the card would
- * contradict the blocked reason on the node it feeds.
+ * contradict the blocked reason on the activity it feeds.
  */
 const WAIT_TONE: Record<WaitPhase, string> = {
   awaiting: "text-wait-awaiting",
@@ -110,10 +110,10 @@ function StatusGlyph({ status }: { status: Status }): React.ReactElement {
 
 /**
  * The one line under the title that a TASK gets: why it cannot run, or what it answered. There
- * is exactly one, and it is reserved whether or not it has content — see `NODE_SIZE`, where
+ * is exactly one, and it is reserved whether or not it has content — see `ACTIVITY_SIZE`, where
  * the reason is that a height which grew with the status would re-run dagre on a status tick.
  */
-function DetailRow({ view }: { view: NodeView }): React.ReactElement | null {
+function DetailRow({ view }: { view: ActivityView }): React.ReactElement | null {
   const blocked = view.blocked;
   if (blocked !== null) {
     return (
@@ -133,7 +133,7 @@ function DetailRow({ view }: { view: NodeView }): React.ReactElement | null {
       </div>
     );
   }
-  const outcome = view.node.status.outcome;
+  const outcome = view.activity.status.outcome;
   if (outcome !== null) {
     return (
       <div className={cn(ROW, "text-muted-foreground")}>
@@ -184,11 +184,11 @@ function WaitRow({ wait }: { wait: WaitState }): React.ReactElement {
   );
 }
 
-function NodeCard({ data, selected }: NodeProps): React.ReactElement {
+function ActivityCard({ data, selected }: NodeProps): React.ReactElement {
   const { view, fresh } = data as unknown as CardData;
-  const node = view.node;
+  const activity = view.activity;
   const wait = view.wait;
-  const superseded = node.provenance.superseded_by !== null;
+  const superseded = activity.provenance.superseded_by !== null;
 
   // The trailing slot is Actions' duration column, and it holds ONLY what fits there: a
   // countdown. It briefly held the deadline prose as a fallback, and that prose ate the label —
@@ -201,16 +201,16 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
       // The card, not the React Flow wrapper, carries the box: measured on 12.11.3, a wrapper
       // with explicit style dimensions is skipped by the measuring pass and takes every edge
       // touching it with it — silently, no warning, just no lines.
-      style={NODE_SIZE[node.type]}
+      style={ACTIVITY_SIZE[activity.type]}
       className={cn(
         "flex flex-col justify-center gap-1 overflow-hidden rounded-lg border border-border",
         "bg-card px-3 py-2 shadow-subtle",
         "transition-[border-color,box-shadow,opacity] duration-[--transition-medium]",
-        // Dimmed, not erased. Nothing is ever deleted from a Kona graph, and a node that has
+        // Dimmed, not erased. Nothing is ever deleted from a Kona graph, and an activity that has
         // been dropped or replaced is still part of how the pursuit got here — §6.3's whole
         // argument. On a light ground the floor for that is higher than on a dark one: below
         // about 60% the label stops being legible and "retired" reads as "broken render".
-        node.status.state === "dropped" && "opacity-65",
+        activity.status.state === "dropped" && "opacity-65",
         superseded && "opacity-60",
         selected && "border-primary shadow-standard",
         fresh && "animate-flash",
@@ -219,16 +219,16 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
       <Handle type="target" position={Position.Left} isConnectable={false} />
 
       <div className="flex min-w-0 items-center gap-2">
-        <StatusGlyph status={node.status.state} />
+        <StatusGlyph status={activity.status.state} />
         <Tooltip>
           <TooltipTrigger asChild>
             {/* `min-w-0` is what makes the truncation land on the LABEL's own box rather than
                 on the flex row, and `flex-1` is what stops the trailing slot taking width the
                 label needed. Without the pair, a long countdown wins an argument it should
                 never have been in. */}
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.name}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{activity.name}</span>
           </TooltipTrigger>
-          <TooltipContent>{node.spec.instruction}</TooltipContent>
+          <TooltipContent>{activity.spec.instruction}</TooltipContent>
         </Tooltip>
         {trailing !== null && (
           // Actions puts a duration here. A pursuit's equivalent is how long is left, which is
@@ -252,4 +252,4 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
   );
 }
 
-export const nodeTypes = { [KONA_NODE_TYPE]: NodeCard };
+export const nodeTypes = { [KONA_ACTIVITY_TYPE]: ActivityCard };

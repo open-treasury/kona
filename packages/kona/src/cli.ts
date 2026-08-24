@@ -32,7 +32,7 @@ const VERBS: { name: string; summary: string }[] = [
   { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync", },
   { name: "graph", summary: "the only read contract", },
   { name: "next", summary: "the ready frontier, computed never stored", },
-  { name: "brief", summary: "a node's subgraph plus identity, correlation, preconditions", },
+  { name: "brief", summary: "an activity's subgraph plus identity, correlation, preconditions", },
   { name: "poll", summary: "which wait is each inbound reply for", },
   { name: "resume", summary: "reconcile-then-repair", },
   { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", },
@@ -63,7 +63,7 @@ function usage(): string {
  */
 const VERB_EXAMPLES: Record<string, string[]> = {
   init: [
-    "kona init --prefix acme      # every node id becomes acme-a1b2",
+    "kona init --prefix acme      # every activity id becomes acme-a1b2",
     "kona init --config /opt/kona/config.json",
     "",
     "The prefix is fixed for the life of the pursuit; minted ids cannot be re-minted.",
@@ -77,15 +77,15 @@ const VERB_EXAMPLES: Record<string, string[]> = {
   ],
   graph: ["kona graph", "kona graph --json", "kona graph --version 3", "kona graph --history"],
   next: ["kona next", "kona next --json"],
-  brief: ["kona brief <node-id>", "kona brief <node-id> --json"],
+  brief: ["kona brief <activity-id>", "kona brief <activity-id> --json"],
   poll: ["kona poll", "kona poll --json"],
   resume: ["kona resume", "kona resume --json"],
   effect: [
-    "kona effect reserve <node-id> --payload-hash <sha256> --why 'about to send'",
-    "kona effect record <node-id> --key <key> --outcome sent \\",
+    "kona effect reserve <activity-id> --payload-hash <sha256> --why 'about to send'",
+    "kona effect record <activity-id> --key <key> --outcome sent \\",
     "  --message-id <id> --why 'it went'",
     "",
-    "Only nodes that declare an effect can be reserved; a pure node is refused.",
+    "Only activities that declare an effect can be reserved; a pure activity is refused.",
   ],
   view: ["kona view", "kona view --port 4747"],
 };
@@ -216,7 +216,7 @@ const VERB_OPTIONS: Record<string, Options> = {
 const EFFECT_OUTCOMES = ["sent", "failed"] as const;
 
 /**
- * `kona effect reserve|record <node>`. Both are mutating verbs, so §8's `--why` applies.
+ * `kona effect reserve|record <activity>`. Both are mutating verbs, so §8's `--why` applies.
  * `--reason-code` defaults to OTHER on purpose: the closed vocabulary describes why a PLAN
  * changed (COUNTERPARTY_DECLINED, MISSING_STEP...), and none of it describes "I sent the
  * message I was told to send". Forcing a wrong code is worse than defaulting to OTHER.
@@ -226,13 +226,13 @@ async function runEffect(
   positionals: readonly string[],
   io: Io,
 ): Promise<number> {
-  const [action, node] = positionals;
+  const [action, activity] = positionals;
   if (action !== "reserve" && action !== "record") {
     io.err(`REFUSED BAD_SUBCOMMAND kona effect takes 'reserve' or 'record', got '${action ?? "nothing"}'`);
     return EXIT_REFUSED;
   }
-  if (node === undefined || node.length === 0) {
-    io.err(`REFUSED MISSING_NODE kona effect ${action} needs a node id`);
+  if (activity === undefined || activity.length === 0) {
+    io.err(`REFUSED MISSING_NODE kona effect ${action} needs an activity id`);
     return EXIT_REFUSED;
   }
 
@@ -248,7 +248,7 @@ async function runEffect(
   if (action === "reserve") {
     const payloadHash = requireString(values, "payload-hash", io);
     if (payloadHash === null) return EXIT_REFUSED;
-    return await runReserve(io, { node, payloadHash, rationale, actorId, json });
+    return await runReserve(io, { activity, payloadHash, rationale, actorId, json });
   }
 
   const key = requireString(values, "key", io);
@@ -258,7 +258,7 @@ async function runEffect(
   const messageId = requireString(values, "message-id", io);
   if (messageId === null) return EXIT_REFUSED;
 
-  return await runRecord(io, { node, key, outcome, messageId, rationale, actorId, json });
+  return await runRecord(io, { activity, key, outcome, messageId, rationale, actorId, json });
 }
 
 export async function run(argv: readonly string[], io: Io): Promise<number> {
@@ -289,7 +289,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
     ({ values, positionals } = parseArgs({
       args: [...rest],
       options: VERB_OPTIONS[verb],
-      // Only `effect` takes positionals — its subcommand and its node.
+      // Only `effect` takes positionals — its subcommand and its activity.
       allowPositionals: verb === "effect" || verb === "brief",
       strict: true,
     }));
@@ -313,12 +313,12 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
   }
 
   if (verb === "brief") {
-    const [node] = positionals;
-    if (node === undefined || node.length === 0) {
-      io.err("REFUSED MISSING_NODE kona brief needs a node id");
+    const [activity] = positionals;
+    if (activity === undefined || activity.length === 0) {
+      io.err("REFUSED MISSING_NODE kona brief needs an activity id");
       return EXIT_REFUSED;
     }
-    return await runBrief(io, { node, json });
+    return await runBrief(io, { activity, json });
   }
 
   if (verb === "effect") {

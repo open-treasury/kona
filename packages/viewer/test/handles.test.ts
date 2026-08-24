@@ -7,25 +7,25 @@
  *
  * React Flow refuses to position an edge whose endpoints fail `isNodeInitialized`:
  *
- *   `!!(node.internals.handleBounds || node.handles?.length) && !!(measured.width || width)`
+ *   `!!(activity.internals.handleBounds || activity.handles?.length) && !!(measured.width || width)`
  *
  * `handleBounds` arrives from a ResizeObserver on the card's DOM. Until it does, the only way
- * the test can pass is `node.handles`, and `getEdgePosition` silently returns `null` for every
+ * the test can pass is `activity.handles`, and `getEdgePosition` silently returns `null` for every
  * edge in the graph while it is missing.
  *
- * So these assert the geometry the canvas declares, against the same node boxes dagre uses.
+ * So these assert the geometry the canvas declares, against the same activity boxes dagre uses.
  * If the card ever moves a handle off the left or right edge, this fails here rather than as
  * an intermittently empty canvas.
  */
 
 import { describe, expect, test } from "bun:test";
 import { Position } from "@xyflow/react";
-import { MARKER_SIZE, NODE_SIZE } from "../src/layout/dagre.ts";
+import { MARKER_SIZE, ACTIVITY_SIZE } from "../src/layout/dagre.ts";
 import { edgeHandles } from "../src/layout/handles.ts";
 
 const BOXES = [
-  ["task", NODE_SIZE.task],
-  ["wait", NODE_SIZE.wait],
+  ["task", ACTIVITY_SIZE.task],
+  ["wait", ACTIVITY_SIZE.wait],
   ["marker", MARKER_SIZE],
 ] as const;
 
@@ -36,7 +36,7 @@ describe("edgeHandles", () => {
 
       test("declares both a source and a target", () => {
         // `handles.length` is the half of isNodeInitialized that does not need the DOM, and
-        // an edge needs a target on one node and a source on the other.
+        // an edge needs a target on one activity and a source on the other.
         expect(handles.map((h) => h.type).toSorted()).toEqual(["source", "target"]);
       });
 
@@ -65,7 +65,7 @@ describe("edgeHandles", () => {
 
       test("satisfies React Flow's initialization test with no measurement at all", () => {
         // The predicate, transcribed from @xyflow/system. `width` comes from the same
-        // NODE_SIZE box the canvas sets, so both halves hold before the observer runs.
+        // ACTIVITY_SIZE box the canvas sets, so both halves hold before the observer runs.
         const measured = undefined;
         const initialized = !!(measured ?? handles.length) && !!(measured ?? size.width);
         expect(initialized).toBe(true);
@@ -73,7 +73,7 @@ describe("edgeHandles", () => {
     });
   }
 
-  test("handles sit inside the node box, so an edge lands on the card and not beside it", () => {
+  test("handles sit inside the activity box, so an edge lands on the card and not beside it", () => {
     for (const [, size] of BOXES) {
       for (const handle of edgeHandles(size)) {
         expect(handle.x).toBeGreaterThanOrEqual(0);

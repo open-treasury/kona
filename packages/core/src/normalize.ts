@@ -9,7 +9,7 @@
 import type { AuthoredOp, CommittedOp } from "./schema.ts";
 import { isOpRef } from "./schema.ts";
 import type { Graph } from "./graph.ts";
-import { mintNodeId } from "./ids.ts";
+import { mintActivityId } from "./ids.ts";
 import { type Result, ok, refuse } from "./result.ts";
 
 interface RefScope {
@@ -42,8 +42,8 @@ function resolveRef(
 ): Result<string> {
   if (!isOpRef(raw)) {
     if (!scope.committed.has(raw)) {
-      return refuse("UNKNOWN_NODE", `${field} references '${raw}', which does not exist`, {
-        node: raw,
+      return refuse("UNKNOWN_ACTIVITY", `${field} references '${raw}', which does not exist`, {
+        activity: raw,
         op_index: opIndex,
       });
     }
@@ -69,7 +69,7 @@ function resolveRef(
   return ok(resolved);
 }
 
-/** Every position in a node spec that may hold a reference. Listed, not traversed. */
+/** Every position in an activity spec that may hold a reference. Listed, not traversed. */
 function normalizeSpec<S extends object>(
   spec: S,
   scope: RefScope,
@@ -117,18 +117,18 @@ export function normalizeBatch(
   version: number,
 ): Result<CommittedOp[]> {
   const scope: RefScope = {
-    committed: new Set(graph.nodes.keys()),
+    committed: new Set(graph.activities.keys()),
     minted: new Map(),
-    taken: new Set(graph.nodes.keys()),
+    taken: new Set(graph.activities.keys()),
   };
   const committed: CommittedOp[] = [];
 
   for (const [opIndex, op] of ops.entries()) {
     switch (op.op) {
-      case "add_node": {
+      case "add_activity": {
         const spec = normalizeSpec(op.spec, scope, opIndex);
         if (!spec.ok) return spec;
-        const id = mintNodeId(prefix, op.name, version, opIndex, scope.taken);
+        const id = mintActivityId(prefix, op.name, version, opIndex, scope.taken);
         scope.taken.add(id);
         scope.minted.set(`$${opIndex}`, id);
         committed.push({ ...op, id, spec: spec.value });
@@ -142,22 +142,22 @@ export function normalizeBatch(
         committed.push({ ...op, from: from.value, to: to.value });
         break;
       }
-      case "supersede_node": {
-        const node = resolveRef(op.node, scope, opIndex, "node");
-        if (!node.ok) return node;
+      case "supersede_activity": {
+        const activity = resolveRef(op.activity, scope, opIndex, "activity");
+        if (!activity.ok) return activity;
         if (op.by === undefined) {
-          committed.push({ ...op, node: node.value });
+          committed.push({ ...op, activity: activity.value });
           break;
         }
         const by = resolveRef(op.by, scope, opIndex, "by");
         if (!by.ok) return by;
-        committed.push({ ...op, node: node.value, by: by.value });
+        committed.push({ ...op, activity: activity.value, by: by.value });
         break;
       }
       default: {
-        const node = resolveRef(op.node, scope, opIndex, "node");
-        if (!node.ok) return node;
-        committed.push({ ...op, node: node.value });
+        const activity = resolveRef(op.activity, scope, opIndex, "activity");
+        if (!activity.ok) return activity;
+        committed.push({ ...op, activity: activity.value });
         break;
       }
     }

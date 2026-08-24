@@ -7,7 +7,7 @@
  *
  *   - a torn final line   crash between append and fsync
  *   - a stale lockfile    crash while holding the write lock
- *   - a `sending` node    crash between reserve and record
+ *   - a `sending` activity    crash between reserve and record
  *
  * Every assertion is made through a FRESH `Io` against the same directory: no session
  * state, nothing carried in memory, exactly what "a fresh terminal" means in 8.
@@ -38,13 +38,13 @@ const CONFIG = {
 
 const PLAN = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Escalate",
     type: "task",
     spec: { instruction: "Tell Ilya nobody replied.", effect_class: "pure" },
   },
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Ask Dana",
     type: "task",
     spec: {
@@ -55,7 +55,7 @@ const PLAN = [
     },
   },
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Wait for Dana",
     type: "wait",
     spec: {
@@ -70,7 +70,7 @@ const PLAN = [
 ];
 
 /** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
-// The effect key is derived from the node id, and the id is minted — so this cannot be
+// The effect key is derived from the activity id, and the id is minted — so this cannot be
 // computed until a pursuit exists. A function, evaluated inside the test.
 const KEY = (): string => effectKey(h.id("ask-dana"), 3);
 
@@ -116,7 +116,7 @@ describe("crash between append and fsync — a torn final line", () => {
     expect(term.out.join("\n")).toContain("version 3");
     // And the next write lands at the version the torn record never reached.
     const ops = h.writeOps("more.json", [
-      { op: "set_status", node: h.id("escalate"), status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("escalate"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "done", "--reason-code", "OTHER"], term.io),
@@ -140,7 +140,7 @@ describe("crash while holding the write lock", () => {
 
   async function tryWrite(term: Harness): Promise<number> {
     const ops = h.writeOps("more.json", [
-      { op: "set_status", node: h.id("escalate"), status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("escalate"), status: "done", evidence_ref: "e" },
     ]);
     return await run(
       ["mutate", "--ops", ops, "--base-version", "3", "--why", "after crash", "--reason-code", "OTHER"],
@@ -236,12 +236,12 @@ describe("crash between reserve and record — the send is unknown", () => {
     expect(logLines().length).toBe(before);
   });
 
-  test("the node is not offered as work", async () => {
+  test("the activity is not offered as work", async () => {
     await reserveThenCrash();
     const term = freshTerminal();
     expect(await run(["next", "--json"], term.io)).toBe(0);
-    const payload = JSON.parse(term.out[0] ?? "{}") as { nodes: { id: string }[] };
-    expect(payload.nodes.map((n) => n.id)).not.toContain(h.id("ask-dana"));
+    const payload = JSON.parse(term.out[0] ?? "{}") as { activities: { id: string }[] };
+    expect(payload.activities.map((n) => n.id)).not.toContain(h.id("ask-dana"));
   });
 
   test("and re-reserving after the crash sends nothing new", async () => {
@@ -264,7 +264,7 @@ describe("crash between reserve and record — the send is unknown", () => {
         term.io,
       ),
     ).toBe(0);
-    expect((await graphOf(term)).nodes.find((n) => n.id === h.id("ask-dana"))?.status.state).toBe("done");
+    expect((await graphOf(term)).activities.find((n) => n.id === h.id("ask-dana"))?.status.state).toBe("done");
     term.reset();
     expect(await run(["resume"], term.io)).toBe(0);
     expect(term.out.join("\n")).not.toContain("NEEDS A HUMAN");
@@ -305,7 +305,7 @@ describe("resume fires overdue deadlines, and says why", () => {
     expect(term.out.join("\n")).toContain("repaired at v4");
 
     const graph = await graphOf(term);
-    const gate = graph.nodes.find((n) => n.id === h.id("wait-for-dana"));
+    const gate = graph.activities.find((n) => n.id === h.id("wait-for-dana"));
     expect(gate?.status.state).toBe("done");
     expect(gate?.status.outcome?.verdict).toBe("timed_out");
     expect(graph.edges).toContainEqual({
@@ -351,10 +351,10 @@ describe("resume fires overdue deadlines, and says why", () => {
   });
 });
 
-describe("a done node is never re-executed", () => {
+describe("a done activity is never re-executed", () => {
   test("resume does not touch it, whatever the clock says", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: h.id("escalate"), status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("escalate"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "did it", "--reason-code", "OTHER"], h.io),
@@ -362,7 +362,7 @@ describe("a done node is never re-executed", () => {
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await run(["resume"], term.io)).toBe(0);
     const graph = await graphOf(term);
-    expect(graph.nodes.find((n) => n.id === h.id("escalate"))?.status.state).toBe("done");
+    expect(graph.activities.find((n) => n.id === h.id("escalate"))?.status.state).toBe("done");
     expect(await run(["next", "--json"], term.io)).toBe(0);
   });
 });

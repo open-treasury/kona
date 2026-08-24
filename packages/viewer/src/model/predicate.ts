@@ -1,10 +1,10 @@
 /**
  * The quorum counter: §6.2's `{count:{verdict,attrs}, op, n}`, evaluated against the graph.
  *
- * A `wait{match:"predicate"}` is the one node whose state cannot be read off the node itself —
- * it lives in the outcomes of the nodes feeding it, and the reader's actual question is "how
+ * A `wait{match:"predicate"}` is the one activity whose state cannot be read off the activity itself —
+ * it lives in the outcomes of the activities feeding it, and the reader's actual question is "how
  * many more answers do we need, and can they still arrive?". Rule 4 requires that number on
- * the node, so it is computed once, here, rather than by whichever component happens to be
+ * the activity, so it is computed once, here, rather than by whichever component happens to be
  * rendering.
  *
  * The predicate block is `unknown` in core's schema (§6.5 leaves it open so predicates can
@@ -14,7 +14,7 @@
  * it. D5 — unknown shapes render as detail, they do not throw.
  */
 
-import type { Graph, Node, OutcomeRecord } from "@kona/core";
+import type { Graph, Activity, OutcomeRecord } from "@kona/core";
 import { inEdges, isTerminal, satisfiesBlockingEdge } from "@kona/core";
 import type { PredicateCount } from "./types.ts";
 
@@ -37,8 +37,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * than off the match, so a wait could in principle carry several; the first one wins, because
  * a second would be a second answer to the same question and the store does not emit one.
  */
-function predicateBlockOf(node: Node): unknown {
-  const conditions = node.spec.match?.conditions ?? [];
+function predicateBlockOf(activity: Activity): unknown {
+  const conditions = activity.spec.match?.conditions ?? [];
   for (const condition of conditions) {
     if (condition.predicate !== undefined) return condition.predicate;
   }
@@ -120,10 +120,10 @@ function chipLabel(quorum: Quorum): string {
 
 /**
  * One line naming what the quorum is counting, for the wait's match chip:
- * `count confirmed role=goalie >= 1`. Built from the block, never from a table of node ids.
+ * `count confirmed role=goalie >= 1`. Built from the block, never from a table of activity ids.
  */
-export function predicateMatchLabel(node: Node): string | null {
-  const parsed = parseQuorum(predicateBlockOf(node));
+export function predicateMatchLabel(activity: Activity): string | null {
+  const parsed = parseQuorum(predicateBlockOf(activity));
   if (!parsed.ok) return null;
   const { quorum } = parsed;
   const attrs = Object.entries(quorum.attrs).map(([k, v]) => `${k}=${renderValue(v)}`);
@@ -133,27 +133,27 @@ export function predicateMatchLabel(node: Node): string | null {
 /**
  * Non-null only for a `wait{match:"predicate"}`.
  *
- * The population is the sources of this node's blocking in-edges — with one edge kind (§6.2)
+ * The population is the sources of this activity's blocking in-edges — with one edge kind (§6.2)
  * every in-edge is blocking, so `inEdges` is the population and there is nothing to filter.
  * A source contributes on its recorded outcome, not on its edge condition: `declined` fires
  * the same `satisfied` edge as `confirmed` (see `resolutionOf`), and the whole point of the
  * counter is to tell those two apart.
  */
-export function predicateCount(graph: Graph, node: Node): PredicateCount | null {
-  if (node.spec.match?.kind !== "predicate") return null;
+export function predicateCount(graph: Graph, activity: Activity): PredicateCount | null {
+  if (activity.spec.match?.kind !== "predicate") return null;
 
-  const sources = inEdges(graph, node.id)
-    .map((edge) => graph.nodes.get(edge.from))
-    .filter((source): source is Node => source !== undefined);
+  const sources = inEdges(graph, activity.id)
+    .map((edge) => graph.activities.get(edge.from))
+    .filter((source): source is Activity => source !== undefined);
 
   // `live` is independent of whether the predicate itself parses, so it is worth computing
   // even for a malformed one: a reader still wants to know whether anyone can still answer.
   //
   // `isTerminal` alone is the wrong test, and wrong in the direction that understates the
-  // odds: §6.4 makes `record_outcome` legal against a terminal node, so a source that is
+  // odds: §6.4 makes `record_outcome` legal against a terminal activity, so a source that is
   // `done` without a resolving outcome can still answer this quorum. `blocked.ts` reasons
   // exactly that way about the identical situation — its `isPermanent` refuses to call a
-  // `done`-without-resolution edge dead — and the two must not disagree about one node.
+  // `done`-without-resolution edge dead — and the two must not disagree about one activity.
   //
   // What is genuinely over is a source that finished WITHOUT succeeding (`satisfiesBlockingEdge`,
   // §6.4's fail-safe rule), and a source that has already given its resolving answer, which
@@ -170,7 +170,7 @@ export function predicateCount(graph: Graph, node: Node): PredicateCount | null 
       (!isTerminal(source.status.state) || satisfiesBlockingEdge(source)),
   ).length;
 
-  const parsed = parseQuorum(predicateBlockOf(node));
+  const parsed = parseQuorum(predicateBlockOf(activity));
   if (!parsed.ok) {
     return {
       have: 0,

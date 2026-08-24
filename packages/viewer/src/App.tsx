@@ -2,7 +2,7 @@
  * The whole application, and deliberately the only stateful thing in it.
  *
  * There are exactly four pieces of state here: the text of the log (owned by the feed), the
- * wall clock, and two pieces of pure UI — which node is selected and whether the timeline is
+ * wall clock, and two pieces of pure UI — which activity is selected and whether the timeline is
  * open. Everything else on screen is a pure function of those. That is what "the viewer holds
  * zero authoritative state" means operationally: kill the process, restart it, and the view is
  * identical, because there was never anything here to lose.
@@ -65,7 +65,7 @@ export function App(): React.ReactElement {
   );
 
   // One cache for the process lifetime. §6.10 rule 2: the layout is recomputed when the
-  // topology signature changes and at no other time, so a status tick cannot move a node.
+  // topology signature changes and at no other time, so a status tick cannot move an activity.
   const layoutCache = useRef(createLayoutCache());
   const layout = useMemo(() => layoutCache.current(shown.graph), [shown]);
 
@@ -101,7 +101,7 @@ export function App(): React.ReactElement {
     if (pinnedVersion !== null && pinnedDiff === null) setPinnedVersion(null);
   }, [pinnedVersion, pinnedDiff]);
 
-  // A node can be selected and then time-travelled out of existence.
+  // An activity can be selected and then time-travelled out of existence.
   useEffect(() => {
     if (selected !== null && !view.byId.has(selected)) setSelected(null);
   }, [view, selected]);
@@ -110,7 +110,7 @@ export function App(): React.ReactElement {
   // ONE right rail, with two sections in it rather than two rails side by side. A second
   // 380px column would cost the canvas 760px of a 1512px window, and the graph is already the
   // thing that runs out of room first (kona-e6-8h7.10). Stacking also keeps §6.10 rule 5's
-  // panel reachable while a node is selected — a rail that swapped the timeline out for the
+  // panel reachable while an activity is selected — a rail that swapped the timeline out for the
   // inspector would make selecting a card silently close the differentiator.
   const railOpen = timelineOpen || selectedView !== null;
   const damaged = shown.damaged;
@@ -224,7 +224,7 @@ export function App(): React.ReactElement {
         */}
         {railOpen && (
           <aside className="flex min-h-0 min-w-0 flex-col bg-background">
-            {/* The selected node on top, because it is what the reader just asked for. It is
+            {/* The selected activity on top, because it is what the reader just asked for. It is
                 capped rather than halved: a task with no wait and no outcome is six rows, and
                 giving it half the rail would be six rows of data over a field of white. */}
             {selectedView !== null && (

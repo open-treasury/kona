@@ -27,13 +27,13 @@ const CONFIG = {
 
 const PLAN = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Escalate",
     type: "task",
     spec: { instruction: "Tell Ilya.", effect_class: "pure" },
   },
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Await Dana",
     type: "wait",
     spec: {
@@ -101,7 +101,7 @@ describe("with no --inbound, it says what to fetch", () => {
     const payload = await pollJson();
     expect(payload["poll"]).toEqual([
       {
-        node_id: h.id("await-dana"),
+        activity_id: h.id("await-dana"),
         name: "Await Dana",
         address: `ilya+kona-${h.id("await-dana")}@example.com`,
         armed: true,
@@ -119,7 +119,7 @@ describe("with no --inbound, it says what to fetch", () => {
 
   test("a pursuit with nothing awaiting mail says so", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: h.id("await-dana"), status: "dropped", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("await-dana"), status: "dropped", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
@@ -136,7 +136,7 @@ describe("with --inbound, it says which wait each message is for", () => {
     expect(payload["polled"]).toBe(1);
     expect(payload["matches"]).toEqual([
       {
-        node_id: h.id("await-dana"),
+        activity_id: h.id("await-dana"),
         message_id: "<dana-1@mail>",
         from: "Dana <dana@example.com>",
         subject: "Re: Thursday",
@@ -180,8 +180,8 @@ describe("with --inbound, it says which wait each message is for", () => {
   test("once the orchestrator records it, the same inbox matches nothing", async () => {
     await pollJson([DANA()]);
     const ops = h.writeOps("resolve.json", [
-      { op: "record_outcome", node: h.id("await-dana"), verdict: "confirmed", evidence_ref: "<dana-1@mail>" },
-      { op: "set_status", node: h.id("await-dana"), status: "done", evidence_ref: "<dana-1@mail>" },
+      { op: "record_outcome", activity: h.id("await-dana"), verdict: "confirmed", evidence_ref: "<dana-1@mail>" },
+      { op: "set_status", activity: h.id("await-dana"), status: "done", evidence_ref: "<dana-1@mail>" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "Dana is in", "--reason-code", "QUORUM_MET"], h.io),
@@ -191,8 +191,8 @@ describe("with --inbound, it says which wait each message is for", () => {
 
   test("but a NEW straggler on a resolved wait is matched and flagged late", async () => {
     const ops = h.writeOps("resolve.json", [
-      { op: "record_outcome", node: h.id("await-dana"), verdict: "confirmed", evidence_ref: "<dana-1@mail>" },
-      { op: "set_status", node: h.id("await-dana"), status: "done", evidence_ref: "<dana-1@mail>" },
+      { op: "record_outcome", activity: h.id("await-dana"), verdict: "confirmed", evidence_ref: "<dana-1@mail>" },
+      { op: "set_status", activity: h.id("await-dana"), status: "done", evidence_ref: "<dana-1@mail>" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "in", "--reason-code", "QUORUM_MET"], h.io),

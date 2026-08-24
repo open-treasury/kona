@@ -17,7 +17,7 @@ import {
   openEffect,
   parseEffectEvidence,
 } from "../src/index.ts";
-import { commit, rostered, task, nodeAt } from "./fixtures.ts";
+import { commit, rostered, task, activityAt } from "./fixtures.ts";
 
 const KEY = "ek_b4668bc35579b3eb";
 
@@ -28,14 +28,14 @@ function pivot(name: string): AuthoredOp {
   });
 }
 
-function nodeOf(graph: Graph, id: string) {
-  const node = nodeAt(graph, id);
-  if (node === undefined) throw new Error(`no node ${id}`);
-  return node;
+function activityOf(graph: Graph, id: string) {
+  const activity = activityAt(graph, id);
+  if (activity === undefined) throw new Error(`no activity ${id}`);
+  return activity;
 }
 
 describe("the key names the slot, not the bytes (§6.6)", () => {
-  test("it depends on the node and the version that created it", () => {
+  test("it depends on the activity and the version that created it", () => {
     expect(effectKeyPreimage("ask-dana", 7)).toBe("ask-dana 7");
   });
 
@@ -46,7 +46,7 @@ describe("the key names the slot, not the bytes (§6.6)", () => {
     expect(effectKeyPreimage("ask-dana", 7)).toBe(effectKeyPreimage("ask-dana", 7));
   });
 
-  test("different nodes and different versions are different slots", () => {
+  test("different activities and different versions are different slots", () => {
     expect(effectKeyPreimage("ask-dana", 7)).not.toBe(effectKeyPreimage("ask-sam", 7));
     expect(effectKeyPreimage("ask-dana", 7)).not.toBe(effectKeyPreimage("ask-dana", 8));
   });
@@ -127,14 +127,14 @@ describe("fold materialises the ledger from the log", () => {
   const reserved = commit(rostered(["dana"], [pivot("Ask Dana")]), [
     {
       op: "set_status",
-      node: "ask-dana",
+      activity: "ask-dana",
       status: "in_flight",
       evidence_ref: encodeReserveEvidence(KEY, "sha256:aaa"),
     },
   ]);
 
   test("a reservation appears as an OPEN entry — attempted, not completed", () => {
-    const entry = openEffect(nodeOf(reserved, "ask-dana"));
+    const entry = openEffect(activityOf(reserved, "ask-dana"));
     expect(entry?.effect_key).toBe(KEY);
     expect(entry?.payload_hash).toBe("sha256:aaa");
     expect(entry?.completed_at).toBeNull();
@@ -144,45 +144,45 @@ describe("fold materialises the ledger from the log", () => {
 
   test("attempted_at comes from the record's own occurred_at, never a live clock", () => {
     // A dry run stamps the sentinel and is discarded; only a folded log carries a time.
-    expect(nodeOf(reserved, "ask-dana").status.effect_log[0]?.attempted_at).toBeDefined();
+    expect(activityOf(reserved, "ask-dana").status.effect_log[0]?.attempted_at).toBeDefined();
   });
 
   test("an open reservation is not yet a send", () => {
-    expect(hasSentEffect(nodeOf(reserved, "ask-dana"))).toBe(false);
-    expect(attemptCount(nodeOf(reserved, "ask-dana"))).toBe(1);
+    expect(hasSentEffect(activityOf(reserved, "ask-dana"))).toBe(false);
+    expect(attemptCount(activityOf(reserved, "ask-dana"))).toBe(1);
   });
 
   test("recording closes the same entry rather than appending a second", () => {
     const done = commit(reserved, [
       {
         op: "set_status",
-        node: "ask-dana",
+        activity: "ask-dana",
         status: "done",
         evidence_ref: encodeRecordEvidence(KEY, "sent", "<m-101@mail>"),
       },
     ]);
-    const node = nodeOf(done, "ask-dana");
-    expect(node.status.effect_log).toHaveLength(1);
-    expect(node.status.effect_log[0]?.outcome).toBe("sent");
-    expect(node.status.effect_log[0]?.message_id).toBe("<m-101@mail>");
-    expect(node.status.effect_log[0]?.completed_at).not.toBeNull();
-    expect(openEffect(node)).toBeNull();
-    expect(hasSentEffect(node)).toBe(true);
+    const activity = activityOf(done, "ask-dana");
+    expect(activity.status.effect_log).toHaveLength(1);
+    expect(activity.status.effect_log[0]?.outcome).toBe("sent");
+    expect(activity.status.effect_log[0]?.message_id).toBe("<m-101@mail>");
+    expect(activity.status.effect_log[0]?.completed_at).not.toBeNull();
+    expect(openEffect(activity)).toBeNull();
+    expect(hasSentEffect(activity)).toBe(true);
   });
 
   test("a failed send completes the entry but is not a send", () => {
     const failed = commit(reserved, [
       {
         op: "set_status",
-        node: "ask-dana",
+        activity: "ask-dana",
         status: "failed",
         evidence_ref: encodeRecordEvidence(KEY, "failed", "550 user unknown"),
       },
     ]);
-    const node = nodeOf(failed, "ask-dana");
-    expect(node.status.effect_log[0]?.outcome).toBe("failed");
-    expect(hasSentEffect(node)).toBe(false);
-    expect(openEffect(node)).toBeNull();
+    const activity = activityOf(failed, "ask-dana");
+    expect(activity.status.effect_log[0]?.outcome).toBe("failed");
+    expect(hasSentEffect(activity)).toBe(false);
+    expect(openEffect(activity)).toBeNull();
   });
 
   test("recording against a key that was never reserved is refused", () => {
@@ -191,7 +191,7 @@ describe("fold materialises the ledger from the log", () => {
       commit(rostered(["dana"], [pivot("Ask Dana")]), [
         {
           op: "set_status",
-          node: "ask-dana",
+          activity: "ask-dana",
           status: "done",
           evidence_ref: encodeRecordEvidence("ek_forged", "sent", "<m-9@mail>"),
         },
@@ -201,19 +201,19 @@ describe("fold materialises the ledger from the log", () => {
 
   test("ordinary evidence leaves the ledger alone", () => {
     const plain = commit(rostered(["dana"], [pivot("Ask Dana")]), [
-      { op: "set_status", node: "ask-dana", status: "done", evidence_ref: "<m-101@mail>" },
+      { op: "set_status", activity: "ask-dana", status: "done", evidence_ref: "<m-101@mail>" },
     ]);
-    expect(nodeOf(plain, "ask-dana").status.effect_log).toEqual([]);
+    expect(activityOf(plain, "ask-dana").status.effect_log).toEqual([]);
   });
 
   test("effectByKey finds a slot by name, and reports nothing for a stranger", () => {
-    expect(effectByKey(nodeOf(reserved, "ask-dana"), KEY)?.payload_hash).toBe("sha256:aaa");
-    expect(effectByKey(nodeOf(reserved, "ask-dana"), "ek_other")).toBeNull();
+    expect(effectByKey(activityOf(reserved, "ask-dana"), KEY)?.payload_hash).toBe("sha256:aaa");
+    expect(effectByKey(activityOf(reserved, "ask-dana"), "ek_other")).toBeNull();
   });
 
-  test("a node that has moved no bytes may still be superseded", () => {
+  test("an activity that has moved no bytes may still be superseded", () => {
     // Invariant 1 only demands a compensation once the effect_log is non-empty.
-    expect(attemptCount(nodeOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(0);
-    expect(hasSentEffect(nodeOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(false);
+    expect(attemptCount(activityOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(0);
+    expect(hasSentEffect(activityOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(false);
   });
 });

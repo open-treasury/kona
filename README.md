@@ -5,7 +5,7 @@
 ![The Kona viewer: a live plan at v31](docs/img/viewer.png)
 
 *A real run, mid-flight. The four grey-checked steps at the bottom are the skeleton it was
-handed; everything above them the agent authored itself. One node is spinning — `Generate ERP
+handed; everything above them the agent authored itself. One activity is spinning — `Generate ERP
 writeback SQL file` is claimed and being worked right now, which is why it is not offered to
 anything else. `Apply writebacks through gateway` says `3 of 3 dependencies unmet`: it knows
 what it is waiting for.*
@@ -47,12 +47,12 @@ engineer. `eval/` runs the same model on it twice, with Kona and without, and re
 two arms side by side: constraints passed, wall-clock, cost, and how much of the plan the
 agent actually maintained. Rig, pre-registration and go/no-go bar: [`docs/eval.md`](docs/eval.md).
 
-Watch the arm that has Kona and the mechanism is visible. Given a five-node skeleton and
+Watch the arm that has Kona and the mechanism is visible. Given a five-activity skeleton and
 nothing else, the agent:
 
-- **authored its own plan** — 15 nodes and 22 edges added in a single commit
+- **authored its own plan** — 15 activities and 22 edges added in a single commit
 - **claimed each step before working it**, so a plan that goes quiet says *which* step
-- **caught its own mistake** — committed a `supersede_node` carrying reason code
+- **caught its own mistake** — committed a `supersede_activity` carrying reason code
   `CONTRADICTION` when it found it had read a constraint wrong, with the correction in one
   sentence. Unprompted, inside a benchmark container
 
@@ -144,7 +144,7 @@ pre-registration the run is measured against.
 ## Tech stack
 
 **TypeScript 7** (the native Go compiler) on **Bun** — one runtime for the CLI, the tests and
-the bundler, and `bun build --compile` gives a single static binary with no Node in the image.
+the bundler, and `bun build --compile` gives a single static binary with no Activity in the image.
 **Zod** at the CLI boundary, so malformed shape is rejected before any graph logic runs.
 **React 19 + @xyflow/react + dagre + Tailwind 4** for the viewer, served by Bun over localhost
 with zero outbound calls. Storage is **one append-only JSONL file** — no database, no daemon,

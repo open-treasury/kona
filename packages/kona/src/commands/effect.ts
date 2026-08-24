@@ -10,7 +10,7 @@
  * side effect. Never the reverse.
  *
  * A caveat the spec's table understates: crash windows 2 and 3 — between fsync and send,
- * and between send and record — leave EXACTLY the same bytes on disk, a `sending` node
+ * and between send and record — leave EXACTLY the same bytes on disk, a `sending` activity
  * with `completed_at: null`. Nothing in the log can tell them apart, which is why the
  * honest handling is to surface both for a human (or for reconciliation against the
  * mailbox, which §6.5 makes the source of truth) rather than to retry one of them.
@@ -18,7 +18,7 @@
 
 import {
   type Graph,
-  type Node,
+  type Activity,
   effectByKey,
   effectsCommitted,
   pursuitConfig,
@@ -35,7 +35,7 @@ import type { Io } from "../io.ts";
 import type { Rationale } from "../commit.ts";
 
 export interface ReserveOptions {
-  node: string;
+  activity: string;
   payloadHash: string;
   rationale: Rationale;
   actorId: string;
@@ -43,7 +43,7 @@ export interface ReserveOptions {
 }
 
 export interface RecordOptions {
-  node: string;
+  activity: string;
   key: string;
   outcome: EffectOutcome;
   messageId: string;
@@ -52,13 +52,13 @@ export interface RecordOptions {
   json: boolean;
 }
 
-function lookup(graph: Graph, id: string, io: Io): Node | null {
-  const node = graph.nodes.get(id);
-  if (node === undefined) {
-    io.err(`REFUSED UNKNOWN_NODE node '${id}' does not exist`);
+function lookup(graph: Graph, id: string, io: Io): Activity | null {
+  const activity = graph.activities.get(id);
+  if (activity === undefined) {
+    io.err(`REFUSED UNKNOWN_ACTIVITY activity '${id}' does not exist`);
     return null;
   }
-  return node;
+  return activity;
 }
 
 export async function runReserve(io: Io, options: ReserveOptions): Promise<number> {
@@ -66,36 +66,36 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
   let idempotent = false;
 
   const outcome = await commitBatch(io, (graph, records): BuildResult => {
-    const node = lookup(graph, options.node, io);
-    if (node === null) return { refused: EXIT_REFUSED };
+    const activity = lookup(graph, options.activity, io);
+    if (activity === null) return { refused: EXIT_REFUSED };
 
-    if (node.spec.effect === undefined) {
+    if (activity.spec.effect === undefined) {
       io.err(
-        `REFUSED NOT_AN_EFFECT_NODE '${node.id}' is effect_class '${node.spec.effect_class}' and reserves nothing`,
+        `REFUSED NOT_AN_EFFECT_ACTIVITY '${activity.id}' is effect_class '${activity.spec.effect_class}' and reserves nothing`,
       );
       return { refused: EXIT_REFUSED };
     }
 
-    // §6.6 — "A node with a non-empty effect_log is never re-executed. The CLI refuses."
-    if (hasSentEffect(node)) {
-      io.err(`REFUSED EFFECT_ALREADY_SENT '${node.id}' has already moved bytes; it is never re-executed`);
+    // §6.6 — "An activity with a non-empty effect_log is never re-executed. The CLI refuses."
+    if (hasSentEffect(activity)) {
+      io.err(`REFUSED EFFECT_ALREADY_SENT '${activity.id}' has already moved bytes; it is never re-executed`);
       return { refused: EXIT_REFUSED };
     }
 
     // Payload-INDEPENDENT: the key names the slot, the hash proves the bytes.
-    const key = effectKey(node.id, node.provenance.created_by_version);
+    const key = effectKey(activity.id, activity.provenance.created_by_version);
     reservedKey = key;
 
     // Only an OPEN reservation can be re-reserved. A closed one — even a failed send —
     // is a slot that already had its answer, and treating it as idempotent would let a
-    // terminal node look dispatchable again.
-    const existing = effectByKey(node, key);
+    // terminal activity look dispatchable again.
+    const existing = effectByKey(activity, key);
     if (existing !== null && existing.completed_at === null) {
       if (existing.payload_hash !== options.payloadHash) {
         // The check that a body-derived key would have made unreachable. Loud, never a
         // silent no-op, and never a second send.
         io.err(
-          `REFUSED EFFECT_PAYLOAD_MISMATCH '${node.id}' reserved ${key} for payload ${existing.payload_hash}, ` +
+          `REFUSED EFFECT_PAYLOAD_MISMATCH '${activity.id}' reserved ${key} for payload ${existing.payload_hash}, ` +
             `now offered ${options.payloadHash}. The approved bytes are not these bytes.`,
         );
         return { refused: EXIT_REFUSED };
@@ -108,9 +108,9 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
 
     // INVARIANT 3(a), enforced at the moment of spending (§6.7).
     //
-    // There is no per-node retry budget, and deliberately so: one node has exactly one
-    // slot, because the key is a function of (node, created_by_version). Retrying means
-    // superseding and replacing — a NEW node with a NEW key — which is a graph mutation
+    // There is no per-activity retry budget, and deliberately so: one activity has exactly one
+    // slot, because the key is a function of (activity, created_by_version). Retrying means
+    // superseding and replacing — a NEW activity with a NEW key — which is a graph mutation
     // the model has to justify. So this pursuit-wide cap is the ONLY thing bounding a
     // runaway loop, and `brief` merely advising on it was not enough: advice that the
     // enforcement point ignores is not a circuit breaker.
@@ -133,8 +133,8 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
       return { refused: EXIT_REFUSED };
     }
 
-    if (node.status.state !== "active") {
-      io.err(`REFUSED NOT_DISPATCHABLE '${node.id}' is '${node.status.state}', not active`);
+    if (activity.status.state !== "active") {
+      io.err(`REFUSED NOT_DISPATCHABLE '${activity.id}' is '${activity.status.state}', not active`);
       return { refused: EXIT_REFUSED };
     }
 
@@ -143,7 +143,7 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
         ops: [
           {
             op: "set_status",
-            node: node.id,
+            activity: activity.id,
             status: "in_flight",
             evidence_ref: encodeReserveEvidence(key, options.payloadHash),
           },
@@ -180,19 +180,19 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
 
 export async function runRecord(io: Io, options: RecordOptions): Promise<number> {
   const outcome = await commitBatch(io, (graph): BuildResult => {
-    const node = lookup(graph, options.node, io);
-    if (node === null) return { refused: EXIT_REFUSED };
+    const activity = lookup(graph, options.activity, io);
+    if (activity === null) return { refused: EXIT_REFUSED };
 
-    const open = openEffect(node);
+    const open = openEffect(activity);
     if (open === null) {
       io.err(
-        `REFUSED NO_OPEN_EFFECT '${node.id}' has no reservation awaiting an outcome; reserve before you send`,
+        `REFUSED NO_OPEN_EFFECT '${activity.id}' has no reservation awaiting an outcome; reserve before you send`,
       );
       return { refused: EXIT_REFUSED };
     }
     if (open.effect_key !== options.key) {
       io.err(
-        `REFUSED EFFECT_KEY_MISMATCH '${node.id}' has ${open.effect_key} open, not ${options.key}`,
+        `REFUSED EFFECT_KEY_MISMATCH '${activity.id}' has ${open.effect_key} open, not ${options.key}`,
       );
       return { refused: EXIT_REFUSED };
     }
@@ -202,7 +202,7 @@ export async function runRecord(io: Io, options: RecordOptions): Promise<number>
         ops: [
           {
             op: "set_status",
-            node: node.id,
+            activity: activity.id,
             status: options.outcome === "sent" ? "done" : "failed",
             evidence_ref: encodeRecordEvidence(open.effect_key, options.outcome, options.messageId),
           },

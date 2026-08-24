@@ -12,7 +12,7 @@ function sha256(input: string): string {
 }
 
 /**
- * §6.6 — `effect_key = hash(node_id, created_by_version)`. Payload-independent: the key
+ * §6.6 — `effect_key = hash(activity_id, created_by_version)`. Payload-independent: the key
  * names the slot, and `payload_hash` proves the bytes were the ones approved.
  *
  * Truncated to 16 hex characters because this identifies a slot within one pursuit, not a

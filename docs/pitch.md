@@ -75,15 +75,15 @@ three, do it quietly.
 
 **On screen:** eyebrow `SEE IT`. The viewer screenshot, full-bleed, minimal chrome. Two
 callouts revealed in sequence with the script, not both at once:
-1. the spinning claimed node → `in_flight`
-2. the blocked node → `3 of 3 dependencies unmet`
+1. the spinning claimed activity → `in_flight`
+2. the blocked activity → `3 of 3 dependencies unmet`
 
 **Speaker notes:**
 > First — you can see it. A live plan, version thirty-one, inside a benchmark container. The
 > four grey steps at the bottom are the skeleton we handed it; everything above, the agent
-> wrote — fifteen nodes, twenty-two edges, one commit.
+> wrote — fifteen activities, twenty-two edges, one commit.
 >
-> This node is spinning because it's claimed: the agent took it before starting work, so if the
+> This activity is spinning because it's claimed: the agent took it before starting work, so if the
 > run goes quiet you know which step it's quiet inside. And this one says three of three
 > dependencies unmet — it knows what it's waiting for.
 
@@ -96,7 +96,7 @@ callouts revealed in sequence with the script, not both at once:
 `kona mutate` command, then the refusal, in mono, accent-coloured:
 
 ```
-UNEVIDENCED_RECIPIENT  node=ask-the-supplier-to-expedite
+UNEVIDENCED_RECIPIENT  activity=ask-the-supplier-to-expedite
 nothing in the graph attests to 'acme'
 exit 1
 ```
@@ -182,7 +182,7 @@ one attempt per arm, the within-arm variance was as large as the gap between arm
 says so out loud, and in front of technical judges that reads as rigour — don't let a design
 flourish quietly contradict it.
 
-**Numbers that are true and may be used verbatim:** 15 nodes and 22 edges in one commit · 20
+**Numbers that are true and may be used verbatim:** 15 activities and 22 edges in one commit · 20
 constraint checks in the benchmark task · 1,238 tests · 9 verbs · 3 invariants · version 31 in
 the screenshot · the mutator run at n=60.
 
@@ -191,7 +191,7 @@ the screenshot · the mutator run at n=60.
 inventing counterparties and queueing real email to them. It is the reason the rule exists.
 Don't soften it into "could theoretically" — the past tense is the point.
 
-**Vocabulary is literal.** `in_flight`, `CONTRADICTION`, `kona next`, `supersede_node`,
+**Vocabulary is literal.** `in_flight`, `CONTRADICTION`, `kona next`, `supersede_activity`,
 `UNEVIDENCED_RECIPIENT`, `--why` are exact strings from the system. Set them in mono; do not
 paraphrase, retitle, or prettify.
 

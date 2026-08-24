@@ -163,7 +163,7 @@ export async function commitBatch(
       ok: true as const,
       value: {
         version,
-        mintedIds: validated.value.ops.flatMap((op) => (op.op === "add_node" ? [op.id] : [])),
+        mintedIds: validated.value.ops.flatMap((op) => (op.op === "add_activity" ? [op.id] : [])),
         opCount: validated.value.ops.length,
       },
     };

@@ -1,18 +1,18 @@
 /**
  * §6.10 rule 7: **animate, don't snap.**
  *
- * When the log gains a version that changes the topology, dagre re-ranks and most nodes move.
+ * When the log gains a version that changes the topology, dagre re-ranks and most activities move.
  * Cutting them to their new coordinates makes the fan-out read as a redraw — the viewer looks
- * like it reloaded, and the one thing worth showing (that *this* graph grew *these* nodes)
+ * like it reloaded, and the one thing worth showing (that *this* graph grew *these* activities)
  * is lost in the flicker. Interpolating the same positions over ~450 ms makes the growth
  * legible, which is the entire argument for building the diff animation first (rule 1).
  *
  * The tween runs off `requestAnimationFrame` rather than CSS transitions because React Flow
  * is in fully controlled mode: positions are props, and they have to be — the edges are drawn
- * from the same store the nodes are, so animating the nodes with a CSS transition would leave
- * every edge attached to where its node used to be for the length of the tween.
+ * from the same store the activities are, so animating the activities with a CSS transition would leave
+ * every edge attached to where its activity used to be for the length of the tween.
  *
- * **The noise this makes, and the fix that does not work.** Re-rendering the nodes ~28 times
+ * **The noise this makes, and the fix that does not work.** Re-rendering the activities ~28 times
  * makes React Flow re-measure each time, and the browser emits `ResizeObserver loop completed
  * with undelivered notifications` about once a frame — 96 of them, measured, for one version
  * landing. It is not an exception: the spec says the skipped observations go out on the next
@@ -22,7 +22,7 @@
  *
  * **Do not try to swallow it.** A capture-phase `window` `error` listener that matches the
  * message and calls `stopImmediatePropagation` — with or without `preventDefault` — silences
- * it and simultaneously stops React Flow ever finishing its measuring pass: nodes render,
+ * it and simultaneously stops React Flow ever finishing its measuring pass: activities render,
  * `fitView` never runs, and **every edge disappears**. Measured both ways, twice. Whatever
  * xyflow does with that event, it needs it. A quiet console is not worth a canvas with no
  * edges on it.
@@ -50,9 +50,9 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * Interpolate from wherever the nodes currently *look* to where the new layout puts them.
+ * Interpolate from wherever the activities currently *look* to where the new layout puts them.
  *
- * A node absent from the previous frame starts at its destination: there is no honest place to
+ * An activity absent from the previous frame starts at its destination: there is no honest place to
  * fly it in from, and the flash on the card is what says "this one is new". Interrupting a
  * tween is safe — the running frame's positions are what the next tween starts from, so a
  * burst of appends produces one continuous motion rather than a stutter back to the old rank.
@@ -73,7 +73,7 @@ export function useTweenedPositions(
       setPositions(target);
     };
 
-    // Nothing to interpolate: either the layout is unchanged, or every node in it is new.
+    // Nothing to interpolate: either the layout is unchanged, or every activity in it is new.
     const moves = [...target].some(([id, point]) => {
       const prev = from.get(id);
       return prev !== undefined && (prev.x !== point.x || prev.y !== point.y);

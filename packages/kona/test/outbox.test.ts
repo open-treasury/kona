@@ -2,7 +2,7 @@
  * `kona effect reserve|record` through the real verb, against a real log (6.6, 7).
  *
  * The spec's crash table has three rows, and two of them leave IDENTICAL bytes on disk —
- * a `sending` node with `completed_at: null`. Nothing in the log distinguishes "fsynced
+ * a `sending` activity with `completed_at: null`. Nothing in the log distinguishes "fsynced
  * but never sent" from "sent but never recorded", which is why the safe behaviour is that
  * re-reserving the same payload is a no-op rather than a send, and why resume must hand
  * the state to a human rather than retry it.
@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { GraphProjection, Node } from "@kona/core";
+import type { GraphProjection, Activity } from "@kona/core";
 import { run } from "../src/cli.ts";
 import { effectKey } from "../src/hash.ts";
 import { harness, seedRoster, type Harness } from "./harness.ts";
@@ -20,7 +20,7 @@ let h: Harness;
 
 const PIVOT = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Ask Dana",
     type: "task",
     spec: {
@@ -31,7 +31,7 @@ const PIVOT = [
     },
   },
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Confirm roster",
     type: "task",
     spec: { instruction: "Read the roster.", effect_class: "pure" },
@@ -40,9 +40,9 @@ const PIVOT = [
 
 /** The key for `ask-dana`, created at v1. Computed the same way the CLI computes it. */
 /** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
-// Derived from the node id, and ids are minted — so this is a function, called inside a
+// Derived from the activity id, and ids are minted — so this is a function, called inside a
 // test where a pursuit exists. Lines 301-302 stay literal: they assert the key CHANGES with
-// its inputs, which needs no real node.
+// its inputs, which needs no real activity.
 const KEY = (): string => effectKey(h.id("ask-dana"), 3);
 
 /** Invariant 3(a) fails closed on an unconfigured cap, so a pursuit that sends needs one. */
@@ -70,24 +70,24 @@ beforeEach(async () => {
 });
 afterEach(() => h.cleanup());
 
-async function nodeOf(id: string): Promise<Node> {
+async function activityOf(id: string): Promise<Activity> {
   h.reset();
   expect(await run(["graph", "--json"], h.io)).toBe(0);
   const projection = JSON.parse(h.out[0] ?? "{}") as GraphProjection;
-  // Callers name nodes by the slug their label makes; the store minted a hash.
-  const node = projection.nodes.find((n) => n.id === id || n.id === h.id(id));
-  if (node === undefined) throw new Error(`no node ${id}`);
-  return node;
+  // Callers name activities by the slug their label makes; the store minted a hash.
+  const activity = projection.activities.find((n) => n.id === id || n.id === h.id(id));
+  if (activity === undefined) throw new Error(`no activity ${id}`);
+  return activity;
 }
 
 function logLineCount(): number {
   return readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n").length;
 }
 
-async function reserve(payloadHash: string, node = "ask-dana"): Promise<number> {
+async function reserve(payloadHash: string, activity = "ask-dana"): Promise<number> {
   h.reset();
   return await run(
-    ["effect", "reserve", h.id(node), "--payload-hash", payloadHash, "--why", "sending the invite"],
+    ["effect", "reserve", h.id(activity), "--payload-hash", payloadHash, "--why", "sending the invite"],
     h.io,
   );
 }
@@ -101,32 +101,32 @@ async function record(key: string, outcome: string, messageId: string): Promise<
 }
 
 describe("reserve", () => {
-  test("appends the intent, moves the node to sending, and fsyncs before anything is sent", async () => {
+  test("appends the intent, moves the activity to sending, and fsyncs before anything is sent", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    const node = await nodeOf("ask-dana");
-    expect(node.status.state).toBe("in_flight");
-    expect(node.status.effect_log).toHaveLength(1);
-    expect(node.status.effect_log[0]?.effect_key).toBe(KEY());
-    expect(node.status.effect_log[0]?.payload_hash).toBe("sha256:aaa");
-    expect(node.status.effect_log[0]?.completed_at).toBeNull();
+    const activity = await activityOf("ask-dana");
+    expect(activity.status.state).toBe("in_flight");
+    expect(activity.status.effect_log).toHaveLength(1);
+    expect(activity.status.effect_log[0]?.effect_key).toBe(KEY());
+    expect(activity.status.effect_log[0]?.payload_hash).toBe("sha256:aaa");
+    expect(activity.status.effect_log[0]?.completed_at).toBeNull();
   });
 
   test("the key is payload-independent — the same slot for a different body", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    const first = (await nodeOf("ask-dana")).status.effect_log[0]?.effect_key;
+    const first = (await activityOf("ask-dana")).status.effect_log[0]?.effect_key;
     expect(first).toBe(effectKey(h.id("ask-dana"), 3));
-    // Nothing about the payload participates: the key is a function of node and version.
+    // Nothing about the payload participates: the key is a function of activity and version.
     expect(first).not.toContain("aaa");
   });
 
-  test("refuses a node that moves no bytes", async () => {
+  test("refuses an activity that moves no bytes", async () => {
     expect(await reserve("sha256:aaa", "confirm-roster")).toBe(1);
-    expect(h.err[0]).toContain("NOT_AN_EFFECT_NODE");
+    expect(h.err[0]).toContain("NOT_AN_EFFECT_ACTIVITY");
   });
 
-  test("refuses a node that does not exist", async () => {
+  test("refuses an activity that does not exist", async () => {
     expect(await reserve("sha256:aaa", "ghost")).toBe(1);
-    expect(h.err[0]).toContain("UNKNOWN_NODE");
+    expect(h.err[0]).toContain("UNKNOWN_ACTIVITY");
   });
 
   test("--payload-hash is required — the hash is what proves the bytes were approved", async () => {
@@ -156,9 +156,9 @@ describe("reserve", () => {
 
 describe("the three crash windows (6.6)", () => {
   test("window 1 — crash between append and fsync: nothing happened", async () => {
-    // Nothing is written until fsync returns, so the node is still dispatchable.
-    expect((await nodeOf("ask-dana")).status.state).toBe("active");
-    expect((await nodeOf("ask-dana")).status.effect_log).toEqual([]);
+    // Nothing is written until fsync returns, so the activity is still dispatchable.
+    expect((await activityOf("ask-dana")).status.state).toBe("active");
+    expect((await activityOf("ask-dana")).status.effect_log).toEqual([]);
   });
 
   test("window 2 — crash between fsync and send: re-reserving the SAME payload is a no-op", async () => {
@@ -166,7 +166,7 @@ describe("the three crash windows (6.6)", () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(h.out[0]).toContain("already reserved");
     // One entry: the retry moved nothing and sent nothing.
-    expect((await nodeOf("ask-dana")).status.effect_log).toHaveLength(1);
+    expect((await activityOf("ask-dana")).status.effect_log).toHaveLength(1);
   });
 
   test("window 2 — the retry does not append a version", async () => {
@@ -178,12 +178,12 @@ describe("the three crash windows (6.6)", () => {
 
   test("window 3 — sent but not recorded leaves the same bytes as window 2, and stays sending", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    const node = await nodeOf("ask-dana");
+    const activity = await activityOf("ask-dana");
     // This is genuinely indistinguishable from window 2 in the log. `sending` means the
     // world's answer is unknown — not that nothing happened.
-    expect(node.status.state).toBe("in_flight");
-    expect(node.status.effect_log[0]?.completed_at).toBeNull();
-    expect(node.status.effect_log[0]?.outcome).toBeNull();
+    expect(activity.status.state).toBe("in_flight");
+    expect(activity.status.effect_log[0]?.completed_at).toBeNull();
+    expect(activity.status.effect_log[0]?.outcome).toBeNull();
   });
 });
 
@@ -201,7 +201,7 @@ describe("a rewritten body is a loud error, never a second send", () => {
     // this branch could never be entered and the second email would send.
     expect(await reserve("sha256:aaa")).toBe(0);
     await reserve("sha256:bbb");
-    expect((await nodeOf("ask-dana")).status.effect_log).toHaveLength(1);
+    expect((await activityOf("ask-dana")).status.effect_log).toHaveLength(1);
   });
 
   test("and it is never a silent no-op", async () => {
@@ -211,21 +211,21 @@ describe("a rewritten body is a loud error, never a second send", () => {
 });
 
 describe("record", () => {
-  test("closes the reservation and completes the node", async () => {
+  test("closes the reservation and completes the activity", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
-    const node = await nodeOf("ask-dana");
-    expect(node.status.state).toBe("done");
-    expect(node.status.effect_log[0]?.outcome).toBe("sent");
-    expect(node.status.effect_log[0]?.message_id).toBe("<m-101@mail>");
-    expect(node.status.effect_log[0]?.completed_at).not.toBeNull();
+    const activity = await activityOf("ask-dana");
+    expect(activity.status.state).toBe("done");
+    expect(activity.status.effect_log[0]?.outcome).toBe("sent");
+    expect(activity.status.effect_log[0]?.message_id).toBe("<m-101@mail>");
+    expect(activity.status.effect_log[0]?.completed_at).not.toBeNull();
   });
 
   test("attempted_at and completed_at are distinct fields with distinct meanings", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     h.setClock("2026-08-21T12:05:00.000Z");
     expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
-    const entry = (await nodeOf("ask-dana")).status.effect_log[0];
+    const entry = (await activityOf("ask-dana")).status.effect_log[0];
     expect(entry?.attempted_at).toBe("2026-08-21T12:00:00.000Z");
     expect(entry?.completed_at).toBe("2026-08-21T12:05:00.000Z");
   });
@@ -233,15 +233,15 @@ describe("record", () => {
   test("a message id containing a colon survives the round trip", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "sent", "<m:101:x@mail>")).toBe(0);
-    expect((await nodeOf("ask-dana")).status.effect_log[0]?.message_id).toBe("<m:101:x@mail>");
+    expect((await activityOf("ask-dana")).status.effect_log[0]?.message_id).toBe("<m:101:x@mail>");
   });
 
-  test("a failure marks the node failed and is NOT a send", async () => {
+  test("a failure marks the activity failed and is NOT a send", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "failed", "550 user unknown")).toBe(0);
-    const node = await nodeOf("ask-dana");
-    expect(node.status.state).toBe("failed");
-    expect(node.status.effect_log[0]?.outcome).toBe("failed");
+    const activity = await activityOf("ask-dana");
+    expect(activity.status.state).toBe("failed");
+    expect(activity.status.effect_log[0]?.outcome).toBe("failed");
   });
 
   test("refuses when nothing is open — you cannot record a send you never reserved", async () => {
@@ -270,7 +270,7 @@ describe("record", () => {
   });
 });
 
-describe("a node that has moved bytes is never re-executed", () => {
+describe("an activity that has moved bytes is never re-executed", () => {
   test("reserving after a successful send is refused", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
@@ -285,11 +285,11 @@ describe("a node that has moved bytes is never re-executed", () => {
     expect(h.err[0]).toContain("EFFECT_ALREADY_SENT");
   });
 
-  test("a node that is not active cannot be dispatched", async () => {
+  test("an activity that is not active cannot be dispatched", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "failed", "550")).toBe(0);
     // `failed` is terminal; the retry path is supersede-with-a-replacement, which mints a
-    // new node and therefore a new slot. Nothing re-opens a closed one.
+    // new activity and therefore a new slot. Nothing re-opens a closed one.
     expect(await reserve("sha256:aaa")).toBe(1);
     expect(h.err[0]).toContain("NOT_DISPATCHABLE");
   });
@@ -374,7 +374,7 @@ describe("--json says exactly what happened", () => {
 });
 
 describe("dispatch", () => {
-  test("recording against a node that does not exist is refused", async () => {
+  test("recording against an activity that does not exist is refused", async () => {
     h.reset();
     expect(
       await run(
@@ -382,7 +382,7 @@ describe("dispatch", () => {
         h.io,
       ),
     ).toBe(1);
-    expect(h.err[0]).toContain("UNKNOWN_NODE");
+    expect(h.err[0]).toContain("UNKNOWN_ACTIVITY");
   });
 
   test("--message-id and --key are both required to record", async () => {
@@ -404,7 +404,7 @@ describe("dispatch", () => {
     expect(h.err[0]).toContain("BAD_SUBCOMMAND");
   });
 
-  test("a missing node id is refused", async () => {
+  test("a missing activity id is refused", async () => {
     h.reset();
     expect(await run(["effect", "reserve", "--why", "x", "--payload-hash", "h"], h.io)).toBe(1);
     expect(h.err[0]).toContain("MISSING_NODE");
@@ -442,7 +442,7 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
       const ops = spent.writeOps("ops.json", [
         ...PIVOT,
         {
-          op: "add_node",
+          op: "add_activity",
           name: "Ask Sam",
           type: "task",
           spec: {
@@ -478,8 +478,8 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
     // The two crash windows leave a reservation whose outcome is genuinely unknown, so a
     // budget that only counted CONFIRMED sends would be spendable without limit by crashing.
     expect(await reserve("sha256:aaa")).toBe(0);
-    const node = await nodeOf("ask-dana");
-    expect(node.status.effect_log).toHaveLength(1);
-    expect(node.status.effect_log[0]?.outcome).toBeNull();
+    const activity = await activityOf("ask-dana");
+    expect(activity.status.effect_log).toHaveLength(1);
+    expect(activity.status.effect_log[0]?.outcome).toBeNull();
   });
 });

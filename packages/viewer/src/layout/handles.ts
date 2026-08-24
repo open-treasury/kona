@@ -4,7 +4,7 @@
  * React Flow will not draw an edge whose endpoints are not "initialized". Its test, from
  * `@xyflow/system`, is
  *
- *   `!!(node.internals.handleBounds || node.handles?.length) && !!(measured.width || width)`
+ *   `!!(activity.internals.handleBounds || activity.handles?.length) && !!(measured.width || width)`
  *
  * and `getEdgePosition` returns `null` when either end fails it — silently, with no warning
  * and no error. `handleBounds` is produced by a ResizeObserver measuring the card's DOM, so
@@ -16,7 +16,7 @@
  * right edge, centred — and dagre has already laid the graph out using these exact boxes. So
  * the positions are known before any measurement and can simply be declared.
  *
- * `getEdgePosition` reads `internals.handleBounds || toHandleBounds(node.handles)`, so measured
+ * `getEdgePosition` reads `internals.handleBounds || toHandleBounds(activity.handles)`, so measured
  * bounds still win the moment they exist. This is a floor, not an override: it removes the
  * window in which there is nothing to draw with, and changes nothing after it closes.
  */

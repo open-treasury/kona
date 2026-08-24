@@ -53,7 +53,7 @@ export function headVersion(): number {
  *
  * Note how many versions the four sends take: two each — `effect reserve`, then `effect
  * record` — because §6.6 will not let a send be one commit. Priya's never gets its second
- * until v11, which is what leaves her node `sending` across four versions.
+ * until v11, which is what leaves her activity `sending` across four versions.
  */
 export const V = {
   // Widened to `number` on purpose — no `as const`. Literal types here would make
@@ -92,14 +92,14 @@ export const V = {
 export const NOW = Date.parse("2026-08-22T01:00:00.000Z");
 
 /**
- * The id the fixture minted for a node, found by its name.
+ * The id the fixture minted for an activity, found by its name.
  *
  * Ids are hashes, so a test cannot spell one from the person's name. The label is the stable
  * handle, and it is what the tests using this are actually asserting about.
  */
 export function idOfName(name: string): string {
-  for (const node of folded().graph.nodes.values()) {
-    if (node.name === name) return node.id;
+  for (const activity of folded().graph.activities.values()) {
+    if (activity.name === name) return activity.id;
   }
-  throw new Error(`the fixture has no node named "${name}"`);
+  throw new Error(`the fixture has no activity named "${name}"`);
 }

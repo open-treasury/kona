@@ -3,7 +3,7 @@
  *
  * Every number below is a fact about `fixtures/thursday.*` rather than a restatement of
  * `buildGraphView`: the readiness spread is what the store's own `isReady` says about those
- * fourteen nodes, the deadlines are arithmetic on timestamps in the log, and the time-travel
+ * fourteen activities, the deadlines are arithmetic on timestamps in the log, and the time-travel
  * counts come from folding fewer lines of the same file. If a regen of the fixture changes the
  * story these are meant to fail loudly rather than follow it quietly.
  *
@@ -12,10 +12,10 @@
  * countdown from re-folding the whole log every second, and a test that composed the two
  * halves some other way would stop guarding the path that actually runs.
  *
- * The corners this file is here for: a node superseded WITHOUT a replacement (Priya's wait,
- * after her address bounced 550), a deadline anchored to a node that has not finished, two
- * deadlines already blown at `NOW`, a `sending` node that is neither finished nor available,
- * a `done` node that reads as replaced rather than as done — and the three shapes of log that
+ * The corners this file is here for: an activity superseded WITHOUT a replacement (Priya's wait,
+ * after her address bounced 550), a deadline anchored to an activity that has not finished, two
+ * deadlines already blown at `NOW`, a `sending` activity that is neither finished nor available,
+ * a `done` activity that reads as replaced rather than as done — and the three shapes of log that
  * are not the happy one: torn in the tail, corrupt in the middle, and empty.
  */
 
@@ -24,7 +24,7 @@ import { isReady, isTerminal, readyFrontier, satisfiesBlockingEdge } from "@kona
 import { buildGraphView } from "../src/model/view.ts";
 import { buildPursuit, completionTimeOf } from "../src/model/pursuit.ts";
 import { waitStateOf } from "../src/model/waitState.ts";
-import type { GraphView, Instant, NodeView, PursuitView, Readiness } from "../src/model/types.ts";
+import type { GraphView, Instant, ActivityView, PursuitView, Readiness } from "../src/model/types.ts";
 import { NOW, V, folded, headVersion, logText } from "./fixture.ts";
 
 /** Head, folded once — the memoized half. */
@@ -39,9 +39,9 @@ function headView(): GraphView {
   return viewOf(HEAD);
 }
 
-function at(view: { byId: Map<string, NodeView> }, id: string): NodeView {
+function at(view: { byId: Map<string, ActivityView> }, id: string): ActivityView {
   const found = view.byId.get(id);
-  if (found === undefined) throw new Error(`fixture has no node '${id}'`);
+  if (found === undefined) throw new Error(`fixture has no activity '${id}'`);
   return found;
 }
 
@@ -72,27 +72,27 @@ function mutation(v: number, observedAt: string, ops: unknown[]): string {
   })}\n`;
 }
 
-describe("the head view covers every node exactly once", () => {
+describe("the head view covers every activity exactly once", () => {
   const view = headView();
 
-  test("fourteen nodes, in the log's insertion order", () => {
-    expect(view.nodes).toHaveLength(14);
+  test("fourteen activities, in the log's insertion order", () => {
+    expect(view.activities).toHaveLength(14);
     expect(view.version).toBe(V.patReserved);
-    expect(view.nodes.map((entry) => entry.node.id)).toEqual([...folded().graph.nodes.keys()]);
+    expect(view.activities.map((entry) => entry.activity.id)).toEqual([...folded().graph.activities.keys()]);
   });
 
   test("byId and order agree with that same order", () => {
     expect(view.byId.size).toBe(14);
-    for (const [index, entry] of view.nodes.entries()) {
-      expect(view.byId.get(entry.node.id)).toBe(entry);
-      expect(view.order.get(entry.node.id)).toBe(index);
+    for (const [index, entry] of view.activities.entries()) {
+      expect(view.byId.get(entry.activity.id)).toBe(entry);
+      expect(view.order.get(entry.activity.id)).toBe(index);
     }
   });
 
   test("three scopes, and nothing falls through to ungrouped", () => {
-    // Every node in this fixture was authored with a `scope`, so the "ungrouped" default is
+    // Every activity in this fixture was authored with a `scope`, so the "ungrouped" default is
     // not exercised here — what is asserted is that the real groups arrive intact.
-    const groups = new Map(view.nodes.map((entry) => [entry.node.id, entry.group]));
+    const groups = new Map(view.activities.map((entry) => [entry.activity.id, entry.group]));
     expect(new Set(groups.values())).toEqual(new Set(["setup", "goalies", "marcus"]));
     expect(groups.get("th-etsk")).toBe("marcus");
     expect(groups.get("th-ymld")).toBe("setup");
@@ -104,7 +104,7 @@ describe("readiness, as the store sees it", () => {
 
   test("the spread at head", () => {
     const spread = Object.fromEntries(
-      view.nodes.map((entry) => [entry.node.id, entry.readiness]),
+      view.activities.map((entry) => [entry.activity.id, entry.readiness]),
     );
     expect(spread).toEqual({
       // `done`, and superseded at v6 — replaced outranks finished, because the replacement is
@@ -132,26 +132,26 @@ describe("readiness, as the store sees it", () => {
       "th-etsk",
       "th-five",
     ]);
-    expect(view.frontier).toEqual(readyFrontier(folded().graph).map((node) => node.id));
+    expect(view.frontier).toEqual(readyFrontier(folded().graph).map((activity) => activity.id));
   });
 
-  test("`ready` in the view means `isReady` in the store, node for node", () => {
+  test("`ready` in the view means `isReady` in the store, activity for activity", () => {
     // A3 in miniature: the two must not be able to disagree, because the CLI dispatches off
     // the second one and the canvas is claiming to show it.
     const graph = folded().graph;
-    for (const entry of view.nodes) {
-      expect(entry.readiness === "ready").toBe(isReady(graph, entry.node));
+    for (const entry of view.activities) {
+      expect(entry.readiness === "ready").toBe(isReady(graph, entry.activity));
     }
   });
 
-  test("only a blocked node carries a reason, and every blocked one does", () => {
-    for (const entry of view.nodes) {
+  test("only a blocked activity carries a reason, and every blocked one does", () => {
+    for (const entry of view.activities) {
       expect(entry.blocked === null).toBe(entry.readiness !== "blocked");
     }
   });
 });
 
-describe("the reason a node is blocked, in words", () => {
+describe("the reason an activity is blocked, in words", () => {
   const view = headView();
 
   test("the quorum wait names all three unmet dependencies and not the two met ones", () => {
@@ -174,22 +174,22 @@ describe("the reason a node is blocked, in words", () => {
 
   test("one permanently dead in-edge makes the quorum unreachable, not merely stalled", () => {
     // The fixture's quiet catastrophe, and the reason `unreachable` is a field. `isReady`
-    // asks for EVERY in-edge, so Priya's dropped wait has already ended this node — Marcus's
+    // asks for EVERY in-edge, so Priya's dropped wait has already ended this activity — Marcus's
     // ruling and Pat's reply can both arrive and it still never reaches the frontier. Nothing
-    // else on the canvas would say so: the node is `active`, two of its blockers are live,
+    // else on the canvas would say so: the activity is `active`, two of its blockers are live,
     // and it looks exactly like a step that is waiting its turn.
     const graph = folded().graph;
     const goalie = at(view, "th-ymld");
-    const priya = at(view, "th-1ppl").node;
+    const priya = at(view, "th-1ppl").activity;
 
     expect(isTerminal(priya.status.state)).toBe(true);
     expect(satisfiesBlockingEdge(priya)).toBe(false);
     expect(goalie.blocked?.causes.some((c) => c.from === "th-1ppl")).toBe(true);
     expect(goalie.blocked?.unreachable).toBe(true);
-    expect(isReady(graph, goalie.node)).toBe(false);
+    expect(isReady(graph, goalie.activity)).toBe(false);
   });
 
-  test("a wait behind a node that is still in flight is blocked, not ready", () => {
+  test("a wait behind an activity that is still in flight is blocked, not ready", () => {
     const blocked = at(view, "th-0s7c").blocked;
     expect(blocked?.causes).toHaveLength(1);
     expect(blocked?.summary).toBe("Ask Pat to play in goal is still in flight");
@@ -219,7 +219,7 @@ describe("waits carry their own clock", () => {
 
   test("a relative deadline is unarmed while its anchor is still in flight", () => {
     // `48h after th-gk0l`, and Pat's send is `sending` at head. There is no
-    // instant to count down to yet, and inventing one would paint the node the wrong colour.
+    // instant to count down to yet, and inventing one would paint the activity the wrong colour.
     const wait = at(view, "th-0s7c").wait;
     expect(wait?.phase).toBe("unarmed");
     expect(wait?.deadlineAt).toBeNull();
@@ -246,9 +246,9 @@ describe("waits carry their own clock", () => {
     // store dropped it instead. It also carries a `bounced` outcome — the drop is the fact
     // that decides what happens next, so it wins.
     const priya = at(view, "th-1ppl");
-    expect(priya.node.provenance.superseded_by).toBeNull();
-    expect(priya.node.status.state).toBe("dropped");
-    expect(priya.node.status.outcome?.verdict).toBe("bounced");
+    expect(priya.activity.provenance.superseded_by).toBeNull();
+    expect(priya.activity.status.state).toBe("dropped");
+    expect(priya.activity.status.outcome?.verdict).toBe("bounced");
     expect(priya.readiness).toBe("settled");
     expect(priya.wait?.phase).toBe("dropped");
   });
@@ -271,19 +271,19 @@ describe("waits carry their own clock", () => {
 describe("irreversibility is read off the effect class", () => {
   test("exactly the four pivot sends are irreversible", () => {
     const view = headView();
-    const marked = view.nodes.filter((entry) => entry.irreversible).map((entry) => entry.node.id);
+    const marked = view.activities.filter((entry) => entry.irreversible).map((entry) => entry.activity.id);
     expect(marked).toEqual([
       "th-nhwd",
       "th-gyre",
       "th-t2yo",
       "th-gk0l",
     ]);
-    for (const entry of view.nodes) {
-      expect(entry.irreversible).toBe(entry.node.spec.effect_class === "pivot");
+    for (const entry of view.activities) {
+      expect(entry.irreversible).toBe(entry.activity.spec.effect_class === "pivot");
     }
   });
 
-  test("the two versions on a node answer different questions", () => {
+  test("the two versions on an activity answer different questions", () => {
     const view = headView();
     const roster = at(view, "th-ahf6");
     expect(roster.createdAtVersion).toBe(1); // decided on when the pursuit opened
@@ -292,12 +292,12 @@ describe("irreversibility is read off the effect class", () => {
   });
 });
 
-describe("completionTime — the moment a node actually finished", () => {
-  test("a node has one exactly when it reached `done`", () => {
+describe("completionTime — the moment an activity actually finished", () => {
+  test("an activity has one exactly when it reached `done`", () => {
     // Terminal is not the same question: Priya's ask `failed` and her wait was `dropped`, and
     // neither of those started anybody's clock — the same rule `satisfiesBlockingEdge` applies.
-    for (const entry of headView().nodes) {
-      expect(HEAD.completionTime.has(entry.node.id)).toBe(entry.node.status.state === "done");
+    for (const entry of headView().activities) {
+      expect(HEAD.completionTime.has(entry.activity.id)).toBe(entry.activity.status.state === "done");
     }
     expect(HEAD.completionTime.has("th-t2yo")).toBe(false);
     expect(HEAD.completionTime.has("th-1ppl")).toBe(false);
@@ -323,8 +323,8 @@ describe("completionTime — the moment a node actually finished", () => {
   test("it is a function of the records folded, so time travel carries it", () => {
     const past = buildPursuit(logText(), V.danaDeclines - 1);
     expect(past.completionTime).toEqual(completionTimeOf(past.records));
-    for (const node of past.graph.nodes.values()) {
-      expect(past.completionTime.has(node.id)).toBe(node.status.state === "done");
+    for (const activity of past.graph.activities.values()) {
+      expect(past.completionTime.has(activity.id)).toBe(activity.status.state === "done");
     }
     // Dana's wait only closes when she declines, so one version earlier there is no instant
     // for it — and inventing one from head would be the scrubber quietly showing the reader a
@@ -333,7 +333,7 @@ describe("completionTime — the moment a node actually finished", () => {
     expect(HEAD.completionTime.has("th-es9m")).toBe(true);
   });
 
-  test("a second `done` on the same node does not move its clock", () => {
+  test("a second `done` on the same activity does not move its clock", () => {
     // `foldLog` does not enforce §6.4's invariant 1 — that is the commit path's job — so the
     // viewer can be handed a log the current binary would not have written: an older writer, a
     // hand-edit, a bad merge. First-wins is the only rule that cannot slide a deadline
@@ -345,7 +345,7 @@ describe("completionTime — the moment a node actually finished", () => {
         mutation(V.patReserved + 1, first, [
           {
             op: "set_status",
-            node: "th-gk0l",
+            activity: "th-gk0l",
             status: "done",
             evidence_ref: "msg:pat-outbound",
           },
@@ -353,7 +353,7 @@ describe("completionTime — the moment a node actually finished", () => {
         mutation(V.patReserved + 2, again, [
           {
             op: "set_status",
-            node: "th-gk0l",
+            activity: "th-gk0l",
             status: "done",
             evidence_ref: "msg:pat-outbound-reobserved",
           },
@@ -367,7 +367,7 @@ describe("completionTime — the moment a node actually finished", () => {
   test("a receipt arriving after the send does not move the send's clock", () => {
     // The whole reason this map exists instead of `versionTime.get(observed_at_version)`.
     // Pat's send finishes; the next version records the delivery receipt a day later, which §6.4 allows
-    // against a terminal node and which bumps `observed_at_version` with it. Anchoring the
+    // against a terminal activity and which bumps `observed_at_version` with it. Anchoring the
     // deadline there would push it 24h into the future and un-blow a wait the store has
     // already timed out — the one failure mode that silently keeps a dead branch alive.
     const sentAt = "2026-08-22T01:00:00.000Z";
@@ -377,19 +377,19 @@ describe("completionTime — the moment a node actually finished", () => {
         mutation(V.patReserved + 1, sentAt, [
           {
             op: "set_status",
-            node: "th-gk0l",
+            activity: "th-gk0l",
             status: "done",
             evidence_ref: "msg:pat-outbound",
           },
         ]) +
         mutation(V.patReserved + 2, receiptAt, [
           // `late` is the verdict for a fact that arrived after the graph had moved on, which
-          // is exactly what a delivery receipt is. §6.4 lets it land on a terminal node; being
+          // is exactly what a delivery receipt is. §6.4 lets it land on a terminal activity; being
           // non-resolving, it changes no projection — but it is still a touch, and a touch is
           // what bumps `observed_at_version`.
           {
             op: "record_outcome",
-            node: "th-gk0l",
+            activity: "th-gk0l",
             verdict: "late",
             evidence_ref: "smtp:250-queued",
           },
@@ -418,7 +418,7 @@ describe("completionTime — the moment a node actually finished", () => {
 
 describe("buildPursuit — the entry point", () => {
   test("head builds without throwing and surfaces a clean fold", () => {
-    expect(viewOf(HEAD).nodes).toHaveLength(14);
+    expect(viewOf(HEAD).activities).toHaveLength(14);
     expect(HEAD.graph.version).toBe(V.patReserved);
     expect(HEAD.records).toHaveLength(V.patReserved + 1);
     expect(HEAD.timeline).toHaveLength(V.patReserved + 1);
@@ -434,21 +434,21 @@ describe("buildPursuit — the entry point", () => {
     const before = logText();
     const past = buildPursuit(before, 2);
 
-    expect(viewOf(past).nodes).toHaveLength(9);
+    expect(viewOf(past).activities).toHaveLength(9);
     expect(past.graph.version).toBe(2);
     expect(past.records).toHaveLength(3);
     expect(past.timeline.map((entry) => entry.version)).toEqual([2, 1, 0]);
 
     // The file is untouched and head is still head — rule 6's scrubber is not undo.
     expect(logText()).toBe(before);
-    expect(viewOf(buildPursuit(before)).nodes).toHaveLength(14);
+    expect(viewOf(buildPursuit(before)).activities).toHaveLength(14);
   });
 
   test("the past is the past: the roster step had not been superseded at v2", () => {
     const view = viewOf(buildPursuit(logText(), 2));
     const roster = at(view, "th-ahf6");
     expect(roster.readiness).toBe("settled");
-    expect(roster.node.provenance.superseded_by).toBeNull();
+    expect(roster.activity.provenance.superseded_by).toBeNull();
     // Marcus does not exist yet; the referral that created him arrives at v5.
     expect(view.byId.has("th-etsk")).toBe(false);
   });
@@ -456,7 +456,7 @@ describe("buildPursuit — the entry point", () => {
   test("v2's frontier is the three asks the fan-out just unblocked", () => {
     const view = viewOf(buildPursuit(logText(), 2));
     const spread = new Map<string, Readiness>(
-      view.nodes.map((entry) => [entry.node.id, entry.readiness]),
+      view.activities.map((entry) => [entry.activity.id, entry.readiness]),
     );
     expect(view.frontier).toEqual([
       "th-vipt",
@@ -492,7 +492,7 @@ describe("a log that is not the happy one", () => {
     expect(pursuit.damaged).toEqual([]);
     expect(pursuit.graph.version).toBe(V.patReserved);
     expect(pursuit.records).toHaveLength(V.patReserved + 1);
-    expect(viewOf(pursuit).nodes).toHaveLength(14);
+    expect(viewOf(pursuit).activities).toHaveLength(14);
   });
 
   test("a corrupt record mid-log leaves a stale graph that looks perfectly healthy", () => {
@@ -516,7 +516,7 @@ describe("a log that is not the happy one", () => {
     const view = viewOf(pursuit);
     expect(pursuit.graph.version).toBe(2);
     expect(view.version).toBe(2);
-    expect(view.nodes).toHaveLength(9);
+    expect(view.activities).toHaveLength(9);
     expect(pursuit.timeline).toHaveLength(3);
   });
 
@@ -531,7 +531,7 @@ describe("a log that is not the happy one", () => {
 
     const view = viewOf(pursuit);
     expect(view.version).toBe(0);
-    expect(view.nodes).toEqual([]);
+    expect(view.activities).toEqual([]);
     expect(view.frontier).toEqual([]);
     expect(view.order.size).toBe(0);
   });
@@ -551,7 +551,7 @@ describe("a log that is not the happy one", () => {
 
     const view = viewOf(pursuit);
     expect(view.version).toBe(0);
-    expect(view.nodes).toEqual([]);
+    expect(view.activities).toEqual([]);
     expect(view.frontier).toEqual([]);
   });
 });
@@ -587,7 +587,7 @@ describe("buildPursuit at an earlier version", () => {
     expect(head.completionTime.has("th-nhwd")).toBe(true);
     expect(at2.completionTime.has("th-nhwd")).toBe(false);
 
-    const wait = at2.graph.nodes.get("th-es9m");
+    const wait = at2.graph.activities.get("th-es9m");
     if (wait === undefined) throw new Error("the fixture has no th-es9m at v2");
     const state = waitStateOf(at2.graph, wait, at2.completionTime, NOW);
     expect(state?.phase).toBe("unarmed");
@@ -600,9 +600,9 @@ describe("buildPursuit at an earlier version", () => {
       const built = buildPursuit(logText(), v);
       expect(built.graph.version).toBe(v);
       // The two indexes must come from the same fold: nothing in `completionTime` may name a
-      // node the graph at that version does not have.
+      // activity the graph at that version does not have.
       for (const id of built.completionTime.keys())
-        expect(built.graph.nodes.has(id)).toBe(true);
+        expect(built.graph.activities.has(id)).toBe(true);
     }
   });
 });

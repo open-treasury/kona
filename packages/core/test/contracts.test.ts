@@ -15,7 +15,7 @@ import {
   DeadlineSchema,
   FORBIDDEN_OP_KINDS,
   IRREVERSIBLE_EFFECT_CLASSES,
-  NodeIdSchema,
+  ActivityIdSchema,
   OP_KINDS,
   OpRefSchema,
   REASON_CODES,
@@ -28,7 +28,7 @@ import {
   isTerminal,
   parseBatch,
 } from "../src/index.ts";
-import { seeded, task, nodeAt } from "./fixtures.ts";
+import { seeded, task, activityAt } from "./fixtures.ts";
 
 describe("the six ops, and only the six", () => {
   test("OP_KINDS is exactly what the authored schema discriminates on", () => {
@@ -47,17 +47,17 @@ describe("the six ops, and only the six", () => {
 
   test.each([...FORBIDDEN_OP_KINDS])("'%s' is refused, and reserves no opcode", (forbidden) => {
     expect(OP_KINDS).not.toContain(forbidden);
-    expect(parseBatch([{ op: forbidden, node: "a" }]).ok).toBe(false);
+    expect(parseBatch([{ op: forbidden, activity: "a" }]).ok).toBe(false);
   });
 
   test("TERMINAL_SAFE_OP_KINDS is exactly the set invariant 1 lets through", () => {
-    // Anything not in this list, targeting a node terminal at head, must be rejected.
+    // Anything not in this list, targeting an activity terminal at head, must be rejected.
     const done = seeded([task("A")]);
-    const node = nodeAt(done, "a");
-    if (node === undefined) throw new Error("fixture");
-    node.status.state = "done";
+    const activity = activityAt(done, "a");
+    if (activity === undefined) throw new Error("fixture");
+    activity.status.state = "done";
     const safe: string[] = [...TERMINAL_SAFE_OP_KINDS];
-    expect(safe.toSorted()).toEqual(["record_outcome", "record_output", "supersede_node"]);
+    expect(safe.toSorted()).toEqual(["record_outcome", "record_output", "supersede_activity"]);
   });
 });
 
@@ -77,9 +77,9 @@ describe("closed sets stay closed", () => {
   test.each([...VERDICTS])("verdict '%s' is accepted", (verdict) => {
     const graph = seeded([task("A")]);
     expect(
-      parseBatch([{ op: "record_outcome", node: "a", verdict, evidence_ref: "e" }]).ok,
+      parseBatch([{ op: "record_outcome", activity: "a", verdict, evidence_ref: "e" }]).ok,
     ).toBe(true);
-    expect(graph.nodes.size).toBe(1);
+    expect(graph.activities.size).toBe(1);
   });
 
   test.each([...ACTOR_KINDS])("actor kind '%s' is a legal value", (kind) => {
@@ -92,9 +92,9 @@ describe("closed sets stay closed", () => {
 });
 
 describe("the primitive schemas", () => {
-  test("NodeIdSchema is the id alphabet, and OpRefSchema is not", () => {
-    expect(NodeIdSchema.safeParse("goalie-dana").success).toBe(true);
-    expect(NodeIdSchema.safeParse("$0").success).toBe(false);
+  test("ActivityIdSchema is the id alphabet, and OpRefSchema is not", () => {
+    expect(ActivityIdSchema.safeParse("goalie-dana").success).toBe(true);
+    expect(ActivityIdSchema.safeParse("$0").success).toBe(false);
     expect(OpRefSchema.safeParse("$0").success).toBe(true);
     expect(OpRefSchema.safeParse("goalie-dana").success).toBe(false);
   });
@@ -102,11 +102,11 @@ describe("the primitive schemas", () => {
   test("a batch ref is ANCHORED at both ends, and takes more than one digit", () => {
     // Three real holes, each one a surviving mutant on the anchors of `/^\$\d+$/`.
     //
-    // Unanchored at the front, `goalie$0` parses as a ref — so a node id that happens to end
+    // Unanchored at the front, `goalie$0` parses as a ref — so an activity id that happens to end
     // in `$0` would resolve to whatever op zero minted. Unanchored at the back, `$0abc` does
     // the same from the other side. And `\d` instead of `\d+` silently caps a batch at ten
     // ops: `$10` stops being a ref, which is a limit nothing in the spec imposes and which
-    // would show up as `UNKNOWN_NODE` on the eleventh op of a fan-out.
+    // would show up as `UNKNOWN_ACTIVITY` on the eleventh op of a fan-out.
     expect(OpRefSchema.safeParse("$10").success).toBe(true);
     expect(OpRefSchema.safeParse("$123").success).toBe(true);
     for (const notARef of ["goalie$0", "$0abc", "x$1", " $0", "$0 ", "$", "$-1", "$0.children"]) {
@@ -142,10 +142,10 @@ describe("the primitive schemas", () => {
     // `.default([])` on both, and nothing asserted it. The default is load-bearing twice:
     // `checkInputs` iterates `spec.inputs` and `record_output` looks a name up in
     // `spec.outputs`, so a default that was absent or non-empty would either throw on the
-    // most ordinary node in a graph or invent a declaration nobody wrote.
+    // most ordinary activity in a graph or invent a declaration nobody wrote.
     const parsed = parseBatch([
       {
-        op: "add_node",
+        op: "add_activity",
         name: "Read the roster",
         type: "task",
         spec: { instruction: "read it", effect_class: "pure" },
@@ -153,7 +153,7 @@ describe("the primitive schemas", () => {
     ]);
     expect(parsed.ok).toBe(true);
     const first = parsed.ok ? parsed.value[0] : undefined;
-    if (first?.op !== "add_node") throw new Error("unreachable");
+    if (first?.op !== "add_activity") throw new Error("unreachable");
     expect(first.spec.inputs).toEqual([]);
     expect(first.spec.outputs).toEqual([]);
   });

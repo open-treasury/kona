@@ -115,7 +115,7 @@ describe("kona mutate — the only write path", () => {
     await init();
     expect(await commitAskDana()).toBe(0);
     expect(h.out[0]).toContain("committed v3");
-    // Minting reports the ids it made; they are hashes, so the assertion names the nodes
+    // Minting reports the ids it made; they are hashes, so the assertion names the activities
     // through their labels rather than spelling ids that the store chooses.
     expect(h.out[0]).toContain(
       `minted ${h.id("ask-dana-to-play-thursday")}, ${h.id("wait-for-dana")}`,
@@ -124,7 +124,7 @@ describe("kona mutate — the only write path", () => {
     expect(graph.version).toBe(3);
     // `roster-on-file` is the seed that attests to Dana; §6.7 wants her named before the
     // batch that emails her.
-    expect(graph.nodes.map((n) => n.id)).toEqual([
+    expect(graph.activities.map((n) => n.id)).toEqual([
       h.id("roster-on-file"),
       h.id("ask-dana-to-play-thursday"),
       h.id("wait-for-dana"),
@@ -176,25 +176,25 @@ describe("kona mutate — the only write path", () => {
     expect(logLines()).toHaveLength(4);
   });
 
-  test("an invariant violation exits 4 and names the node", async () => {
+  test("an invariant violation exits 4 and names the activity", async () => {
     await init();
     await commitAskDana();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
     ).toBe(0);
     h.reset();
     const again = h.writeOps("again.json", [
-      { op: "set_status", node: "ask-dana-to-play-thursday", status: "active", evidence_ref: "e" },
+      { op: "set_status", activity: "ask-dana-to-play-thursday", status: "active", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", again, "--base-version", "4", "--why", "reopen", "--reason-code", "OTHER"], h.io),
     ).toBe(4);
-    expect(h.err[0]).toStartWith("TERMINAL_NODE_PROTECTED");
-    expect(h.err[0]).toContain(`node=${h.id("ask-dana-to-play-thursday")}`);
+    expect(h.err[0]).toStartWith("TERMINAL_ACTIVITY_PROTECTED");
+    expect(h.err[0]).toContain(`activity=${h.id("ask-dana-to-play-thursday")}`);
   });
 
   test("a subagent attempting topology is refused", async () => {
@@ -218,7 +218,7 @@ describe("kona mutate — the only write path", () => {
     expect(h.err[0]).toContain("UNREADABLE_OPS");
 
     h.reset();
-    const wrong = h.writeOps("wrong.json", [{ op: "add_node", name: "x" }]);
+    const wrong = h.writeOps("wrong.json", [{ op: "add_activity", name: "x" }]);
     expect(await run(["mutate", "--ops", wrong, "--base-version", "2", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("MALFORMED_OPS");
     expect(logLines()).toHaveLength(3);
@@ -312,7 +312,7 @@ describe("kona graph — the only read contract", () => {
   test("--version is read-only time travel and removes nothing", async () => {
     await init();
     await commitAskDana();
-    expect((await runGraphJson(["--version", "0"])).nodes).toEqual([]);
+    expect((await runGraphJson(["--version", "0"])).activities).toEqual([]);
     expect((await runGraphJson()).version).toBe(3);
   });
 
@@ -390,7 +390,7 @@ describe("the architecture, asserted", () => {
 describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
   /**
    * The contract a caller depends on. An agent reads the first token to decide what to do
-   * next — `ALREADY_CLAIMED` means take another node, `STALE_BASE_VERSION` means re-read and
+   * next — `ALREADY_CLAIMED` means take another activity, `STALE_BASE_VERSION` means re-read and
    * re-decide — and a shell script greps the same token. So a verb that fails SILENTLY leaves
    * both with nothing to report but the number. Checked across every refusal reachable from
    * argument handling, since that is where a `return EXIT_REFUSED` is easiest to add without
@@ -404,11 +404,11 @@ describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
     ["resume outside a pursuit", ["resume"]],
     ["poll outside a pursuit", ["poll"]],
     ["view outside a pursuit", ["view"]],
-    ["brief with no node", ["brief"]],
-    ["brief outside a pursuit", ["brief", "any-node"]],
+    ["brief with no activity", ["brief"]],
+    ["brief outside a pursuit", ["brief", "any-activity"]],
     ["effect with no subcommand", ["effect", "--why", "x"]],
     ["effect with an unknown subcommand", ["effect", "cancel", "n", "--why", "x"]],
-    ["effect with no node", ["effect", "reserve", "--why", "x", "--payload-hash", "h"]],
+    ["effect with no activity", ["effect", "reserve", "--why", "x", "--payload-hash", "h"]],
     ["reserve outside a pursuit", ["effect", "reserve", "n", "--why", "x", "--payload-hash", "h"]],
     ["mutate with no --ops", ["mutate", "--base-version", "2", "--why", "x", "--reason-code", "OTHER"]],
     ["mutate with no --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2"]],

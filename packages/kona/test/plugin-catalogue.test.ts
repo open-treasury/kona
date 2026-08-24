@@ -3,7 +3,7 @@
  *
  * §6.9 is emphatic that the §6.2 catalogue ships into the plan prompt **verbatim**, because
  * a paraphrase produced four stuck-gate defects. But the spec writes ops in a shorthand —
- * `add_node(scope, spec)` — that is not parseable JSON, so "verbatim" cannot mean copying
+ * `add_activity(scope, spec)` — that is not parseable JSON, so "verbatim" cannot mean copying
  * that. It has to mean the shape the CLI actually accepts.
  *
  * Which leaves the documentation free to drift from the parser, silently, in the one place
@@ -170,7 +170,7 @@ describe("the vocabularies the prompt quotes are the real ones", () => {
   test("the forbidden opcodes are named as forbidden", () => {
     for (const forbidden of ["delete_node", "rollback", "replace_graph"]) {
       expect(PLAN).toContain(forbidden);
-      expect(parseBatch([{ op: forbidden, node: "a" }]).ok).toBe(false);
+      expect(parseBatch([{ op: forbidden, activity: "a" }]).ok).toBe(false);
     }
   });
 });

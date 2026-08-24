@@ -2,7 +2,7 @@
  * Every refusal, asserted whole.
  *
  * The other suites check that a bad batch is rejected. This one checks *what the operator
- * is told* — the symbolic reason, the offending node, the op index, and the field name in
+ * is told* — the symbolic reason, the offending activity, the op index, and the field name in
  * the message. That last part is not decoration: a batch is rejected by a machine and
  * repaired by one too, and "which of the six ref positions was wrong" is the difference
  * between a fix and a guess.
@@ -46,8 +46,8 @@ describe("validate runs its stages in order and stops at the first failure", () 
     const r = refuses(EMPTY, [task("A")], SUBAGENT);
     expect(r.reason).toBe("UNAUTHORIZED_ACTOR");
     expect(r.op_index).toBe(0);
-    expect(r.node).toBeUndefined();
-    expect(r.message).toContain("add_node");
+    expect(r.activity).toBeUndefined();
+    expect(r.message).toContain("add_activity");
     expect(r.message).toContain("subagent");
   });
 });
@@ -76,16 +76,16 @@ describe("the parser names where it failed", () => {
     expect(refuses(EMPTY, [task("T", { effect_class: "pivot" })]).message).toContain("spec.effect:");
   });
 
-  test("a node id at the length limit is accepted and one over is not", () => {
+  test("an activity id at the length limit is accepted and one over is not", () => {
     const graph = seeded([task("A")]);
     const limit = "a".repeat(48);
-    accepts(graph, [{ op: "set_status", node: "a", status: "done", evidence_ref: "e" }]);
-    expect(refuses(graph, [{ op: "set_status", node: `${limit}b`, status: "done", evidence_ref: "e" }]).reason)
+    accepts(graph, [{ op: "set_status", activity: "a", status: "done", evidence_ref: "e" }]);
+    expect(refuses(graph, [{ op: "set_status", activity: `${limit}b`, status: "done", evidence_ref: "e" }]).reason)
       .toBe("MALFORMED_OPS");
   });
 
   test.each(["$", "$a", "$-1", "$1x", "-a", "A", "a/b", "a_b", "a b"])(
-    "'%s' is neither a batch ref nor a node id",
+    "'%s' is neither a batch ref nor an activity id",
     (ref) => {
       const r = refuses(EMPTY, [{ op: "add_edge", from: ref, to: "b" }]);
       expect(r.reason).toBe("MALFORMED_OPS");
@@ -100,17 +100,17 @@ describe("every reference position names itself when it dangles", () => {
   test.each([
     ["from", { op: "add_edge", from: "ghost", to: "a" }],
     ["to", { op: "add_edge", from: "a", to: "ghost" }],
-    ["node", { op: "set_status", node: "ghost", status: "done", evidence_ref: "e" }],
-    ["node", { op: "record_outcome", node: "ghost", verdict: "confirmed", evidence_ref: "e" }],
-    ["node", { op: "record_output", node: "ghost", output_name: "r", value: 1, evidence_ref: "e" }],
-    ["node", { op: "supersede_node", node: "ghost" }],
-    ["by", { op: "supersede_node", node: "a", by: "ghost" }],
+    ["activity", { op: "set_status", activity: "ghost", status: "done", evidence_ref: "e" }],
+    ["activity", { op: "record_outcome", activity: "ghost", verdict: "confirmed", evidence_ref: "e" }],
+    ["activity", { op: "record_output", activity: "ghost", output_name: "r", value: 1, evidence_ref: "e" }],
+    ["activity", { op: "supersede_activity", activity: "ghost" }],
+    ["by", { op: "supersede_activity", activity: "a", by: "ghost" }],
   ])("%s", (field, op) => {
     const r = refuses(graph, [op]);
-    expect(r.reason).toBe("UNKNOWN_NODE");
+    expect(r.reason).toBe("UNKNOWN_ACTIVITY");
     expect(r.message).toStartWith(`${field} references `);
     expect(r.message).toContain("ghost");
-    expect(slugOf(r.node)).toBe("ghost");
+    expect(slugOf(r.activity)).toBe("ghost");
     expect(r.op_index).toBe(0);
   });
 
@@ -132,7 +132,7 @@ describe("every reference position names itself when it dangles", () => {
 
   test("a ref to an op that mints nothing says so, distinctly from a forward ref", () => {
     const r = refuses(seeded([task("A")]), [
-      { op: "set_status", node: "a", status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: "a", status: "done", evidence_ref: "e" },
       { op: "add_edge", from: "$0", to: "a" },
     ]);
     expect(r.reason).toBe("UNRESOLVED_REF");
@@ -154,7 +154,7 @@ describe("spec refs are only rewritten where a ref can legally live", () => {
     });
     if (!result.ok) throw new Error(result.rejection.message);
     const added = result.value.ops[0];
-    expect(added?.op === "add_node" ? added.spec.deadline : null).toEqual({ at });
+    expect(added?.op === "add_activity" ? added.spec.deadline : null).toEqual({ at });
   });
 
   test("an {expr} deadline is left alone too", () => {
@@ -169,16 +169,16 @@ describe("spec refs are only rewritten where a ref can legally live", () => {
     });
     if (!result.ok) throw new Error(result.rejection.message);
     const added = result.value.ops[0];
-    expect(added?.op === "add_node" ? added.spec.deadline : null).toEqual(deadline);
+    expect(added?.op === "add_activity" ? added.spec.deadline : null).toEqual(deadline);
   });
 });
 
-describe("invariant violations name the invariant and the node", () => {
+describe("invariant violations name the invariant and the activity", () => {
   const done = commit(seeded([task("A"), task("B")]), [
-    { op: "set_status", node: "a", status: "done", evidence_ref: "e" },
+    { op: "set_status", activity: "a", status: "done", evidence_ref: "e" },
   ]);
 
-  test("a new edge into a terminal node", () => {
+  test("a new edge into a terminal activity", () => {
     const r = refuses(done, [{ op: "add_edge", from: "b", to: "a" }]);
     expect(r.code).toBe("INVARIANT_VIOLATION");
     expect(r.invariant).toBe(1);
@@ -187,9 +187,9 @@ describe("invariant violations name the invariant and the node", () => {
     expect(r.message).toContain("already terminal");
   });
 
-  test("set_status against a terminal node lists what is still allowed", () => {
-    const r = refuses(done, [{ op: "set_status", node: "a", status: "failed", evidence_ref: "e" }]);
-    expect(r.message).toContain("supersede_node");
+  test("set_status against a terminal activity lists what is still allowed", () => {
+    const r = refuses(done, [{ op: "set_status", activity: "a", status: "failed", evidence_ref: "e" }]);
+    expect(r.message).toContain("supersede_activity");
     expect(r.message).toContain("record_outcome");
     expect(r.message).toContain("record_output");
     expect(r.message).toContain("'A'");

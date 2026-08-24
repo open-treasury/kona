@@ -1,14 +1,14 @@
 /**
  * Readiness and blocked reasons, against the real pursuit.
  *
- * The assertions name fixture nodes and fixture labels on purpose. A test that restated the
+ * The assertions name fixture activities and fixture labels on purpose. A test that restated the
  * implementation ("the first cause has kind `dropped`, because we return `dropped` first")
  * would survive any drift from `@kona/core`, which is the one drift that matters here: the
- * viewer must call a node blocked exactly when `kona` refuses to dispatch it.
+ * viewer must call an activity blocked exactly when `kona` refuses to dispatch it.
  */
 
 import { describe, expect, test } from "bun:test";
-import type { CommittedOp, Edge, Graph, Node } from "@kona/core";
+import type { CommittedOp, Edge, Graph, Activity } from "@kona/core";
 import {
   applyOps,
   formatRejection,
@@ -29,17 +29,17 @@ function graphAt(version?: number): Graph {
   return folded(version).graph;
 }
 
-function nodeOf(graph: Graph, id: string): Node {
-  const node = graph.nodes.get(id);
-  if (node === undefined) throw new Error(`the fixture has no node ${id} at v${graph.version}`);
-  return node;
+function nodeOf(graph: Graph, id: string): Activity {
+  const activity = graph.activities.get(id);
+  if (activity === undefined) throw new Error(`the fixture has no activity ${id} at v${graph.version}`);
+  return activity;
 }
 
 /** The reason, or a throw — so a test that expected one cannot silently assert on null. */
 function reasonOf(graph: Graph, id: string) {
-  const node = nodeOf(graph, id);
-  const reason = blockedReason(graph, node);
-  if (reason === null) throw new Error(`${id} is ${readinessOf(graph, node)}, not blocked`);
+  const activity = nodeOf(graph, id);
+  const reason = blockedReason(graph, activity);
+  if (reason === null) throw new Error(`${id} is ${readinessOf(graph, activity)}, not blocked`);
   return reason;
 }
 
@@ -56,7 +56,7 @@ function withEdge(graph: Graph, index: number, edge: Edge): Graph {
 }
 
 /**
- * Move the graph on with the store's own ops rather than by writing a node literal, so the
+ * Move the graph on with the store's own ops rather than by writing an activity literal, so the
  * state under test is one `kona` could actually have committed. `applyOps` clones, so the
  * graph handed in is left alone.
  */
@@ -71,27 +71,27 @@ describe("readinessOf", () => {
     expect(HEAD).toBe(V.patReserved);
   });
 
-  test("an active node with no in-edges is ready", () => {
+  test("an active activity with no in-edges is ready", () => {
     const graph = graphAt();
     for (const id of [
       "th-vipt",
       "th-etsk",
       "th-five",
     ]) {
-      const node = nodeOf(graph, id);
-      expect(node.status.state).toBe("active");
+      const activity = nodeOf(graph, id);
+      expect(activity.status.state).toBe("active");
       expect(inEdges(graph, id)).toHaveLength(0);
-      expect(readinessOf(graph, node)).toBe("ready");
-      expect(blockedReason(graph, node)).toBeNull();
+      expect(readinessOf(graph, activity)).toBe("ready");
+      expect(blockedReason(graph, activity)).toBeNull();
     }
   });
 
   test("superseded outranks settled: the roster step is done, and reads as replaced", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "th-ahf6");
-    expect(node.status.state).toBe("done");
-    expect(node.provenance.superseded_by).toBe("th-five");
-    expect(readinessOf(graph, node)).toBe("superseded");
+    const activity = nodeOf(graph, "th-ahf6");
+    expect(activity.status.state).toBe("done");
+    expect(activity.provenance.superseded_by).toBe("th-five");
+    expect(readinessOf(graph, activity)).toBe("superseded");
   });
 
   test("every terminal status settles, including the two that never satisfy anything", () => {
@@ -105,32 +105,32 @@ describe("readinessOf", () => {
 
   test("sending is running, not settled — the world's answer is unknown", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "th-gk0l");
-    expect(node.status.state).toBe("in_flight");
-    expect(readinessOf(graph, node)).toBe("running");
-    expect(blockedReason(graph, node)).toBeNull();
+    const activity = nodeOf(graph, "th-gk0l");
+    expect(activity.status.state).toBe("in_flight");
+    expect(readinessOf(graph, activity)).toBe("running");
+    expect(blockedReason(graph, activity)).toBeNull();
   });
 
   test("th-ymld is blocked at head even though two of its waits fired satisfied", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "th-ymld");
-    expect(node.status.state).toBe("active");
+    const activity = nodeOf(graph, "th-ymld");
+    expect(activity.status.state).toBe("active");
     expect(inEdges(graph, "th-ymld")).toHaveLength(5);
     expect(resolutionOf(nodeOf(graph, "th-es9m"))).toBe("satisfied");
     expect(resolutionOf(nodeOf(graph, "th-ocwr"))).toBe("satisfied");
     // The predicate is `count{confirmed, role=goalie} >= 1`, but readiness is an edge
     // question, not a predicate one: `isReady` wants every in-edge satisfied.
-    expect(isReady(graph, node)).toBe(false);
-    expect(readinessOf(graph, node)).toBe("blocked");
+    expect(isReady(graph, activity)).toBe(false);
+    expect(readinessOf(graph, activity)).toBe("blocked");
   });
 
   test("readinessOf agrees with readyFrontier at every version of the log", () => {
     for (let version = 1; version <= HEAD; version += 1) {
       const graph = graphAt(version);
-      const ready = [...graph.nodes.values()]
-        .filter((node) => readinessOf(graph, node) === "ready")
-        .map((node) => node.id);
-      expect(ready).toEqual(readyFrontier(graph).map((node) => node.id));
+      const ready = [...graph.activities.values()]
+        .filter((activity) => readinessOf(graph, activity) === "ready")
+        .map((activity) => activity.id);
+      expect(ready).toEqual(readyFrontier(graph).map((activity) => activity.id));
     }
   });
 });
@@ -138,9 +138,9 @@ describe("readinessOf", () => {
 describe("blockedReason", () => {
   test("null for anything that is not blocked", () => {
     const graph = graphAt();
-    for (const node of graph.nodes.values()) {
-      if (readinessOf(graph, node) === "blocked") continue;
-      expect(blockedReason(graph, node)).toBeNull();
+    for (const activity of graph.activities.values()) {
+      if (readinessOf(graph, activity) === "blocked") continue;
+      expect(blockedReason(graph, activity)).toBeNull();
     }
   });
 
@@ -232,11 +232,11 @@ describe("blockedReason", () => {
 
     // Priya's wait is terminal and did not succeed, so `satisfiesBlockingEdge` refuses her
     // edge for the rest of the log — and `isReady` wants ALL five in-edges, so Pat and the
-    // ruling coming good later cannot rescue it. `kona next` will never list this node.
+    // ruling coming good later cannot rescue it. `kona next` will never list this activity.
     const priya = nodeOf(graph, "th-1ppl");
     expect(isTerminal(priya.status.state)).toBe(true);
     expect(satisfiesBlockingEdge(priya)).toBe(false);
-    expect(readyFrontier(graph).map((node) => node.id)).not.toContain("th-ymld");
+    expect(readyFrontier(graph).map((activity) => activity.id)).not.toContain("th-ymld");
 
     // Two of the three blockers are still live, and that is exactly what does NOT matter:
     // reporting `false` here would paint an already-dead branch as merely waiting.
@@ -249,11 +249,11 @@ describe("blockedReason", () => {
   });
 
   test("a status-only version changes the causes without changing the graph's shape", () => {
-    // The step into Dana's refusal adds no node and no edge; she simply declines.
+    // The step into Dana's refusal adds no activity and no edge; she simply declines.
     const before = graphAt(V.danaDeclines - 1);
     const after = graphAt(V.danaDeclines);
     expect(after.edges).toEqual(before.edges);
-    expect([...after.nodes.keys()]).toEqual([...before.nodes.keys()]);
+    expect([...after.activities.keys()]).toEqual([...before.activities.keys()]);
 
     expect(readinessOf(before, nodeOf(before, "th-es9m"))).toBe("ready");
     expect(readinessOf(after, nodeOf(after, "th-es9m"))).toBe("settled");
@@ -302,11 +302,11 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
     expect(reason.summary).toBe("4 of 5 dependencies unmet");
     // §6.7 makes the resolving outcome first-wins, so Dana can never be traded for the
     // `accept` this edge now asks for: a second dead edge beside Priya's. Either one alone
-    // strands the node, because readiness wants every in-edge.
+    // strands the activity, because readiness wants every in-edge.
     expect(reason.unreachable).toBe(true);
   });
 
-  test("a mismatch strands the node even when it is the only unmet edge", () => {
+  test("a mismatch strands the activity even when it is the only unmet edge", () => {
     // Isolate the mismatch: hang Pat's wait off Dana's, which answered `satisfied`, and ask
     // that edge for `accept`. Nothing else is unmet, so `unreachable` is this cause alone.
     const graph = graphAt();
@@ -326,12 +326,12 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
   test("a done source with no outcome yet is not dead: record_outcome is still legal", () => {
     // Finish Marcus's eligibility check with the store's own `set_status`. It is a task, so
     // it carries no outcome and `resolutionOf` is null — then ask its edge for a resolution
-    // it has not fired YET. §6.4 keeps `record_outcome` legal against a terminal node, so
+    // it has not fired YET. §6.4 keeps `record_outcome` legal against a terminal activity, so
     // this edge may still come good; calling it dead would report a live pursuit as hung.
     const graph = applied(graphAt(), [
       {
         op: "set_status",
-        node: "th-etsk",
+        activity: "th-etsk",
         status: "done",
         evidence_ref: "roster.csv#v3",
       },
@@ -361,7 +361,7 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
     expect(reason.unreachable).toBe(false);
   });
 
-  test("a failed source is the whole reason, and the node is unreachable", () => {
+  test("a failed source is the whole reason, and the activity is unreachable", () => {
     const graph = graphAt();
     // Priya's send failed. Hang Pat's wait off it instead of Pat's own send.
     const index = edgeIndex(graph, "th-gk0l", "th-0s7c");
@@ -373,9 +373,9 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
     expect(reason.unreachable).toBe(true);
   });
 
-  test("an edge into a node that is not there names the id, since there is no label", () => {
+  test("an edge into an activity that is not there names the id, since there is no label", () => {
     const graph = graphAt();
-    graph.nodes.delete("th-gk0l");
+    graph.activities.delete("th-gk0l");
     const reason = reasonOf(graph, "th-0s7c");
     expect(reason.causes[0]).toEqual({
       from: "th-gk0l",
@@ -388,13 +388,13 @@ describe("blockedReason, on shapes the log has not produced yet", () => {
     expect(reason.unreachable).toBe(true);
   });
 
-  test("a superseded node that is still active reads as superseded, not as work to do", () => {
+  test("a superseded activity that is still active reads as superseded, not as work to do", () => {
     const graph = graphAt();
-    const node = nodeOf(graph, "th-etsk");
-    expect(readinessOf(graph, node)).toBe("ready");
-    graph.nodes.set(node.id, {
-      ...node,
-      provenance: { ...node.provenance, superseded_by: "th-vipt" },
+    const activity = nodeOf(graph, "th-etsk");
+    expect(readinessOf(graph, activity)).toBe("ready");
+    graph.activities.set(activity.id, {
+      ...activity,
+      provenance: { ...activity.provenance, superseded_by: "th-vipt" },
     });
     const replaced = nodeOf(graph, "th-etsk");
     expect(replaced.status.state).toBe("active");

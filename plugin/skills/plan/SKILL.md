@@ -40,23 +40,23 @@ These six are the entire vocabulary. There is no seventh, and no opcode is reser
 one. Write a JSON **array** of them.
 
 ```jsonc
-// ── add_node ── the only op that creates anything. Returns $N, its index in the array.
+// ── add_activity ── the only op that creates anything. Returns $N, its index in the array.
 {
-  "op": "add_node",
+  "op": "add_activity",
   "name": "Ask Dana to play Thursday",   // REQUIRED. The id is minted from this.
   "type": "task",                         // REQUIRED. task | wait
   "scope": "goalies",                     // optional. The fan-out arm this belongs to.
   "spec": {
     "instruction": "Email Dana asking if she can play in goal Thursday.",  // REQUIRED
     "effect_class": "pivot",              // REQUIRED. pure | reversible | compensatable | pivot
-    "inputs":  [{ "ref": "confirm-roster.availability" }],   // <node-id>.<output-name>
+    "inputs":  [{ "ref": "confirm-roster.availability" }],   // <activity-id>.<output-name>
     "outputs": [{ "name": "reply", "type": "string" }],
     "merge": "all",                       // all | any. REQUIRED when >1 blocking in-edge.
     "effect": {                           // REQUIRED on pivot and compensatable, forbidden otherwise
       "channel": "email",
       "recipient_ref": "roster.contacts#dana"   // a REFERENCE, never a literal address
     },
-    "compensates": "some-node-id",        // this node offsets one that already ran
+    "compensates": "some-activity-id",        // this activity offsets one that already ran
     "obviated_if": { "wait": "roster-quorum", "satisfied": true }
   }
 }
@@ -65,18 +65,18 @@ one. Write a JSON **array** of them.
 { "op": "add_edge", "from": "$0", "to": "$1", "condition": { "on": "satisfied" } }
 
 // ── set_status ──
-{ "op": "set_status", "node": "ask-dana", "status": "done", "evidence_ref": "<m-101@mail>" }
+{ "op": "set_status", "activity": "ask-dana", "status": "done", "evidence_ref": "<m-101@mail>" }
 
 // ── record_outcome ── what a counterparty DECIDED
-{ "op": "record_outcome", "node": "wait-for-dana", "verdict": "confirmed",
+{ "op": "record_outcome", "activity": "wait-for-dana", "verdict": "confirmed",
   "evidence_ref": "<m-201@mail>", "attrs": { "role": "goalie" } }
 
-// ── record_output ── what a node PRODUCED. output_name must be one it DECLARED.
-{ "op": "record_output", "node": "confirm-roster", "output_name": "availability",
+// ── record_output ── what an activity PRODUCED. output_name must be one it DECLARED.
+{ "op": "record_output", "activity": "confirm-roster", "output_name": "availability",
   "value": ["dana", "sam"], "evidence_ref": "roster.csv#v3" }
 
-// ── supersede_node ── never delete
-{ "op": "supersede_node", "node": "confirm-roster", "by": "$0" }
+// ── supersede_activity ── never delete
+{ "op": "supersede_activity", "activity": "confirm-roster", "by": "$0" }
 ```
 
 **Closed vocabularies.** Anything outside these is rejected.
@@ -90,13 +90,13 @@ one. Write a JSON **array** of them.
 | `effect_class` | `pure` · `reversible` · `compensatable` · `pivot` |
 
 **Forbidden, with no opcode reserved:** `delete_node` · `rollback` · `replace_graph` ·
-`edit_rationale` · `reparent` · any write to a terminal node · coordinates · executable
+`edit_rationale` · `reparent` · any write to a terminal activity · coordinates · executable
 payloads · **client-assigned ids**.
 
-**Referring to nodes.**
+**Referring to activities.**
 
-- A node created **earlier in this same batch** is `$0`, `$1`, … — its index in your array.
-- A node that **already exists** is its committed id, e.g. `"confirm-roster"`.
+- An activity created **earlier in this same batch** is `$0`, `$1`, … — its index in your array.
+- An activity that **already exists** is its committed id, e.g. `"confirm-roster"`.
 - **Never invent an id.** Forward references (`$3` from op 1) are rejected. If you have not
   seen an id in `kona graph --json`, and you did not create it earlier in this array, it
   does not exist.
@@ -119,7 +119,7 @@ The reliable trick: for every edge, say the sentence **"Y needs X"** out loud, t
 `from: X, to: Y`. Never think in time. Think in dependency.
 
 **Numbering your steps does not create sequence.** Writing "1. do this 2. then that"
-produces a graph with two unconnected nodes that both run immediately. Sequence exists only
+produces a graph with two unconnected activities that both run immediately. Sequence exists only
 where you wrote an edge.
 
 ---
@@ -131,7 +131,7 @@ rejected:
 
 ```jsonc
 {
-  "op": "add_node", "name": "Wait for Dana", "type": "wait",
+  "op": "add_activity", "name": "Wait for Dana", "type": "wait",
   "spec": {
     "instruction": "Await Dana's reply.",
     "effect_class": "pure",
@@ -151,7 +151,7 @@ rejected:
 **Why this is mandatory:** a message sitting in someone's spam folder is *sent*. No bounce,
 no reply, no error, forever. The clock is the only thing that ever ends that wait.
 
-`on_timeout` must point at a node that **does something about it** — an escalation, a
+`on_timeout` must point at an activity that **does something about it** — an escalation, a
 fallback, a person. Pointing it at the thing that just timed out is a loop.
 
 **Deadlines take one of exactly three shapes:**
@@ -171,22 +171,22 @@ wait clears a plain edge and whatever is downstream fires unapproved.
 
 ## 4. Inputs and outputs are a pair
 
-`inputs[].ref` is `<node-id>.<output-name>`, and it only means something if that node
+`inputs[].ref` is `<activity-id>.<output-name>`, and it only means something if that activity
 **declared** that output.
 
-This is not bookkeeping. Measured: with no node declaring an `output`, **0 of 8** fresh
-agents could execute a single node — every ref dangled and there was nothing to resolve it
+This is not bookkeeping. Measured: with no activity declaring an `output`, **0 of 8** fresh
+agents could execute a single activity — every ref dangled and there was nothing to resolve it
 against. With the pair required, **10 of 10** could.
 
-So: if node B consumes something from node A, node A needs
+So: if activity B consumes something from activity A, activity A needs
 `"outputs": [{ "name": "...", "type": "..." }]`, and B needs `"inputs": [{ "ref": "a.that-name" }]`.
 
 ---
 
 ## 5. Fan-out
 
-A fan-out is `add_node` × N plus `add_edge` × N **in one batch**. There is no loop
-construct and no template — and that is the point. Each arm is a real node with its own
+A fan-out is `add_activity` × N plus `add_edge` × N **in one batch**. There is no loop
+construct and no template — and that is the point. Each arm is a real activity with its own
 instruction, its own deadline, and its own recipient, so arms can diverge later. Give each
 arm a `scope` so the viewer can group them.
 
@@ -219,7 +219,7 @@ looks like this.
 | `0` | committed |
 | `1` | refused — read the stderr line, fix the batch |
 | `3` | **stale base version** — someone else committed. Re-read `kona graph --json`, re-decide, then rewrite the batch. Never resubmit unchanged. |
-| `4` | invariant violation — the batch would corrupt the graph. The message names the node. |
+| `4` | invariant violation — the batch would corrupt the graph. The message names the activity. |
 
 ---
 

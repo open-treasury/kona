@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { AuthoredOp, Graph, Node, Result, Verdict } from "../src/index.ts";
+import type { AuthoredOp, Graph, Activity, Result, Verdict } from "../src/index.ts";
 import {
   checkInvariant2,
   countPredicate,
@@ -17,7 +17,7 @@ import {
   readyFrontier,
   validate,
 } from "../src/index.ts";
-import { ORCHESTRATOR, SUBAGENT, commit, rostered, seeded, task, wait, nodeAt, resolveSlugs, slugOf } from "./fixtures.ts";
+import { ORCHESTRATOR, SUBAGENT, commit, rostered, seeded, task, wait, activityAt, resolveSlugs, slugOf } from "./fixtures.ts";
 
 function attempt(graph: Graph, ops: AuthoredOp[], actor = ORCHESTRATOR) {
   return validate({ graph, ops: resolveSlugs(graph, ops), actor, version: graph.version + 1, prefix: "t" });
@@ -34,24 +34,24 @@ function accepted<T>(result: Result<T>) {
   return result.value;
 }
 
-function nodeOf(graph: Graph, id: string): Node {
-  const node = nodeAt(graph, id);
-  if (node === undefined) throw new Error(`no node ${id}`);
-  return node;
+function activityOf(graph: Graph, id: string): Activity {
+  const activity = activityAt(graph, id);
+  if (activity === undefined) throw new Error(`no activity ${id}`);
+  return activity;
 }
 
-function outcome(node: string, verdict: Verdict, attrs?: Record<string, unknown>): AuthoredOp {
+function outcome(activity: string, verdict: Verdict, attrs?: Record<string, unknown>): AuthoredOp {
   return {
     op: "record_outcome",
-    node,
+    activity,
     verdict,
     evidence_ref: "<m-1>",
     ...(attrs === undefined ? {} : { attrs }),
   };
 }
 
-function close(node: string, status = "done"): AuthoredOp {
-  return { op: "set_status", node, status, evidence_ref: "<m-1>" } as AuthoredOp;
+function close(activity: string, status = "done"): AuthoredOp {
+  return { op: "set_status", activity, status, evidence_ref: "<m-1>" } as AuthoredOp;
 }
 
 const ONE_CONFIRMED = { count: { verdict: "confirmed" }, op: ">=", n: 1 };
@@ -175,7 +175,7 @@ describe("countPredicate — the three counts (§6.7)", () => {
   const arm = { count: { verdict: "confirmed" as Verdict }, op: ">=" as const, n: 1 };
 
   function counted(graph: Graph) {
-    return countPredicate(graph, nodeOf(graph, "quorum"), arm);
+    return countPredicate(graph, activityOf(graph, "quorum"), arm);
   }
 
   test("an unresolved member is still live", () => {
@@ -189,7 +189,7 @@ describe("countPredicate — the three counts (§6.7)", () => {
 
   test("a member resolved but not yet terminal still counts — state is never read", () => {
     const graph = commit(quorum(), [outcome("dana", "confirmed")]);
-    expect(nodeOf(graph, "dana").status.state).toBe("active");
+    expect(activityOf(graph, "dana").status.state).toBe("active");
     expect(counted(graph).matching_confirmed).toBe(1);
   });
 
@@ -243,20 +243,20 @@ describe("countPredicate — the three counts (§6.7)", () => {
     const withAttrs = { count: { verdict: "confirmed" as Verdict, attrs: { role: "goalie" } }, op: ">=" as const, n: 1 };
     const yes = commit(quorum(), [outcome("dana", "confirmed", { role: "goalie", kit: "green" })]);
     const no = commit(quorum(), [outcome("dana", "confirmed", { role: "striker" })]);
-    expect(countPredicate(yes, nodeOf(yes, "quorum"), withAttrs).matching_confirmed).toBe(1);
-    expect(countPredicate(no, nodeOf(no, "quorum"), withAttrs).matching_confirmed).toBe(0);
+    expect(countPredicate(yes, activityOf(yes, "quorum"), withAttrs).matching_confirmed).toBe(1);
+    expect(countPredicate(no, activityOf(no, "quorum"), withAttrs).matching_confirmed).toBe(0);
   });
 
   test("a missing attr does not match", () => {
     const withAttrs = { count: { verdict: "confirmed" as Verdict, attrs: { role: "goalie" } }, op: ">=" as const, n: 1 };
     const graph = commit(quorum(), [outcome("dana", "confirmed")]);
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), withAttrs).matching_confirmed).toBe(0);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), withAttrs).matching_confirmed).toBe(0);
   });
 
   test("the threshold is >= and not >", () => {
     const graph = commit(quorum(), [outcome("dana", "confirmed")]);
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), { ...arm, n: 1 }).satisfiable).toBe(true);
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), { ...arm, n: 2 }).satisfiable).toBe(false);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), { ...arm, n: 1 }).satisfiable).toBe(true);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), { ...arm, n: 2 }).satisfiable).toBe(false);
   });
 });
 
@@ -283,7 +283,7 @@ describe("invariant 2 — predicate-waits stay satisfiable", () => {
   });
 
   test("the same batch superseding the wait is ACCEPTED", () => {
-    expect(attempt(quorum(), [outcome("dana", "declined"), { op: "supersede_node", node: "quorum" }]).ok).toBe(true);
+    expect(attempt(quorum(), [outcome("dana", "declined"), { op: "supersede_activity", activity: "quorum" }]).ok).toBe(true);
   });
 
   test("closing the wait as timed_out is ACCEPTED", () => {
@@ -296,7 +296,7 @@ describe("invariant 2 — predicate-waits stay satisfiable", () => {
    * left, which is a worse wedge than the bad graph the invariant exists to prevent.
    */
   test("a wait already unsatisfiable at head does not block unrelated commits", () => {
-    const broken = commit(quorum(), [outcome("dana", "declined"), { op: "supersede_node", node: "quorum" }]);
+    const broken = commit(quorum(), [outcome("dana", "declined"), { op: "supersede_activity", activity: "quorum" }]);
     // Re-break it without the supersede, by hand, so head carries an unsatisfiable open wait.
     const stuck = commit(seeded([task("Escalate"), task("Dana"), predicateWait("Quorum")]), [
       { op: "add_edge", from: "dana", to: "quorum" },
@@ -371,7 +371,7 @@ describe("invariant 2 — predicate-waits stay satisfiable", () => {
       ],
     );
     const value = accepted(attempt(soleMember, [outcome("gate", "ignore"), close("gate")]));
-    expect(value.derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["dana", "quorum"]);
+    expect(value.derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["dana", "quorum"]);
   });
 });
 
@@ -387,7 +387,7 @@ describe("invariant 3(b) — recipient refs are refs, not addresses (§6.2)", ()
     expect(parseRecipientRef(raw)).toBeNull();
   });
 
-  test("a fabricated recipient is refused, naming the node", () => {
+  test("a fabricated recipient is refused, naming the activity", () => {
     const r = rejection(attempt(seeded([task("A")]), [pivot("person:club-reserve/goalie-1")]));
     expect(r.code).toBe("REFUSED");
     expect(r.reason).toBe("MALFORMED_RECIPIENT_REF");
@@ -431,7 +431,7 @@ describe("invariant 3(b) — recipient refs are refs, not addresses (§6.2)", ()
     // Sam cannot play and names Marcus, in a message with an id. Marcus becomes contactable
     // because SAM said so, not because the model thought of him.
     const referred = commit(rostered(["sam"]), [
-      { op: "record_outcome", node: "confirm-roster", verdict: "declined",
+      { op: "record_outcome", activity: "confirm-roster", verdict: "declined",
         evidence_ref: "<m-202@mail>", attrs: { referral: "marcus" } },
     ]);
     expect(attempt(referred, [pivot("roster.contacts#marcus")]).ok).toBe(true);
@@ -443,7 +443,7 @@ describe("invariant 3(b) — recipient refs are refs, not addresses (§6.2)", ()
     // invent the record that vouches for him.
     const r = rejection(
       attempt(seeded([task("Roster", { outputs: [{ name: "list", type: "string[]" }] })]), [
-        { op: "record_output", node: "roster", output_name: "list", value: ["marcus"],
+        { op: "record_output", activity: "roster", output_name: "list", value: ["marcus"],
           evidence_ref: "made-up" },
         pivot("roster.contacts#marcus"),
       ]),
@@ -451,7 +451,7 @@ describe("invariant 3(b) — recipient refs are refs, not addresses (§6.2)", ()
     expect(r.reason).toBe("UNEVIDENCED_RECIPIENT");
   });
 
-  test("a pure node carries no effect and is never checked", () => {
+  test("a pure activity carries no effect and is never checked", () => {
     expect(attempt(seeded([task("A")]), [task("Plain")]).ok).toBe(true);
   });
 });
@@ -511,7 +511,7 @@ describe("parser-class refusals zod cannot express (§6.7)", () => {
     expect(r.reason).toBe("DEAD_ON_ARRIVAL_EDGE");
   });
 
-  test("an edge out of a dropped node is refused", () => {
+  test("an edge out of a dropped activity is refused", () => {
     const dropped = commit(gate(), [close("ignored", "dropped")]);
     const r = rejection(attempt(dropped, [task("Later"), { op: "add_edge", from: "ignored", to: "$0" }]));
     expect(r.reason).toBe("DEAD_ON_ARRIVAL_EDGE");
@@ -533,18 +533,18 @@ describe("invariant 1 still reads the authored ops, not the derived ones", () =>
       [
         { op: "add_edge", from: "gate", to: "accepted", condition: { on: "accept" } },
         { op: "add_edge", from: "gate", to: "ignored", condition: { on: "ignore" } },
-        { op: "set_status", node: "accepted", status: "done", evidence_ref: "e" },
+        { op: "set_status", activity: "accepted", status: "done", evidence_ref: "e" },
       ],
     );
     const r = rejection(
       attempt(graph, [
         outcome("gate", "accept"),
         close("gate"),
-        { op: "set_status", node: "accepted", status: "active", evidence_ref: "e" },
+        { op: "set_status", activity: "accepted", status: "active", evidence_ref: "e" },
       ]),
     );
     expect(r.invariant).toBe(1);
-    expect(r.reason).toBe("TERMINAL_NODE_PROTECTED");
+    expect(r.reason).toBe("TERMINAL_ACTIVITY_PROTECTED");
     expect(r.op_index).toBe(2);
   });
 
@@ -572,7 +572,7 @@ describe("hardening — the recipient grammar's boundaries", () => {
     expect(parseRecipientRef(`roster.contacts#${"d".repeat(120)}`)).toBeNull();
   });
 
-  test("a key longer than a node id is refused — a key becomes a correlation address", () => {
+  test("a key longer than an activity id is refused — a key becomes a correlation address", () => {
     expect(parseRecipientRef(`roster#${"d".repeat(48)}`)).not.toBeNull();
     expect(parseRecipientRef(`roster#${"d".repeat(49)}`)).toBeNull();
   });
@@ -595,7 +595,7 @@ describe("hardening — the recipient grammar's boundaries", () => {
     });
   });
 
-  test("a compensatable node's recipient is checked too, not just a pivot's", () => {
+  test("a compensatable activity's recipient is checked too, not just a pivot's", () => {
     const r = rejection(
       attempt(seeded([task("A")]), [
         task("Retract", {
@@ -682,7 +682,7 @@ describe("hardening — invariant 2's skip conditions are each load-bearing", ()
   test("a superseded wait is not judged", () => {
     const superseded = commit(quorum(), [
       predicateWait("Quorum two", ONE_CONFIRMED, "escalate"),
-      { op: "supersede_node", node: "quorum", by: "$0" },
+      { op: "supersede_activity", activity: "quorum", by: "$0" },
     ]);
     expect(attempt(superseded, brokenBatch()).ok).toBe(true);
   });
@@ -720,7 +720,7 @@ describe("hardening — invariant 2's skip conditions are each load-bearing", ()
       attempt(two, [
         outcome("dana", "declined"),
         outcome("sam", "declined"),
-        { op: "record_output", node: "dana", output_name: "reply", value: "no", evidence_ref: "e" },
+        { op: "record_output", activity: "dana", output_name: "reply", value: "no", evidence_ref: "e" },
       ]),
     );
     expect(r.reason).toBe("PREDICATE_UNSATISFIABLE");
@@ -754,7 +754,7 @@ describe("hardening — invariant 2's skip conditions are each load-bearing", ()
     const forged = attempt(declined, [
       {
         op: "set_status",
-        node: "dana",
+        activity: "dana",
         status: "dropped",
         evidence_ref: "derived:branch-resolution:made-up",
       },
@@ -763,9 +763,9 @@ describe("hardening — invariant 2's skip conditions are each load-bearing", ()
     expect(rejection(forged).reason).toBe("PREDICATE_UNSATISFIABLE");
   });
 
-  test("superseding an UNRELATED node does not exempt the batch", () => {
+  test("superseding an UNRELATED activity does not exempt the batch", () => {
     const r = rejection(
-      attempt(quorum(), [outcome("dana", "declined"), { op: "supersede_node", node: "escalate" }]),
+      attempt(quorum(), [outcome("dana", "declined"), { op: "supersede_activity", activity: "escalate" }]),
     );
     expect(r.reason).toBe("PREDICATE_UNSATISFIABLE");
   });
@@ -792,8 +792,8 @@ describe("hardening — countPredicate reads the projection, never the raw histo
       commit(quorum(), [outcome("dana", "confirmed")]),
       [outcome("dana", "declined"), outcome("dana", "late")],
     );
-    expect(nodeOf(graph, "dana").status.outcomes).toHaveLength(3);
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), arm).matching_confirmed).toBe(1);
+    expect(activityOf(graph, "dana").status.outcomes).toHaveLength(3);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), arm).matching_confirmed).toBe(1);
   });
 
   test("a tentative FIRST entry does not become the projection", () => {
@@ -801,20 +801,20 @@ describe("hardening — countPredicate reads the projection, never the raw histo
       commit(quorum(), [outcome("dana", "tentative")]),
       [outcome("dana", "confirmed")],
     );
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), arm).matching_confirmed).toBe(1);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), arm).matching_confirmed).toBe(1);
   });
 
   test("a wait with no in-edges has an empty population and cannot be satisfied", () => {
     const lonely = commit(seeded([task("Escalate"), predicateWait("Quorum")]), [task("Idle")]);
-    const counted = countPredicate(lonely, nodeOf(lonely, "quorum"), arm);
+    const counted = countPredicate(lonely, activityOf(lonely, "quorum"), arm);
     expect(counted).toMatchObject({ population: 0, still_live: 0, satisfiable: false });
   });
 });
 
 describe("hardening — the wait-out-edge rule resolves the source's type correctly", () => {
-  test("an add_node earlier in the batch that is NOT the edge source does not confuse it", () => {
+  test("an add_activity earlier in the batch that is NOT the edge source does not confuse it", () => {
     // Kills the `op.id === id` mutant in nodeTypeOf: with the comparison gone, the first
-    // add_node in the batch answers for every id, so this task would be read as a wait.
+    // add_activity in the batch answers for every id, so this task would be read as a wait.
     expect(
       attempt(seeded([task("A")]), [
         wait("Gate", { on_timeout: "a" }),
@@ -840,7 +840,7 @@ describe("hardening — the wait-out-edge rule resolves the source's type correc
 
   test("an unknown source is not a wait, and is left to the apply stage to reject", () => {
     const r = rejection(attempt(seeded([task("A")]), [{ op: "add_edge", from: "ghost", to: "a" }]));
-    expect(r.reason).toBe("UNKNOWN_NODE");
+    expect(r.reason).toBe("UNKNOWN_ACTIVITY");
   });
 });
 
@@ -861,19 +861,19 @@ describe("hardening — the recipient length boundary is inclusive", () => {
  */
 describe("review regressions", () => {
   /**
-   * A `merge: "any"` node with NO in-edges was permanently unready: `some` over an empty
+   * A `merge: "any"` activity with NO in-edges was permanently unready: `some` over an empty
    * array is `false`, where the `every` it replaced was `true`. A root could never run, and
    * no op could repair it.
    */
   test("a merge:'any' root with no in-edges is ready", () => {
     const graph = seeded([task("Root any", { merge: "any" })]);
-    expect(isReady(graph, nodeOf(graph, "root-any"))).toBe(true);
+    expect(isReady(graph, activityOf(graph, "root-any"))).toBe(true);
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["root-any"]);
   });
 
   test("and merge:'all' with no in-edges is ready too", () => {
     const graph = seeded([task("Root all", { merge: "all" })]);
-    expect(isReady(graph, nodeOf(graph, "root-all"))).toBe(true);
+    expect(isReady(graph, activityOf(graph, "root-all"))).toBe(true);
   });
 
   /**
@@ -886,7 +886,7 @@ describe("review regressions", () => {
     expect(
       attempt(quorum(), [
         outcome("dana", "timed_out"),
-        { op: "set_status", node: "dana", status: "done", evidence_ref: "deadline" },
+        { op: "set_status", activity: "dana", status: "done", evidence_ref: "deadline" },
       ]).ok,
     ).toBe(true);
   });
@@ -895,7 +895,7 @@ describe("review regressions", () => {
     expect(
       attempt(quorum(), [
         outcome("dana", "bounced"),
-        { op: "set_status", node: "dana", status: "done", evidence_ref: "bounce" },
+        { op: "set_status", activity: "dana", status: "done", evidence_ref: "bounce" },
       ]).ok,
     ).toBe(true);
   });
@@ -1057,11 +1057,11 @@ describe("rejection messages are contract", () => {
 describe("hardening — the remaining branches of invariant 2's plumbing", () => {
   const arm = { count: { verdict: "confirmed" as Verdict }, op: ">=" as const, n: 1 };
 
-  test("a non-wait node has no predicate arms", () => {
+  test("a non-wait activity has no predicate arms", () => {
     const graph = quorum();
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), arm).population).toBe(1);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), arm).population).toBe(1);
     // A task never carries a match block, so it contributes no arms and is never judged.
-    expect(attempt(graph, [{ op: "record_output", node: "dana", output_name: "reply", value: "x", evidence_ref: "e" }]).ok).toBe(true);
+    expect(attempt(graph, [{ op: "record_output", activity: "dana", output_name: "reply", value: "x", evidence_ref: "e" }]).ok).toBe(true);
   });
 
   test("a wait whose match kind is not 'predicate' is never judged", () => {
@@ -1072,12 +1072,12 @@ describe("hardening — the remaining branches of invariant 2's plumbing", () =>
     expect(attempt(evented, [outcome("dana", "declined")]).ok).toBe(true);
   });
 
-  test("a member that is not a node at all counts for nothing", () => {
+  test("a member that is not an activity at all counts for nothing", () => {
     // `add_edge` refuses an unknown endpoint, so this is only reachable by construction —
     // but the guard has to hold, or a dangling edge would throw instead of being ignored.
     const graph = quorum();
     graph.edges.push({ from: "ghost", to: "quorum" });
-    expect(countPredicate(graph, nodeOf(graph, "quorum"), arm).population).toBe(1);
+    expect(countPredicate(graph, activityOf(graph, "quorum"), arm).population).toBe(1);
   });
 
   test("failed and done are both mechanical closures, and dropped is not", () => {
@@ -1105,41 +1105,41 @@ describe("a claim is exclusive, not advice", () => {
   // CAS is not the guard here, and that is the whole point of the rule. CAS rejects a commit
   // written against a STALE head; a second agent reading AFTER the first claim lands sees a
   // current head and sails through. Measured before the check existed: two claims, both
-  // exit 0, and a graph that could not say who held the node.
+  // exit 0, and a graph that could not say who held the activity.
   const claimed = commit(seeded([task("Read the schemas", { effect_class: "pure" })]), [
-    { op: "set_status", node: "read-the-schemas", status: "in_flight", evidence_ref: "claim:A" },
+    { op: "set_status", activity: "read-the-schemas", status: "in_flight", evidence_ref: "claim:A" },
   ]);
 
-  test("a second claim on a claimed node is refused by name", () => {
+  test("a second claim on a claimed activity is refused by name", () => {
     const r = rejection(
       attempt(claimed, [
-        { op: "set_status", node: "read-the-schemas", status: "in_flight", evidence_ref: "claim:B" },
+        { op: "set_status", activity: "read-the-schemas", status: "in_flight", evidence_ref: "claim:B" },
       ]),
     );
     expect(r.reason).toBe("ALREADY_CLAIMED");
     expect(r.message).toContain("'Read the schemas'");
   });
 
-  test("claiming an ACTIVE node is exactly what the rule permits", () => {
+  test("claiming an ACTIVE activity is exactly what the rule permits", () => {
     const graph = seeded([task("Read the schemas", { effect_class: "pure" })]);
     accepted(
       attempt(graph, [
-        { op: "set_status", node: "read-the-schemas", status: "in_flight", evidence_ref: "claim:A" },
+        { op: "set_status", activity: "read-the-schemas", status: "in_flight", evidence_ref: "claim:A" },
       ]),
     );
   });
 
   test("the holder can still finish — every other exit from in_flight stays legal", () => {
     // The rule bites on in_flight -> in_flight and nothing else. If it caught the exits too,
-    // a claimed node could never be released by anybody, including resume.
+    // a claimed activity could never be released by anybody, including resume.
     accepted(
       attempt(claimed, [
-        { op: "set_status", node: "read-the-schemas", status: "done", evidence_ref: "log#1" },
+        { op: "set_status", activity: "read-the-schemas", status: "done", evidence_ref: "log#1" },
       ]),
     );
     accepted(
       attempt(claimed, [
-        { op: "set_status", node: "read-the-schemas", status: "active", evidence_ref: "resume:stale-claim" },
+        { op: "set_status", activity: "read-the-schemas", status: "active", evidence_ref: "resume:stale-claim" },
       ]),
     );
   });

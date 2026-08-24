@@ -53,7 +53,7 @@ const source = resolveSource();
  * swallowed: a `window` error listener matching that message stops React Flow finishing its
  * measuring pass and every edge on the canvas disappears. Measured twice; see `useTween.ts`.
  *
- * The second is the module swap itself, which repeatedly left React Flow holding nodes and no
+ * The second is the module swap itself, which repeatedly left React Flow holding activities and no
  * edges until a full reload. Both go away here, and the price is pressing reload after an edit.
  *
  *     KONA_DEV_HMR=1 bun run dev

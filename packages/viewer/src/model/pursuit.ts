@@ -38,7 +38,7 @@ import type { Instant, PursuitView } from "./types.ts";
  *
  * An unparseable stamp is left out rather than defaulted. A missing entry is a case every
  * consumer already handles, and handles by saying so in words; a `NaN` or an epoch zero would
- * silently produce a deadline in 1970 and paint the node blown.
+ * silently produce a deadline in 1970 and paint the activity blown.
  */
 export function versionTimeOf(records: readonly MutationRecord[]): Map<number, Instant> {
   const times = new Map<number, Instant>();
@@ -50,15 +50,15 @@ export function versionTimeOf(records: readonly MutationRecord[]): Map<number, I
 }
 
 /**
- * Node id → the moment it first *succeeded*. The clock a `{after, duration}` deadline runs
+ * Activity id → the moment it first *succeeded*. The clock a `{after, duration}` deadline runs
  * from, and the reason this map exists at all.
  *
- * The tempting one-liner is `versionTime.get(node.status.observed_at_version)`, and it is
- * wrong. `observed_at_version` is the LAST version to touch the node, and §6.4 makes
+ * The tempting one-liner is `versionTime.get(activity.status.observed_at_version)`, and it is
+ * wrong. `observed_at_version` is the LAST version to touch the activity, and §6.4 makes
  * `record_outcome` and `record_output` legal against a terminal one: a delivery receipt or a
  * §6.5 `late` reply landing an hour after the send would move `observed_at_version` forward,
  * slide the downstream deadline with it, and turn a wait the store considers blown back into
- * one that is quietly counting down. The moment a node finished cannot be revised by learning
+ * one that is quietly counting down. The moment an activity finished cannot be revised by learning
  * something else about it afterwards, so it is recorded when it happens and never again —
  * hence FIRST occurrence only, even if a later version sets `done` a second time.
  *
@@ -73,7 +73,7 @@ export function completionTimeOf(records: readonly MutationRecord[]): Map<string
     if (Number.isNaN(at)) continue;
     for (const op of record.ops) {
       if (op.op !== "set_status" || op.status !== TERMINAL_SUCCESS_STATUS) continue;
-      if (!times.has(op.node)) times.set(op.node, at);
+      if (!times.has(op.activity)) times.set(op.activity, at);
     }
   }
   return times;
@@ -83,7 +83,7 @@ export function completionTimeOf(records: readonly MutationRecord[]): Map<string
  * `upToVersion` is read-only time travel (§6.10 rule 6), and it is not a revert: nothing is
  * written, nothing is removed, and head is still head — the caller simply folds fewer lines.
  * Both time maps are built from the same truncated record list on purpose, so a deadline
- * anchored to a node that has not finished *yet at this version* reads as unarmed rather than
+ * anchored to an activity that has not finished *yet at this version* reads as unarmed rather than
  * borrowing a time from a future the reader is not looking at.
  */
 export function buildPursuit(logText: string, upToVersion?: number): PursuitView {

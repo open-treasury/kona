@@ -6,9 +6,9 @@
  * derived from the same single source. There is no second list to forget to update.
  */
 
-/** §6.2 — two node types. `quorum` was folded into `wait{match:predicate}` in pass three. */
-export const NODE_TYPES = ["task", "wait"] as const;
-export type NodeType = (typeof NODE_TYPES)[number];
+/** §6.2 — two activity types. `quorum` was folded into `wait{match:predicate}` in pass three. */
+export const ACTIVITY_TYPES = ["task", "wait"] as const;
+export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
 /** §6.2 — five statuses. */
 export const STATUSES = ["active", "in_flight", "done", "failed", "dropped"] as const;
@@ -16,7 +16,7 @@ export type Status = (typeof STATUSES)[number];
 
 /**
  * §6.2 — `sending` is deliberately NOT terminal: it means the real world's answer is
- * unknown, not that the node resolved.
+ * unknown, not that the activity resolved.
  */
 export const TERMINAL_STATUSES = ["done", "failed", "dropped"] as const;
 export type TerminalStatus = (typeof TERMINAL_STATUSES)[number];
@@ -76,18 +76,18 @@ export const EDGE_CONDITIONS = [
 ] as const;
 export type EdgeCondition = (typeof EDGE_CONDITIONS)[number];
 
-/** §6.2 — how reversible this node's effect on the world is. */
+/** §6.2 — how reversible this activity's effect on the world is. */
 export const EFFECT_CLASSES = ["pure", "reversible", "compensatable", "pivot"] as const;
 export type EffectClass = (typeof EFFECT_CLASSES)[number];
 
-/** §6.6 — a node in one of these classes moves bytes we cannot take back. */
+/** §6.6 — an activity in one of these classes moves bytes we cannot take back. */
 export const IRREVERSIBLE_EFFECT_CLASSES = ["compensatable", "pivot"] as const;
 
 export function isIrreversible(effectClass: EffectClass): boolean {
   return (IRREVERSIBLE_EFFECT_CLASSES as readonly string[]).includes(effectClass);
 }
 
-/** §6.2 — required when a node has more than one blocking in-edge. */
+/** §6.2 — required when an activity has more than one blocking in-edge. */
 export const MERGE_MODES = ["all", "any"] as const;
 export type MergeMode = (typeof MERGE_MODES)[number];
 
@@ -124,12 +124,12 @@ export type TriggerRelation = (typeof TRIGGER_RELATIONS)[number];
 
 /** §6.4 — the six ops. There is no seventh, and no opcode is reserved for one. */
 export const OP_KINDS = [
-  "add_node",
+  "add_activity",
   "add_edge",
   "set_status",
   "record_outcome",
   "record_output",
-  "supersede_node",
+  "supersede_activity",
 ] as const;
 export type OpKind = (typeof OP_KINDS)[number];
 
@@ -146,9 +146,9 @@ export const FORBIDDEN_OP_KINDS = [
   "reparent",
 ] as const;
 
-/** §6.4 — ops that are legal against a terminal node. Everything else is invariant 1. */
+/** §6.4 — ops that are legal against a terminal activity. Everything else is invariant 1. */
 export const TERMINAL_SAFE_OP_KINDS = [
-  "supersede_node",
+  "supersede_activity",
   "record_outcome",
   "record_output",
 ] as const;

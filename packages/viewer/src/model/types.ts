@@ -9,7 +9,7 @@
  * opinion, and the store's is the only one that counts.
  */
 
-import type { EdgeCondition, Graph, MutationRecord, Node, OpKind } from "@kona/core";
+import type { EdgeCondition, Graph, MutationRecord, Activity, OpKind } from "@kona/core";
 
 /** Milliseconds since the epoch. Passed in, never read from the clock inside a pure module. */
 export type Instant = number;
@@ -21,7 +21,7 @@ export type Instant = number;
 /**
  * Rule 8's three colours, plus the three states a wait can be in that are not about waiting.
  *
- * `unarmed` is the honest answer for a wait whose deadline is anchored to a node that has not
+ * `unarmed` is the honest answer for a wait whose deadline is anchored to an activity that has not
  * finished: there is no countdown to show yet, and showing `awaiting` would imply a clock is
  * running.
  *
@@ -76,7 +76,7 @@ export interface PredicateCount {
 }
 
 // ---------------------------------------------------------------------------
-// Blocked reason (§6.10 rule 4 — "for a blocked node the reason as text")
+// Blocked reason (§6.10 rule 4 — "for a blocked activity the reason as text")
 // ---------------------------------------------------------------------------
 
 export type Readiness = "ready" | "blocked" | "running" | "settled" | "superseded";
@@ -90,7 +90,7 @@ export interface BlockedReason {
    * True when **any** unsatisfied in-edge can never be satisfied.
    *
    * Any, not every: `isReady` requires *every* in-edge satisfied, so one permanently dead
-   * blocker settles it and the node can never reach the frontier again, whatever the others
+   * blocker settles it and the activity can never reach the frontier again, whatever the others
    * do next. This is the state that silently hangs a pursuit, so it is named.
    */
   unreachable: boolean;
@@ -109,16 +109,16 @@ export interface BlockedCause {
     | "wrong-resolution" // source resolved, but fired a different condition
     | "failed" // source is `failed`
     | "dropped" // source is `dropped` — never satisfies readiness (§6.4)
-    | "missing"; // edge points at a node that is not in the graph
+    | "missing"; // edge points at an activity that is not in the graph
   text: string;
 }
 
 // ---------------------------------------------------------------------------
-// The per-node view
+// The per-activity view
 // ---------------------------------------------------------------------------
 
-export interface NodeView {
-  node: Node;
+export interface ActivityView {
+  activity: Activity;
   readiness: Readiness;
   /** Null unless `readiness === "blocked"`. */
   blocked: BlockedReason | null;
@@ -129,10 +129,10 @@ export interface NodeView {
   /** The version that created it, and the version that last observed it. */
   createdAtVersion: number;
   observedAtVersion: number;
-  /** Set on a node whose effect moves bytes we cannot take back (§6.6). */
+  /** Set on an activity whose effect moves bytes we cannot take back (§6.6). */
   irreversible: boolean;
   /**
-   * Nothing has to happen before this — the activity diagram's initial node.
+   * Nothing has to happen before this — the activity diagram's initial activity.
    *
    * Computed over flow (dependencies plus timeout routes), so the escalation every wait
    * escapes to is NOT one, even though nothing depends on it.
@@ -142,16 +142,16 @@ export interface NodeView {
    * Nothing depends on this **at this version** — and that wording is the whole caveat.
    *
    * §6.1 makes the topology mutate mid-run, so this is not the activity diagram's *final*
-   * node: a leaf today grows children tomorrow, which is the claim rather than an edge case.
-   * A superseded node is neither a start nor an end; it was replaced.
+   * activity: a leaf today grows children tomorrow, which is the claim rather than an edge case.
+   * A superseded activity is neither a start nor an end; it was replaced.
    */
   isEnd: boolean;
 }
 
 export interface GraphView {
   version: number;
-  nodes: NodeView[];
-  byId: Map<string, NodeView>;
+  activities: ActivityView[];
+  byId: Map<string, ActivityView>;
   /** Ids on the ready frontier, insertion order — straight from `readyFrontier`. */
   frontier: string[];
   /** Insertion-order index, so visual order can be pinned by it (rule 7). */
@@ -189,8 +189,8 @@ export interface GraphDiff {
 
 export interface TimelineOp {
   kind: OpKind;
-  /** The node the op is about; for `add_edge`, `to`. */
-  node: string;
+  /** The activity the op is about; for `add_edge`, `to`. */
+  activity: string;
   /** Human phrasing: "added", "→ done", "declined", "superseded by …". */
   detail: string;
 }
@@ -230,12 +230,12 @@ export interface PursuitView {
   /** Version → the moment the store observed it. */
   versionTime: Map<number, Instant>;
   /**
-   * Node id → the moment it *succeeded*, for the nodes that have.
+   * Activity id → the moment it *succeeded*, for the activities that have.
    *
-   * This is what a `{after: node, duration}` deadline is anchored to, and it is emphatically
-   * not `versionTime.get(node.status.observed_at_version)`: `observed_at_version` is the LAST
-   * version to touch the node, and §6.4 makes `record_outcome` and `record_output` legal
-   * against a terminal node. A delivery receipt or a §6.5 `late` reply landing afterwards
+   * This is what a `{after: activity, duration}` deadline is anchored to, and it is emphatically
+   * not `versionTime.get(activity.status.observed_at_version)`: `observed_at_version` is the LAST
+   * version to touch the activity, and §6.4 makes `record_outcome` and `record_output` legal
+   * against a terminal activity. A delivery receipt or a §6.5 `late` reply landing afterwards
    * would slide the deadline forward and turn a blown wait back into a running one.
    *
    * Only a terminal *success* counts, for the same reason `satisfiesBlockingEdge` does: a send

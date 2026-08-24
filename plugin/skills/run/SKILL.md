@@ -14,7 +14,7 @@ or a week's gap costs you nothing.
 
 ⚖ **The `kona` binary never calls a model.** It answers *what is ready*, *did a reply
 arrive*, *has the deadline passed*, *is this batch legal*. You answer *did Dana say yes*,
-*what should the plan become*, *what does this node's work involve*. Keep that line sharp:
+*what should the plan become*, *what does this activity's work involve*. Keep that line sharp:
 if you find yourself doing arithmetic the CLI could do, ask the CLI.
 
 ---
@@ -44,33 +44,33 @@ output. If it says **NEEDS A HUMAN**, stop and see step 6.
 kona next --json
 ```
 
-**`next` returns the whole frontier, not one node — dispatch all of it at once.** §6.7's
+**`next` returns the whole frontier, not one activity — dispatch all of it at once.** §6.7's
 role-scoped write authority is what makes that safe: you own topology, each executor writes
-only its own node's status and output, so concurrent executors never touch the same region.
+only its own activity's status and output, so concurrent executors never touch the same region.
 A frontier of thirty invitations is thirty executors, not thirty turns.
 
-For each node it returns:
+For each activity it returns:
 
 ```bash
-kona brief <node-id>
+kona brief <activity-id>
 ```
 
-`brief` exits **non-zero** when the node is not actually dispatchable — that is not advice,
-it is a refusal. Do not dispatch a node whose brief exited non-zero.
+`brief` exits **non-zero** when the activity is not actually dispatchable — that is not advice,
+it is a refusal. Do not dispatch an activity whose brief exited non-zero.
 
 **Claim the whole frontier in one batch before you dispatch any of it**, so the graph says
 what is being worked rather than only what is ready, and so a second orchestrator cannot
-hand the same node to a second executor:
+hand the same activity to a second executor:
 
 ```jsonc
 [
-  { "op": "set_status", "node": "ask-dana", "status": "in_flight", "evidence_ref": "claim" },
-  { "op": "set_status", "node": "ask-sam",  "status": "in_flight", "evidence_ref": "claim" }
+  { "op": "set_status", "activity": "ask-dana", "status": "in_flight", "evidence_ref": "claim" },
+  { "op": "set_status", "activity": "ask-sam",  "status": "in_flight", "evidence_ref": "claim" }
 ]
 ```
 
 One batch, because one commit is cheaper than N and the whole frontier is one decision. A
-node already claimed refuses with `ALREADY_CLAIMED` — somebody else is on it; take the rest
+activity already claimed refuses with `ALREADY_CLAIMED` — somebody else is on it; take the rest
 and move on. If you believe the holder is gone, `kona resume` returns abandoned claims to
 the frontier: nothing was sent, so nothing needs a human.
 
@@ -103,15 +103,15 @@ For each match, read the message, then commit the outcome:
 
 ```jsonc
 [
-  { "op": "record_outcome", "node": "wait-for-dana", "verdict": "confirmed",
+  { "op": "record_outcome", "activity": "wait-for-dana", "verdict": "confirmed",
     "evidence_ref": "<m-201@mail>", "attrs": { "role": "goalie" } },
-  { "op": "set_status", "node": "wait-for-dana", "status": "done",
+  { "op": "set_status", "activity": "wait-for-dana", "status": "done",
     "evidence_ref": "<m-201@mail>" }
 ]
 ```
 
 Substitute the wait's real id and the reply's real `message_id`. Both examples above are
-literal, valid ops — a node id must match `[a-z0-9][a-z0-9-]*`, so a placeholder like
+literal, valid ops — an activity id must match `[a-z0-9][a-z0-9-]*`, so a placeholder like
 `<the wait>` is rejected on arrival.
 
 **`evidence_ref` must be the literal `message_id`.** It is also the dedupe key — get it
@@ -137,7 +137,7 @@ Three cases the contract names, because a retry loop never converges on them:
 
 This is the part that matters, and **it is automatic**. You do not ask permission to change
 the shape of the graph. Fan out, reroute, add a follow-up, obviate a branch, supersede a
-node with its compensation, re-plan a whole arm — commit it with `kona mutate` and a
+activity with its compensation, re-plan a whole arm — commit it with `kona mutate` and a
 rationale that says why.
 
 Adaptive workflow systems died because changing the plan was expensive and blameful.
@@ -163,7 +163,7 @@ exit `3`, re-read the graph and **re-decide**; never resubmit the same batch.
   waiting on the world. Say so and stop.
 - `kona resume` reports **NEEDS A HUMAN** → an irreversible send was reserved and never
   resolved. **Do not retry it and do not send anything.** The log genuinely cannot say
-  whether those bytes reached anybody; only the mailbox can. Show the operator the node,
+  whether those bytes reached anybody; only the mailbox can. Show the operator the activity,
   the `effect_key` and the recipient, and stop.
 - Something is refused twice for the same reason → stop and explain. A third attempt is a
   loop.
@@ -177,7 +177,7 @@ Everything above is automatic. Exactly one thing is not:
 > **A mutation that creates a new irreversible effect targeting a recipient the graph has
 > never seen.**
 
-Concretely: you are about to add a node with `effect_class` of `pivot` or `compensatable`
+Concretely: you are about to add an activity with `effect_class` of `pivot` or `compensatable`
 whose `recipient_ref` does not resolve to something already in the graph with evidence
 behind it.
 
@@ -194,7 +194,7 @@ The store enforces this too and will reject the batch. But you should never make
 find the person's actual reference in the graph first, or ask.
 
 Gate the **class**, never the individual mutation. Once a human has said "yes, Marcus is
-real, here is his address", Marcus is evidenced and subsequent nodes addressing him are
+real, here is his address", Marcus is evidenced and subsequent activities addressing him are
 automatic like everything else.
 
 ---
@@ -205,7 +205,7 @@ automatic like everything else.
   in your head goes stale the moment the graph changes, and the graph changes constantly.
 - **Do not re-derive readiness.** If it is not in `kona next`, it is not ready — even if it
   looks ready to you. Readiness fails safe on purpose.
-- **Do not re-execute anything.** A node with a recorded send is never dispatched again;
+- **Do not re-execute anything.** An activity with a recorded send is never dispatched again;
   the CLI refuses. If you find yourself wanting to, read `kona brief` and believe it.
 - **Do not summarise a brief before handing it over.**
 - **Do not batch unrelated events.** One external event, one commit. It keeps the rationale

@@ -13,7 +13,7 @@ Then `/kona:plan <what you are trying to get done>`.
 |---|---|
 | `/kona:plan` | author a pursuit from a brief — a batch of typed ops the CLI validates |
 | `/kona:run` | the loop: dispatch what is ready, take in replies, change the plan |
-| `kona-executor` | subagent; does one node from its brief, returns `EXECUTED` / `COMPOSED` / `REFUSED` |
+| `kona-executor` | subagent; does one activity from its brief, returns `EXECUTED` / `COMPOSED` / `REFUSED` |
 | `SessionStart` hook | reports an open pursuit's status. **Reports — it never writes** |
 | `bin/kona` | the CLI. Plugin `bin/` is on the Bash PATH, so skills just say `kona` |
 
@@ -24,7 +24,7 @@ produced four stuck-gate defects. But the spec writes ops in a shorthand that is
 parseable JSON, so "verbatim" has to mean *the shape the CLI accepts* —
 `packages/kona/test/plugin-catalogue.test.ts` extracts every JSON example in these files and
 runs it through the real parser. If the schema moves and the prompt does not, that test
-fails. It has already caught one: `"node": "<the wait>"` is not a valid node id, and a model
+fails. It has already caught one: `"activity": "<the wait>"` is not a valid activity id, and a model
 copying it literally would have been rejected on arrival.
 
 **Mutation is automatic, with exactly one gate.** Every topology change — fan-out, reroute,

@@ -20,11 +20,11 @@ describe("the parser runs first, and free", () => {
   });
 
   test("rejects a non-array batch", () => {
-    expect(parseBatch({ op: "add_node" }).ok).toBe(false);
+    expect(parseBatch({ op: "add_activity" }).ok).toBe(false);
   });
 
   test("rejects an unknown op, because no seventh opcode is reserved", () => {
-    expect(parseBatch([{ op: "delete_node", node: "x" }]).ok).toBe(false);
+    expect(parseBatch([{ op: "delete_node", activity: "x" }]).ok).toBe(false);
   });
 
   test("rejects an unrecognised key rather than dropping it silently", () => {
@@ -73,7 +73,7 @@ describe("effect rules", () => {
     );
   });
 
-  test("an effect block on a pure node is rejected — it would never be reserved", () => {
+  test("an effect block on a pure activity is rejected — it would never be reserved", () => {
     const ops = [
       task("Send", {
         effect_class: "pure",
@@ -113,13 +113,13 @@ describe("references", () => {
   });
 
   test("rejects an id that is not in the id alphabet", () => {
-    expect(reject([{ op: "set_status", node: "Goalie/Dana", status: "done", evidence_ref: "e" }]))
-      .toContain("node id");
+    expect(reject([{ op: "set_status", activity: "Goalie/Dana", status: "done", evidence_ref: "e" }]))
+      .toContain("activity id");
   });
 
   test("rejects an unknown status, verdict or condition", () => {
-    expect(parseBatch([{ op: "set_status", node: "a", status: "running", evidence_ref: "e" }]).ok).toBe(false);
-    expect(parseBatch([{ op: "record_outcome", node: "a", verdict: "maybe", evidence_ref: "e" }]).ok).toBe(false);
+    expect(parseBatch([{ op: "set_status", activity: "a", status: "running", evidence_ref: "e" }]).ok).toBe(false);
+    expect(parseBatch([{ op: "record_outcome", activity: "a", verdict: "maybe", evidence_ref: "e" }]).ok).toBe(false);
     expect(parseBatch([{ op: "add_edge", from: "a", to: "b", condition: { on: "later" } }]).ok).toBe(false);
   });
 });

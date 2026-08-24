@@ -1,7 +1,7 @@
 /**
  * What a version DID, in one line a person can read.
  *
- * The panel used to put the op list where this line goes — `add_edge`, `supersede_node`, a node
+ * The panel used to put the op list where this line goes — `add_edge`, `supersede_activity`, an activity
  * id truncated at the panel's edge. That is the record, and it is not a summary: reading four
  * opcodes to work out that two steps were added is work the row should have done for you.
  *
@@ -19,7 +19,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 /**
  * The list-of-two joiner English actually uses. `and` rather than a comma, because "added 2
- * nodes, 2 edges" reads as a list that got cut off and "added 2 nodes and 2 edges" does not.
+ * activities, 2 edges" reads as a list that got cut off and "added 2 activities and 2 edges" does not.
  */
 function conjoin(parts: readonly string[]): string {
   if (parts.length <= 1) return parts[0] ?? "";
@@ -30,14 +30,14 @@ function conjoin(parts: readonly string[]): string {
  * Status changes are named ONLY when nothing else happened.
  *
  * Not because they do not matter — they are most of what a live pursuit does — but because a
- * version that adds two nodes, wires an edge and retires two branches has already said the
+ * version that adds two activities, wires an edge and retires two branches has already said the
  * interesting thing, and appending "and 2 status changes" to that pushes the line to two rows
  * to report the least surprising part of it. On a version that changed nothing else, the same
  * fact is the entire content of the line, and it carries rule 2's evidence with it.
  */
 function topologySegments(diff: GraphDiff): string[] {
   const added: string[] = [];
-  if (diff.addedNodes.length > 0) added.push(plural(diff.addedNodes.length, "node"));
+  if (diff.addedNodes.length > 0) added.push(plural(diff.addedNodes.length, "activity", "activities"));
   if (diff.addedEdges.length > 0) added.push(plural(diff.addedEdges.length, "edge"));
 
   const segments: string[] = [];

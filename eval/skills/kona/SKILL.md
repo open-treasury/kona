@@ -47,11 +47,11 @@ other, do not chain them: leave them both on the frontier and let them be ready 
 ```bash
 cat > /tmp/plan.json <<'EOF'
 [
-  {"op":"add_node","name":"Read the ERP tables","type":"task",
+  {"op":"add_activity","name":"Read the ERP tables","type":"task",
    "spec":{"instruction":"Dump the work orders and the SKU lines.","effect_class":"pure"}},
-  {"op":"add_node","name":"Read the MES queue","type":"task",
+  {"op":"add_activity","name":"Read the MES queue","type":"task",
    "spec":{"instruction":"Dump the dispatch queue and the WIP rows.","effect_class":"pure"}},
-  {"op":"add_node","name":"Build the schedule","type":"task",
+  {"op":"add_activity","name":"Build the schedule","type":"task",
    "spec":{"instruction":"Place every released order inside its window.","effect_class":"pure"}},
   {"op":"add_edge","from":"$0","to":"$2"},
   {"op":"add_edge","from":"$1","to":"$2"}
@@ -68,24 +68,24 @@ Ask of every edge: *does the target actually need the source to be finished?* If
 answer is "no, I just planned to do it afterwards", there is no edge.
 
 **Your first commit does not have to be the whole plan, and it does not have to be first.**
-Two nodes and an edge is a plan — commit it before you know the rest, and commit it even if you
+Two activities and an edge is a plan — commit it before you know the rest, and commit it even if you
 are already twenty commands in. Recording what you have learned so far is worth more than the
 plan you would have written at the start. §4 is how the remainder arrives, and it is the normal
 case, not a fallback. Waiting until you can see the whole decomposition is how you end up
 never starting.
 
 When you need more than a chain — a fan-out, a step whose output you want recorded, anything
-that contacts the world — author the ops directly. Decompose what you can see now into nodes
-with dependencies. Every node is `"type":"task"` and
+that contacts the world — author the ops directly. Decompose what you can see now into activities
+with dependencies. Every activity is `"type":"task"` and
 `"effect_class":"pure"` — nothing here contacts anybody.
 
 ```bash
 cat > /tmp/v1.json <<'EOF'
 [
-  {"op":"add_node","name":"Read the failing test","type":"task",
+  {"op":"add_activity","name":"Read the failing test","type":"task",
    "spec":{"instruction":"Run the suite and record which assertions fail.",
            "outputs":[{"name":"failures","type":"string[]"}],"effect_class":"pure"}},
-  {"op":"add_node","name":"Fix the parser","type":"task",
+  {"op":"add_activity","name":"Fix the parser","type":"task",
    "spec":{"instruction":"Make the failing assertions pass without changing the tests.",
            "outputs":[{"name":"patch","type":"string"}],"effect_class":"pure"}},
   {"op":"add_edge","from":"$0","to":"$1"}
@@ -95,28 +95,28 @@ kona mutate --ops /tmp/v1.json --base-version 0 \
   --why "Read the failure before changing anything." --reason-code MISSING_STEP
 ```
 
-`$0`, `$1` … refer to nodes minted earlier **in the same batch**. An edge `from A to B`
+`$0`, `$1` … refer to activities minted earlier **in the same batch**. An edge `from A to B`
 means **B depends on A**. `--why` is required: no rationale, no commit.
 
 ## 2. Ask what is ready — never decide for yourself
 
 ```bash
 kona next --json
-kona brief <node-id>
+kona brief <activity-id>
 ```
 
-`kona next` is the **only** source of work. `brief` exits non-zero when a node is not
+`kona next` is the **only** source of work. `brief` exits non-zero when an activity is not
 dispatchable; that is a refusal, not advice.
 
 **Claim it before you start**, so the plan says what is being worked and not merely what is
 ready — and so `kona next` stops offering it to you:
 
 ```bash
-printf '[{"op":"set_status","node":"<node-id>","status":"in_flight","evidence_ref":"claim"}]' > /tmp/claim.json
-kona mutate --ops /tmp/claim.json --base-version <head> --why "Starting this node." --reason-code OTHER
+printf '[{"op":"set_status","activity":"<activity-id>","status":"in_flight","evidence_ref":"claim"}]' > /tmp/claim.json
+kona mutate --ops /tmp/claim.json --base-version <head> --why "Starting this activity." --reason-code OTHER
 ```
 
-Then do the node's work with your normal tools. If you never come back, `kona resume` puts it
+Then do the activity's work with your normal tools. If you never come back, `kona resume` puts it
 back on the frontier — nothing was sent, so nothing needs a human.
 
 ## 3. Record what happened
@@ -124,16 +124,16 @@ back on the frontier — nothing was sent, so nothing needs a human.
 ```bash
 cat > /tmp/done.json <<'EOF'
 [
-  {"op":"record_output","node":"read-the-failing-test","output_name":"failures",
+  {"op":"record_output","activity":"read-the-failing-test","output_name":"failures",
    "value":["test_parse_empty"],"evidence_ref":"pytest.log"},
-  {"op":"set_status","node":"read-the-failing-test","status":"done",
+  {"op":"set_status","activity":"read-the-failing-test","status":"done",
    "evidence_ref":"pytest.log"}
 ]
 EOF
 kona mutate --ops /tmp/done.json --base-version <head> --why "Suite run; one assertion fails." --reason-code OTHER
 ```
 
-`evidence_ref` is what you actually looked at — a file, a log, a command. A done node is
+`evidence_ref` is what you actually looked at — a file, a log, a command. A done activity is
 **terminal**: the store refuses to reopen it, so record it only when it is really done.
 
 ## 4. Change the plan — automatically, and say why
@@ -148,7 +148,7 @@ kona mutate --ops /tmp/replan.json --base-version <head> \
   --reason-code PREMISE_BROKEN --alternative "patch the parser anyway"
 ```
 
-Use `supersede_node` to retire a node whose premise is gone, `add_node`/`add_edge` to grow
+Use `supersede_activity` to retire an activity whose premise is gone, `add_activity`/`add_edge` to grow
 the plan. On exit code `3` the head moved: **re-read the graph and re-decide**, never
 resubmit the same batch.
 
@@ -165,7 +165,7 @@ which case step 4 applies and you keep going.
   goes stale the moment the graph changes, and the graph changes constantly.
 - **Do not re-derive readiness.** If it is not in `kona next`, it is not ready — even if it
   looks ready to you.
-- **Do not re-do anything.** A node recorded `done` is terminal and the CLI will refuse to
+- **Do not re-do anything.** An activity recorded `done` is terminal and the CLI will refuse to
   reopen it. If you want to, read `kona brief` and believe it.
 - **Do not batch unrelated events.** One thing learned, one commit. It keeps the rationale
   chain readable.

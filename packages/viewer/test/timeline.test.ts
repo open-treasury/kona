@@ -61,9 +61,9 @@ function withRecord(version: number, patch: (record: Record<string, unknown>) =>
   return foldLog(lines.join("\n"));
 }
 
-/** The rows of one version's ops, as `[kind, node, detail]`, in the order they were committed. */
+/** The rows of one version's ops, as `[kind, activity, detail]`, in the order they were committed. */
 function opRows(version: number): string[][] {
-  return entry(version).ops.map((op) => [op.kind, op.node, op.detail]);
+  return entry(version).ops.map((op) => [op.kind, op.activity, op.detail]);
 }
 
 describe("A6 — every version, newest first, every one explained", () => {
@@ -128,10 +128,10 @@ describe("op details — the wording is the product", () => {
     // requires the roster check. The row hangs off the ask, and names the roster check.
     // It reads the roster and addresses nobody: invariant 3(b) rejects "a recipient
     // existing only in the proposing batch", so the record naming these people has to be
-    // committed before any node may email one of them.
+    // committed before any activity may email one of them.
     expect(opRows(V.roster)).toEqual([
-      ["add_node", "th-ahf6", "added task"],
-      ["add_node", "th-vipt", "added task"],
+      ["add_activity", "th-ahf6", "added task"],
+      ["add_activity", "th-vipt", "added task"],
       ["record_output", "th-ahf6", "output availability"],
       ["set_status", "th-ahf6", "-> done"],
     ]);
@@ -152,7 +152,7 @@ describe("op details — the wording is the product", () => {
 
   test("an output names what was produced, never the value", () => {
     // The roster is a list of real people; the timeline says one was produced and leaves
-    // the reading of it to somebody who opened the node.
+    // the reading of it to somebody who opened the activity.
     expect(opRows(V.roster).filter(([kind]) => kind === "record_output")).toEqual([
       ["record_output", "th-ahf6", "output availability"],
     ]);
@@ -160,7 +160,7 @@ describe("op details — the wording is the product", () => {
 
   test("a send reads as two transitions, and the first is not terminal", () => {
     // The whole of §6.6, as two timeline rows. Nobody watching a pursuit has to be told what
-    // the outbox is; they can see the node sit in `sending` and then move.
+    // the outbox is; they can see the activity sit in `sending` and then move.
     expect(opRows(V.danaReserved)).toEqual([
       ["set_status", "th-nhwd", "-> in flight"],
     ]);
@@ -183,9 +183,9 @@ describe("op details — the wording is the product", () => {
 
   test("the supersede names its replacement", () => {
     expect(opRows(V.rosterSuperseded)).toEqual([
-      ["add_node", "th-five", "added task"],
+      ["add_activity", "th-five", "added task"],
       [
-        "supersede_node",
+        "supersede_activity",
         "th-ahf6",
         "superseded by th-five",
       ],
@@ -194,21 +194,21 @@ describe("op details — the wording is the product", () => {
 
   test("a supersede with no replacement says so, rather than naming nothing", () => {
     // Priya's address bounced 550. Her wait is retired outright — `by` is absent, so
-    // `superseded_by` stays null and the store drops the node instead.
+    // `superseded_by` stays null and the store drops the activity instead.
     expect(opRows(V.patPlanned)).toEqual([
       [
         "record_outcome",
         "th-1ppl",
         "bounced · role=goalie · smtp=550 5.1.1 user unknown",
       ],
-      ["supersede_node", "th-1ppl", "superseded"],
-      ["add_node", "th-gk0l", "added task"],
-      ["add_node", "th-0s7c", "added wait"],
+      ["supersede_activity", "th-1ppl", "superseded"],
+      ["add_activity", "th-gk0l", "added task"],
+      ["add_activity", "th-0s7c", "added wait"],
       ["add_edge", "th-0s7c", "requires th-gk0l"],
       ["add_edge", "th-ymld", "requires th-0s7c on satisfied"],
     ]);
 
-    // Pat's reservation is a version of its own, after the plan that created his node. It
+    // Pat's reservation is a version of its own, after the plan that created his activity. It
     // has to be: `kona effect reserve` is the only thing that issues a slot, and it appends.
     expect(opRows(V.patReserved)).toEqual([
       ["set_status", "th-gk0l", "-> in flight"],

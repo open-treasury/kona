@@ -8,7 +8,7 @@ Anyone who runs agents daily knows the three walls. The plan is invisible — a 
 
 **The demo is a public benchmark, not a scenario we wrote.** Terminal-Bench 3's `production-planning`: reconcile an ERP, an MES and a warehouse system into a schedule that survives twenty constraint checks — shift calendars, downtime, engineering release, lots you must not over-allocate. Four hours of expert time, authored by a manufacturing engineer. The same model runs it twice, side by side, with Kona and without.
 
-Watch the arm that has it. Handed a five-node skeleton and nothing else, the agent read the three systems and authored its own plan against them — **fifteen more nodes and twenty-two edges in a single commit**. It claimed each step before working it, recorded every outcome with a pointer to the evidence, and then, unprompted, hit a constraint it had read wrong: it committed a `supersede_node` carrying the reason code **`CONTRADICTION`** and one sentence saying what it had corrected. That is the entire thesis — a plan changing shape as reality answers, and saying why — happening inside a benchmark container.
+Watch the arm that has it. Handed a five-activity skeleton and nothing else, the agent read the three systems and authored its own plan against them — **fifteen more activities and twenty-two edges in a single commit**. It claimed each step before working it, recorded every outcome with a pointer to the evidence, and then, unprompted, hit a constraint it had read wrong: it committed a `supersede_activity` carrying the reason code **`CONTRADICTION`** and one sentence saying what it had corrected. That is the entire thesis — a plan changing shape as reality answers, and saying why — happening inside a benchmark container.
 
 Then kill it. A fresh terminal reads the file and carries on; there is no session state and no snapshot to rebuild.
 
@@ -16,7 +16,7 @@ Then kill it. A fresh terminal reads the file and carries on; there is no sessio
 
 Inside are four building blocks:
 
-* **memory** — the graph store itself: every node, status, and "why," fully versioned, in one append-only file. Three invariants are enforced in the store rather than advised in a prompt, and the binary never calls a model;
+* **memory** — the graph store itself: every activity, status, and "why," fully versioned, in one append-only file. Three invariants are enforced in the store rather than advised in a prompt, and the binary never calls a model;
 * **plugin** — Claude Code commands that plan, execute, and dispatch fresh-context subagents against the graph — the whole ready frontier at once, not one step at a time;
 * **viewer** — a live view where you watch the graph mutate, pin any version to see exactly what it changed, and click into any decision;
 * **eval** — the measurement rig: the benchmark task, both arms, and the analysis that reports per-constraint results instead of the score that hides them.

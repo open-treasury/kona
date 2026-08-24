@@ -42,22 +42,22 @@ import { AuthoredBatchSchema } from "./schema.ts";
 import {
   type Edge,
   type Graph,
-  type Node,
+  type Activity,
   inEdges,
   isEdgeDead,
-  isNodeTerminal,
+  isActivityTerminal,
 } from "./graph.ts";
 import { applyOps } from "./apply.ts";
 import { named, namedHere, namedIn } from "./named.ts";
 import { normalizeBatch } from "./normalize.ts";
 import { resolveBranches } from "./branch.ts";
 import { evidencedKeys, isEvidencedRecipient } from "./evidence.ts";
-import { MAX_NODE_ID_LENGTH, NODE_ID_PATTERN } from "./ids.ts";
+import { MAX_ACTIVITY_ID_LENGTH, ACTIVITY_ID_PATTERN } from "./ids.ts";
 import { type Verdict, VERDICTS, isResolvingVerdict } from "./vocab.ts";
 import { type Result, ok, refuse, violate } from "./result.ts";
 
 /** §6.7 — only the orchestrator may change the shape of the graph. */
-const TOPOLOGY_OPS = new Set(["add_node", "add_edge", "supersede_node"]);
+const TOPOLOGY_OPS = new Set(["add_activity", "add_edge", "supersede_activity"]);
 
 export function parseBatch(raw: unknown): Result<AuthoredOp[]> {
   const parsed = AuthoredBatchSchema.safeParse(raw);
@@ -91,20 +91,20 @@ export function checkAuthority(actor: Actor, ops: readonly AuthoredOp[]): Result
  * An **op-delta** predicate: each op is tested against **pre-commit head**, never against
  * post-commit state. The difference is the whole invariant. `{from: A, to: B}` means "B
  * requires A", so B's dependency edges point *into* B and survive B completing — a
- * post-state reading of "no blocking edge into a terminal node" would reject every commit
- * from the first completed node onward. Existing edges into terminal nodes are untouched;
- * they record how the node became reachable.
+ * post-state reading of "no blocking edge into a terminal activity" would reject every commit
+ * from the first completed activity onward. Existing edges into terminal activities are untouched;
+ * they record how the activity became reachable.
  */
 export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
   const terminalAtHead = new Set(
-    [...pre.nodes.values()].filter(isNodeTerminal).map((node) => node.id),
+    [...pre.activities.values()].filter(isActivityTerminal).map((activity) => activity.id),
   );
 
-  // A compensation is an added node declaring which executed node it offsets. The
-  // direction matters: the NEW node compensates the OLD one, never the reverse.
+  // A compensation is an added activity declaring which executed activity it offsets. The
+  // direction matters: the NEW activity compensates the OLD one, never the reverse.
   const compensatedInBatch = new Set(
     ops.flatMap((op) =>
-      op.op === "add_node" && typeof op.spec.compensates === "string"
+      op.op === "add_activity" && typeof op.spec.compensates === "string"
         ? [op.spec.compensates]
         : [],
     ),
@@ -114,33 +114,33 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
     if (op.op === "add_edge" && terminalAtHead.has(op.to)) {
       return violate(
         1,
-        "TERMINAL_NODE_PROTECTED",
+        "TERMINAL_ACTIVITY_PROTECTED",
         `cannot add a blocking edge into ${namedIn(pre, op.to)}, which is already terminal`,
-        { node: op.to, op_index: index },
+        { activity: op.to, op_index: index },
       );
     }
 
-    if (op.op === "set_status" && terminalAtHead.has(op.node)) {
+    if (op.op === "set_status" && terminalAtHead.has(op.activity)) {
       return violate(
         1,
-        "TERMINAL_NODE_PROTECTED",
-        `${namedIn(pre, op.node)} is terminal; only supersede_node, record_outcome and record_output may target it`,
-        { node: op.node, op_index: index },
+        "TERMINAL_ACTIVITY_PROTECTED",
+        `${namedIn(pre, op.activity)} is terminal; only supersede_activity, record_outcome and record_output may target it`,
+        { activity: op.activity, op_index: index },
       );
     }
 
-    if (op.op === "supersede_node") {
-      const node = pre.nodes.get(op.node);
+    if (op.op === "supersede_activity") {
+      const activity = pre.activities.get(op.activity);
       if (
-        node !== undefined &&
-        node.status.effect_log.length > 0 &&
-        !compensatedInBatch.has(op.node)
+        activity !== undefined &&
+        activity.status.effect_log.length > 0 &&
+        !compensatedInBatch.has(op.activity)
       ) {
         return violate(
           1,
           "UNCOMPENSATED_SUPERSEDE",
-          `${namedIn(pre, op.node)} has already moved bytes; superseding it requires a compensation in the same batch`,
-          { node: op.node, op_index: index },
+          `${namedIn(pre, op.activity)} has already moved bytes; superseding it requires a compensation in the same batch`,
+          { activity: op.activity, op_index: index },
         );
       }
     }
@@ -153,12 +153,12 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
 // Parser-class refusals that zod cannot express (§6.7 "the parser first, free")
 // ---------------------------------------------------------------------------
 
-/** The declared type of a node this batch can see: from head, or from an earlier op. */
-function nodeTypeOf(pre: Graph, ops: readonly CommittedOp[], id: string): string | null {
-  const existing = pre.nodes.get(id);
+/** The declared type of an activity this batch can see: from head, or from an earlier op. */
+function activityTypeOf(pre: Graph, ops: readonly CommittedOp[], id: string): string | null {
+  const existing = pre.activities.get(id);
   if (existing !== undefined) return existing.type;
   for (const op of ops) {
-    if (op.op === "add_node" && op.id === id) return op.type;
+    if (op.op === "add_activity" && op.id === id) return op.type;
   }
   return null;
 }
@@ -166,11 +166,11 @@ function nodeTypeOf(pre: Graph, ops: readonly CommittedOp[], id: string): string
 /**
  * A claim is exclusive, or it is only advice.
  *
- * `in_flight` takes a node off the frontier so nobody else picks it up — but CAS does not
+ * `in_flight` takes an activity off the frontier so nobody else picks it up — but CAS does not
  * enforce that, and it is worth being precise about why, because it looks like it should.
  * CAS rejects a commit written against a STALE head. A second agent reading AFTER the first
  * claim commits sees a perfectly current head, and its claim passes: measured, two claims on
- * one node, both exit 0. The graph then cannot even say who holds it, because `evidence_ref`
+ * one activity, both exit 0. The graph then cannot even say who holds it, because `evidence_ref`
  * lives in the op and not in the folded status.
  *
  * So the rule is a transition rule: **`active -> in_flight` is legal; `in_flight ->
@@ -179,18 +179,18 @@ function nodeTypeOf(pre: Graph, ops: readonly CommittedOp[], id: string): string
  *
  * Deliberately NOT extended to the other transitions out of `in_flight`: recording an
  * outcome, finishing, superseding, and `resume`'s repair back to `active` all stay legal, or
- * a claimed node could never be released by anybody.
+ * a claimed activity could never be released by anybody.
  */
 function checkClaimExclusivity(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
   for (const [index, op] of ops.entries()) {
     if (op.op !== "set_status" || op.status !== "in_flight") continue;
-    if (pre.nodes.get(op.node)?.status.state !== "in_flight") continue;
+    if (pre.activities.get(op.activity)?.status.state !== "in_flight") continue;
     return refuse(
       "ALREADY_CLAIMED",
-      `${namedHere(pre, ops, op.node)} is already in flight — somebody else claimed it and ` +
+      `${namedHere(pre, ops, op.activity)} is already in flight — somebody else claimed it and ` +
       `has not finished. ` +
-        "Take another node from `kona next`, or run `kona resume` if you believe the holder is gone",
-      { node: op.node, op_index: index },
+        "Take another activity from `kona next`, or run `kona resume` if you believe the holder is gone",
+      { activity: op.activity, op_index: index },
     );
   }
   return ok(null);
@@ -202,7 +202,7 @@ function checkClaimExclusivity(pre: Graph, ops: readonly CommittedOp[]): Result<
  *
  * Asserted in three places and enforced in none until now. It cannot be a zod rule:
  * `add_edge` carries `from` as an id, never the source's type, which lives in head or in an
- * earlier `add_node` of the same batch. Branch resolution depends on it — an unconditioned
+ * earlier `add_activity` of the same batch. Branch resolution depends on it — an unconditioned
  * out-edge of a wait has no resolution to compare against, so it is neither taken nor
  * untaken, and the arm behind it would silently survive its own gate.
  */
@@ -212,14 +212,14 @@ function checkWaitEdgeConditions(
 ): Result<null> {
   for (const [index, op] of ops.entries()) {
     if (op.op !== "add_edge" || op.condition !== undefined) continue;
-    if (nodeTypeOf(pre, ops, op.from) !== "wait") continue;
+    if (activityTypeOf(pre, ops, op.from) !== "wait") continue;
     return refuse(
       "UNCONDITIONED_WAIT_EDGE",
       `edge ${namedHere(pre, ops, op.from)} -> ${namedHere(pre, ops, op.to)} leaves a wait ` +
         `without a ` +
         `condition; an ignored or ` +
         `timed-out wait would clear it and fire the branch unapproved (§6.2)`,
-      { node: op.from, op_index: index },
+      { activity: op.from, op_index: index },
     );
   }
   return ok(null);
@@ -232,7 +232,7 @@ function checkWaitEdgeConditions(
  * that existed at head, so an edge born dead is never derived from and must be refused
  * instead. Refusing it here makes the outcome identical whether the killing ops arrived in
  * this batch or an earlier one — otherwise the same authored ops would produce a dropped
- * node when committed together and a permanently unreachable one when split in two.
+ * activity when committed together and a permanently unreachable one when split in two.
  *
  * It cannot become invariant 1's old state-predicate bug: it looks only at edges this batch
  * adds, so an unrelated later commit has nothing to test.
@@ -249,7 +249,7 @@ function checkDeadOnArrivalEdge(
       ...(op.condition === undefined ? {} : { condition: op.condition }),
     };
     if (!isEdgeDead(interim, edge)) continue;
-    const source = interim.nodes.get(op.from);
+    const source = interim.activities.get(op.from);
     const from = namedHere(interim, ops, op.from);
     const because =
       source?.status.state === "dropped"
@@ -258,7 +258,7 @@ function checkDeadOnArrivalEdge(
     return refuse(
       "DEAD_ON_ARRIVAL_EDGE",
       `edge ${from} -> ${namedHere(interim, ops, op.to)} ${because}; it can never fire`,
-      { node: op.to, op_index: index },
+      { activity: op.to, op_index: index },
     );
   }
   return ok(null);
@@ -294,17 +294,17 @@ export function parseRecipientRef(raw: string): RecipientRef | null {
   const [scope, key] = parts;
   if (parts.length !== 2 || scope === undefined || key === undefined) return null;
   if (!RECIPIENT_SCOPE.test(scope)) return null;
-  if (key.length > MAX_NODE_ID_LENGTH || !NODE_ID_PATTERN.test(key)) return null;
+  if (key.length > MAX_ACTIVITY_ID_LENGTH || !ACTIVITY_ID_PATTERN.test(key)) return null;
   return { scope, key };
 }
 
 function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
-  // Built once, lazily: most batches add no effect node at all, and walking every node's
+  // Built once, lazily: most batches add no effect activity at all, and walking every activity's
   // outputs and outcomes to prove nothing is the wrong price for the common case.
   let evidenced: Set<string> | null = null;
 
   for (const [index, op] of ops.entries()) {
-    if (op.op !== "add_node" || op.spec.effect === undefined) continue;
+    if (op.op !== "add_activity" || op.spec.effect === undefined) continue;
     const raw = op.spec.effect.recipient_ref;
     const ref = parseRecipientRef(raw);
     if (ref !== null) {
@@ -321,7 +321,7 @@ function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<nul
           `that could not satisfy a constraint invented counterparties and queued real email ` +
           `to them, passing every other check. Record where '${ref.key}' came from first, or ` +
           `ask a human.`,
-        { node: op.id, op_index: index },
+        { activity: op.id, op_index: index },
       );
     }
     // A literal address gets its own reason. It is the one malformed shape that would
@@ -331,7 +331,7 @@ function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<nul
         "LITERAL_RECIPIENT_ADDRESS",
         `recipient_ref '${raw}' is a literal address; §6.2 requires a ref — '<scope>#<key>' ` +
           `— so the store can check who is being emailed against what the graph was told`,
-        { node: op.id, op_index: index },
+        { activity: op.id, op_index: index },
       );
     }
     return refuse(
@@ -339,8 +339,8 @@ function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<nul
       `recipient_ref '${raw}' on ${named(op)} is not a '<scope>#<key>' reference: expected ` +
         `exactly one '#', ` +
         `a dotted lowercase scope, and a key matching [a-z0-9][a-z0-9-]* of at most ` +
-        `${MAX_NODE_ID_LENGTH} characters (§6.2, e.g. 'roster.contacts#dana')`,
-      { node: op.id, op_index: index },
+        `${MAX_ACTIVITY_ID_LENGTH} characters (§6.2, e.g. 'roster.contacts#dana')`,
+      { activity: op.id, op_index: index },
     );
   }
   return ok(null);
@@ -422,9 +422,9 @@ export function parseCountPredicate(value: unknown): CountPredicate | null {
 }
 
 /** The parseable predicate arms of a wait. §6.5's `conditions` is an or-group. */
-function predicateArms(node: Node): CountPredicate[] {
-  if (node.type !== "wait" || node.spec.match?.kind !== "predicate") return [];
-  return node.spec.match.conditions.flatMap((condition) => {
+function predicateArms(activity: Activity): CountPredicate[] {
+  if (activity.type !== "wait" || activity.spec.match?.kind !== "predicate") return [];
+  return activity.spec.match.conditions.flatMap((condition) => {
     const parsed = parseCountPredicate(condition.predicate);
     return parsed === null ? [] : [parsed];
   });
@@ -432,14 +432,14 @@ function predicateArms(node: Node): CountPredicate[] {
 
 function checkPredicateGrammar(ops: readonly CommittedOp[]): Result<null> {
   for (const [index, op] of ops.entries()) {
-    if (op.op !== "add_node" || op.type !== "wait") continue;
+    if (op.op !== "add_activity" || op.type !== "wait") continue;
     if (op.spec.match?.kind !== "predicate") continue;
     if (!op.spec.match.conditions.some((condition) => condition.predicate !== undefined)) {
       return refuse(
         "MISSING_PREDICATE",
         `${named(op)} declares match.kind 'predicate' but carries no predicate; nothing would ` +
           `ever count against it, and invariant 2 could never judge it (§6.7)`,
-        { node: op.id, op_index: index },
+        { activity: op.id, op_index: index },
       );
     }
     for (const condition of op.spec.match.conditions) {
@@ -450,7 +450,7 @@ function checkPredicateGrammar(ops: readonly CommittedOp[]): Result<null> {
         `predicate on ${named(op)} is not the §6.7 form ` +
           `{"count":{"verdict":…,"attrs":…},"op":">=","n":…}: 'op' must be '>=', 'n' an ` +
           `integer of at least 1, 'verdict' a resolving verdict, and 'attrs' flat primitives`,
-        { node: op.id, op_index: index },
+        { activity: op.id, op_index: index },
       );
     }
   }
@@ -481,15 +481,15 @@ function attrsMatch(recorded: Record<string, unknown> | undefined, want: Predica
  */
 export function countPredicate(
   graph: Graph,
-  wait: Node,
+  wait: Activity,
   predicate: CountPredicate,
 ): PredicateCount {
   // Deduped by source: `add_edge` refuses only an identical {from,to,condition} triple, so
   // one member wired both bare and conditioned is two legal edges and one member.
   const members = [...new Set(inEdges(graph, wait.id).map((edge) => edge.from))].flatMap(
     (id) => {
-      const node = graph.nodes.get(id);
-      return node === undefined ? [] : [node];
+      const activity = graph.activities.get(id);
+      return activity === undefined ? [] : [activity];
     },
   );
 
@@ -517,7 +517,7 @@ export function countPredicate(
     // absent), and so is `done`-without-a-verdict, because `set_status` then `record_outcome`
     // across two commits is legal and that window must not be a rejection window. `failed`
     // is not: it tried and did not work, and nothing further will arrive.
-    if (!isNodeTerminal(member) || member.status.state === "done") live += 1;
+    if (!isActivityTerminal(member) || member.status.state === "done") live += 1;
   }
 
   return {
@@ -531,11 +531,11 @@ export function countPredicate(
 }
 
 function satisfiableAt(graph: Graph, waitId: string): boolean {
-  const node = graph.nodes.get(waitId);
-  if (node === undefined) return true;
-  const arms = predicateArms(node);
+  const activity = graph.activities.get(waitId);
+  if (activity === undefined) return true;
+  const arms = predicateArms(activity);
   // Nothing parseable to judge, or an or-group with one satisfiable arm (§6.5 first-wins).
-  return arms.length === 0 || arms.some((arm) => countPredicate(graph, node, arm).satisfiable);
+  return arms.length === 0 || arms.some((arm) => countPredicate(graph, activity, arm).satisfiable);
 }
 
 /**
@@ -584,13 +584,13 @@ export function checkInvariant2(
   const derived = new Set(derivedOps);
   if (ops.every((op) => isMechanicalClosure(op, derived))) return ok(null);
 
-  for (const wait of pre.nodes.values()) {
-    if (isNodeTerminal(wait)) continue;
+  for (const wait of pre.activities.values()) {
+    if (isActivityTerminal(wait)) continue;
     // Terminal by the END of this batch — including when the store's own cascade dropped it.
     // A closed wait is not a broken one, and demanding a repair for it would leave `resume`
     // no legal batch at all.
-    const after = post.nodes.get(wait.id);
-    if (after !== undefined && isNodeTerminal(after)) continue;
+    const after = post.activities.get(wait.id);
+    if (after !== undefined && isActivityTerminal(after)) continue;
     if (wait.status.outcome !== null) continue;
     if (wait.provenance.superseded_by !== null) continue;
     const [arm] = predicateArms(wait);
@@ -606,9 +606,9 @@ export function checkInvariant2(
     if (
       ops.some(
         (op) =>
-          (op.op === "supersede_node" && op.node === wait.id) ||
+          (op.op === "supersede_activity" && op.activity === wait.id) ||
           (op.op === "record_outcome" &&
-            op.node === wait.id &&
+            op.activity === wait.id &&
             (op.verdict === "timed_out" || op.verdict === "bounced")),
       )
     ) {
@@ -616,7 +616,7 @@ export function checkInvariant2(
     }
 
     const counted = countPredicate(post, wait, arm);
-    const killed = derivedOps.flatMap((op) => (op.op === "set_status" ? [op.node] : []));
+    const killed = derivedOps.flatMap((op) => (op.op === "set_status" ? [op.activity] : []));
     return violate(
       2,
       "PREDICATE_UNSATISFIABLE",
@@ -627,7 +627,7 @@ export function checkInvariant2(
           ? `; branch resolution dropped ${killed.map((id) => namedIn(pre, id)).join(", ")}`
           : "") +
         `; add a live member in this batch, or supersede the wait`,
-      { node: wait.id },
+      { activity: wait.id },
     );
   }
 
@@ -657,7 +657,7 @@ export interface ValidateOutput {
   /** The subset of `ops` the store derived (§6.4). Always a suffix of `ops`. */
   derived: CommittedOp[];
   /**
-   * Nodes on an untaken branch the store refused to rewrite — `sending`, or bytes already
+   * Activities on an untaken branch the store refused to rewrite — `sending`, or bytes already
    * moved. Not a rejection: the commit stands and each of these is a human's decision.
    */
   withheld: string[];
@@ -702,7 +702,7 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
   const resolution = resolveBranches(input.graph, interim.value);
   const ops = [...normalized.value, ...resolution.drops];
 
-  // Over the EXPANDED array. Derived ops are `set_status` against nodes non-terminal in the
+  // Over the EXPANDED array. Derived ops are `set_status` against activities non-terminal in the
   // interim graph, so they cannot trip the terminal clause themselves; and because authored
   // ops keep indices 0..n-1 and the loop returns the first violation, a reported `op_index`
   // still points at something the author actually wrote.

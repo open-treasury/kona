@@ -8,12 +8,12 @@
  *
  * The completion index every deadline is anchored to is the one `pursuit.ts` builds, not a
  * copy of it. Rebuilding it here would let the two drift, and the drift is exactly the bug:
- * anchoring a `{after}` deadline to the wrong version of the wrong node is invisible at head
+ * anchoring a `{after}` deadline to the wrong version of the wrong activity is invisible at head
  * on this fixture and only shows up once a receipt lands after the send.
  */
 
 import { describe, expect, test } from "bun:test";
-import type { Graph, Node } from "@kona/core";
+import type { Graph, Activity } from "@kona/core";
 import { foldLog, inEdges, isEdgeSatisfied, isTerminal, satisfiesBlockingEdge } from "@kona/core";
 import { predicateCount } from "../src/model/predicate.ts";
 import { completionTimeOf, versionTimeOf } from "../src/model/pursuit.ts";
@@ -28,15 +28,15 @@ const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** Node id → the moment it succeeded, exactly as `PursuitView.completionTime` carries it. */
+/** Activity id → the moment it succeeded, exactly as `PursuitView.completionTime` carries it. */
 const DONE: ReadonlyMap<string, Instant> = completionTimeOf(FOLD.records);
 
 /** Version → the moment the store observed it, for the assertions that talk about versions. */
 const TIMES: ReadonlyMap<number, Instant> = versionTimeOf(FOLD.records);
 
-function node(id: string, graph: Graph = GRAPH): Node {
-  const found = graph.nodes.get(id);
-  if (found === undefined) throw new Error(`the fixture has no node '${id}'`);
+function activity(id: string, graph: Graph = GRAPH): Activity {
+  const found = graph.activities.get(id);
+  if (found === undefined) throw new Error(`the fixture has no activity '${id}'`);
   return found;
 }
 
@@ -46,7 +46,7 @@ function wait(
   graph: Graph = GRAPH,
   completion: ReadonlyMap<string, Instant> = DONE,
 ): WaitState {
-  const state = waitStateOf(graph, node(id, graph), completion, now);
+  const state = waitStateOf(graph, activity(id, graph), completion, now);
   if (state === null) throw new Error(`'${id}' is not a wait`);
   return state;
 }
@@ -71,7 +71,7 @@ function variant(edit: (graph: Graph) => void): Graph {
 }
 
 function firstCondition(graph: Graph, id: string): { predicate?: unknown } {
-  const condition = node(id, graph).spec.match?.conditions[0];
+  const condition = activity(id, graph).spec.match?.conditions[0];
   if (condition === undefined) throw new Error(`'${id}' has no match conditions`);
   return condition;
 }
@@ -99,25 +99,25 @@ function mutation(v: number, observedAt_: string, ops: unknown[], why: string): 
 
 describe("waitStateOf", () => {
   test("a task has no wait state at all", () => {
-    expect(waitStateOf(GRAPH, node("th-nhwd"), DONE, NOW)).toBeNull();
-    expect(waitStateOf(GRAPH, node("th-vipt"), DONE, NOW)).toBeNull();
+    expect(waitStateOf(GRAPH, activity("th-nhwd"), DONE, NOW)).toBeNull();
+    expect(waitStateOf(GRAPH, activity("th-vipt"), DONE, NOW)).toBeNull();
   });
 
   test("the fixture exercises all three match kinds", () => {
-    const kinds = [...GRAPH.nodes.values()]
+    const kinds = [...GRAPH.activities.values()]
       .filter((n) => n.type === "wait")
       .map((n) => wait(n.id).matchKind);
     expect(new Set(kinds)).toEqual(new Set(["event", "human", "predicate"]));
   });
 
   test("every wait names where a blown deadline routes", () => {
-    for (const n of [...GRAPH.nodes.values()].filter((it) => it.type === "wait")) {
+    for (const n of [...GRAPH.activities.values()].filter((it) => it.type === "wait")) {
       expect(wait(n.id).onTimeout).toBe("th-vipt");
     }
   });
 
   describe("{after, duration} — th-es9m", () => {
-    const anchor = node("th-nhwd");
+    const anchor = activity("th-nhwd");
     const state = wait("th-es9m");
 
     test("the clock starts at the anchor's completion, read from the log", () => {
@@ -137,7 +137,7 @@ describe("waitStateOf", () => {
 
     test("an answered wait is resolved even though its clock never ran out", () => {
       // Dana declined at v4, well inside 48h. `declined` still closes the wait (§6.5).
-      expect(node("th-es9m").status.outcome?.verdict).toBe("declined");
+      expect(activity("th-es9m").status.outcome?.verdict).toBe("declined");
       expect(state.phase).toBe("resolved");
       expect(state.remainingMs).toBeGreaterThan(0);
     });
@@ -168,7 +168,7 @@ describe("waitStateOf", () => {
 
   test.each(DURATIONS)("a %s deadline runs from the anchor's completion", (text, span) => {
     const graph = variant((g) => {
-      const deadline = node("th-es9m", g).spec.deadline;
+      const deadline = activity("th-es9m", g).spec.deadline;
       if (deadline === undefined || !("after" in deadline)) throw new Error("shape changed");
       deadline.duration = text;
     });
@@ -180,7 +180,7 @@ describe("waitStateOf", () => {
   });
 
   describe("the clock is anchored to the completion, never to the last touch", () => {
-    // D1. §6.4 makes `record_output` legal against a terminal node, so the version that last
+    // D1. §6.4 makes `record_output` legal against a terminal activity, so the version that last
     // TOUCHED the anchor keeps moving after it finished: a delivery receipt, or a §6.5 `late`
     // reply. Anchoring to `observed_at_version` would slide the deadline forward with it and
     // hand the reader a blown wait repainted as one that is quietly counting down.
@@ -197,7 +197,7 @@ describe("waitStateOf", () => {
           [
             {
               op: "set_status",
-              node: "th-gk0l",
+              activity: "th-gk0l",
               status: "done",
               evidence_ref: "<sent-pat@mail>",
             },
@@ -212,7 +212,7 @@ describe("waitStateOf", () => {
             // receipt is. Non-resolving, so it changes no projection; it is still a touch.
             {
               op: "record_outcome",
-              node: "th-gk0l",
+              activity: "th-gk0l",
               verdict: "late",
               evidence_ref: "<dsn-delivered@mail>",
             },
@@ -227,8 +227,8 @@ describe("waitStateOf", () => {
       expect(extended.graph.version).toBe(V.patReserved + 2);
     });
 
-    test("a receipt landing on a finished node does not move the deadline", () => {
-      const anchor = node("th-gk0l", extended.graph);
+    test("a receipt landing on a finished activity does not move the deadline", () => {
+      const anchor = activity("th-gk0l", extended.graph);
       expect(anchor.status.state).toBe("done");
       // The receipt is the last version to touch it — this is the field that must NOT be read.
       expect(anchor.status.observed_at_version).toBe(V.patReserved + 2);
@@ -251,8 +251,8 @@ describe("waitStateOf", () => {
   describe("{after, duration} with an unfinished anchor — th-0s7c", () => {
     const state = wait("th-0s7c");
 
-    test("no clock yet, and the reason says which node we are waiting on", () => {
-      expect(node("th-gk0l").status.state).toBe("in_flight");
+    test("no clock yet, and the reason says which activity we are waiting on", () => {
+      expect(activity("th-gk0l").status.state).toBe("in_flight");
       expect(state.phase).toBe("unarmed");
       expect(state.deadlineAt).toBeNull();
       expect(state.remainingMs).toBeNull();
@@ -263,7 +263,7 @@ describe("waitStateOf", () => {
 
     test("an unparseable duration is reported, never guessed", () => {
       const graph = variant((g) => {
-        const deadline = node("th-0s7c", g).spec.deadline;
+        const deadline = activity("th-0s7c", g).spec.deadline;
         if (deadline === undefined || !("after" in deadline)) throw new Error("shape changed");
         deadline.duration = "48x";
       });
@@ -278,7 +278,7 @@ describe("waitStateOf", () => {
       // to a version before it finished. Borrowing any other instant would count 48 hours
       // from a moment nobody recorded.
       const graph = variant((g) => {
-        node("th-gk0l", g).status.state = "done";
+        activity("th-gk0l", g).status.state = "done";
       });
       const finished = new Map([["th-gk0l", observedAt(7)]]);
       expect(wait("th-0s7c", NOW, graph, finished).deadlineAt).toBe(
@@ -295,7 +295,7 @@ describe("waitStateOf", () => {
   describe("{after, duration} whose anchor is not in the graph at all", () => {
     /**
      * The third way an anchored deadline can fail to arm, and the only one the eight versions
-     * cannot show: the anchor is not a node yet. `add_node` takes a plain id and neither the
+     * cannot show: the anchor is not an activity yet. `add_activity` takes a plain id and neither the
      * schema nor the fold refuses one the graph has not seen, so a forward reference is a
      * legal log — and rule 6's read-only time travel manufactures one out of any ordinary log
      * the moment the reader scrolls back to a version before the anchor landed.
@@ -317,7 +317,7 @@ describe("waitStateOf", () => {
         "2026-08-22T02:00:00.000Z",
         [
           {
-            op: "add_node",
+            op: "add_activity",
             id: QUINN_WAIT,
             name: "Wait for Quinn",
             type: "wait",
@@ -337,7 +337,7 @@ describe("waitStateOf", () => {
         "2026-08-22T03:00:00.000Z",
         [
           {
-            op: "add_node",
+            op: "add_activity",
             id: QUINN_ASK,
             name: "Ask Quinn to play in goal",
             type: "task",
@@ -353,12 +353,12 @@ describe("waitStateOf", () => {
     test("a forward reference is a log the store accepts, not a shape we invented", () => {
       expect(before.damaged).toEqual([]);
       expect(after.damaged).toEqual([]);
-      expect(before.graph.nodes.has(QUINN_WAIT)).toBe(true);
-      expect(before.graph.nodes.has(QUINN_ASK)).toBe(false);
-      expect(after.graph.nodes.has(QUINN_ASK)).toBe(true);
+      expect(before.graph.activities.has(QUINN_WAIT)).toBe(true);
+      expect(before.graph.activities.has(QUINN_ASK)).toBe(false);
+      expect(after.graph.activities.has(QUINN_ASK)).toBe(true);
     });
 
-    test("the wait names the missing node instead of throwing", () => {
+    test("the wait names the missing activity instead of throwing", () => {
       const state = wait(QUINN_WAIT, NOW, before.graph, completionTimeOf(before.records));
       expect(state.phase).toBe("unarmed");
       expect(state.deadlineAt).toBeNull();
@@ -373,7 +373,7 @@ describe("waitStateOf", () => {
       // The anchor exists now and has not finished — a different fact about the same wait,
       // and a different thing for the reader to do about it.
       const state = wait(QUINN_WAIT, NOW, after.graph, completionTimeOf(after.records));
-      expect(node(QUINN_ASK, after.graph).status.state).toBe("active");
+      expect(activity(QUINN_ASK, after.graph).status.state).toBe("active");
       expect(state.phase).toBe("unarmed");
       expect(state.deadlineAt).toBeNull();
       expect(state.unresolvedReason).toContain("still active");
@@ -385,7 +385,7 @@ describe("waitStateOf", () => {
     // D2. Priya's address bounced 550, so `th-t2yo` is terminal but never
     // succeeded — the same test `satisfiesBlockingEdge` applies to a blocking edge. A send
     // that never went out cannot start a 48-hour clock on the reply to it.
-    const anchor = node("th-t2yo");
+    const anchor = activity("th-t2yo");
     expect(anchor.status.state).toBe("failed");
     expect(isTerminal(anchor.status.state)).toBe(true);
     expect(satisfiesBlockingEdge(anchor)).toBe(false);
@@ -403,7 +403,7 @@ describe("waitStateOf", () => {
 
   describe("{at} — the two waits already blown at NOW", () => {
     test("th-ymld", () => {
-      const deadline = node("th-ymld").spec.deadline;
+      const deadline = activity("th-ymld").spec.deadline;
       if (deadline === undefined || !("at" in deadline)) throw new Error("shape changed");
       const state = wait("th-ymld");
       expect(state.deadlineAt).toBe(Date.parse(deadline.at));
@@ -438,7 +438,7 @@ describe("waitStateOf", () => {
       // the chip would put `formatInstant(NaN)` on screen — a RangeError thrown out of the
       // canvas, which is precisely what D5 forbids. The reason belongs in words.
       const graph = variant((g) => {
-        node("th-ymld", g).spec.deadline = { at: "next Thursday" };
+        activity("th-ymld", g).spec.deadline = { at: "next Thursday" };
       });
       const state = wait("th-ymld", NOW, graph);
       expect(state.phase).toBe("unarmed");
@@ -457,7 +457,7 @@ describe("waitStateOf", () => {
     test("a dropped wait reads as dropped, not as resolved by its bounce", () => {
       // th-1ppl carries a resolving `bounced` outcome AND was dropped at v7. §6.4 makes
       // the drop the fact that matters: this branch cannot satisfy anything downstream.
-      const priya = node("th-1ppl");
+      const priya = activity("th-1ppl");
       expect(priya.status.state).toBe("dropped");
       expect(priya.status.outcome?.verdict).toBe("bounced");
       expect(wait("th-1ppl").phase).toBe("dropped");
@@ -465,13 +465,13 @@ describe("waitStateOf", () => {
 
     test("a failed wait reads as failed, never as resolved", () => {
       const graph = variant((g) => {
-        node("th-9xi1", g).status.state = "failed";
+        activity("th-9xi1", g).status.state = "failed";
       });
       const state = wait("th-9xi1", NOW, graph);
-      expect(isTerminal(node("th-9xi1", graph).status.state)).toBe(true);
-      expect(satisfiesBlockingEdge(node("th-9xi1", graph))).toBe(false);
+      expect(isTerminal(activity("th-9xi1", graph).status.state)).toBe(true);
+      expect(satisfiesBlockingEdge(activity("th-9xi1", graph))).toBe(false);
       expect(state.phase).toBe("failed");
-      // The deadline had already blown, and a terminal node is still not counting down.
+      // The deadline had already blown, and a terminal activity is still not counting down.
       expect(state.remainingMs).toBeLessThan(0);
     });
 
@@ -479,13 +479,13 @@ describe("waitStateOf", () => {
       // The tempting rule is "resolved needs an outcome too", and it is wrong in a way the
       // fixture cannot show: `isEdgeSatisfied` is true for an UNCONDITIONAL edge out of any
       // `done` source, so this wait really does put its successor on the frontier. Painting it
-      // the not-fulfilled red while the node beneath it went ready is the same contradiction
+      // the not-fulfilled red while the activity beneath it went ready is the same contradiction
       // as the one this describe block exists to prevent, pointing the other way.
       const graph = variant((g) => {
-        node("th-9xi1", g).status.state = "done";
+        activity("th-9xi1", g).status.state = "done";
         g.edges.push({ from: "th-9xi1", to: "th-vipt" });
       });
-      const closed = node("th-9xi1", graph);
+      const closed = activity("th-9xi1", graph);
       expect(satisfiesBlockingEdge(closed)).toBe(true);
       expect(closed.status.outcome).toBeNull();
       expect(
@@ -501,9 +501,9 @@ describe("waitStateOf", () => {
       // The one that pins `satisfiesBlockingEdge` on its own: an outcome is present, so a rule
       // that only asked "did anything answer" would paint this the success green. It bounced.
       const graph = variant((g) => {
-        node("th-1ppl", g).status.state = "failed";
+        activity("th-1ppl", g).status.state = "failed";
       });
-      const bounced = node("th-1ppl", graph);
+      const bounced = activity("th-1ppl", graph);
       expect(bounced.status.outcome?.verdict).toBe("bounced");
       expect(satisfiesBlockingEdge(bounced)).toBe(false);
       expect(wait("th-1ppl", NOW, graph).phase).toBe("failed");
@@ -516,12 +516,12 @@ describe("waitStateOf", () => {
       // blocked. Reading the outcome as "resolved" would paint the success green on a wait the
       // CLI still considers running.
       const graph = variant((g) => {
-        const ruling = node("th-9xi1", g);
+        const ruling = activity("th-9xi1", g);
         const answer = { verdict: "accept" as const, evidence_ref: "<m-9@mail>", at_version: 9 };
         ruling.status.outcomes = [answer];
         ruling.status.outcome = answer;
       });
-      const open = node("th-9xi1", graph);
+      const open = activity("th-9xi1", graph);
       expect(open.status.state).toBe("active");
       expect(satisfiesBlockingEdge(open)).toBe(false);
       const state = wait("th-9xi1", NOW, graph);
@@ -530,7 +530,7 @@ describe("waitStateOf", () => {
     });
 
     test("a done wait with a resolving answer is resolved", () => {
-      const dana = node("th-es9m");
+      const dana = activity("th-es9m");
       expect(satisfiesBlockingEdge(dana)).toBe(true);
       expect(dana.status.outcome).not.toBeNull();
       expect(wait("th-es9m").phase).toBe("resolved");
@@ -539,7 +539,7 @@ describe("waitStateOf", () => {
 
   test("an expr deadline counts down to its backstop and says why", () => {
     const graph = variant((g) => {
-      node("th-ymld", g).spec.deadline = {
+      activity("th-ymld", g).spec.deadline = {
         expr: "roster_lock - 24h",
         backstop: "2026-08-21T12:00:00.000Z",
         after_unknown: true,
@@ -561,7 +561,7 @@ describe("predicateCount", () => {
    */
   function answers(verdict: string, role?: string, graph: Graph = GRAPH): string[] {
     return inEdges(graph, "th-ymld")
-      .map((edge) => node(edge.from, graph))
+      .map((edge) => activity(edge.from, graph))
       .filter((source) => {
         if (!satisfiesBlockingEdge(source)) return false;
         const outcome = source.status.outcome;
@@ -572,9 +572,9 @@ describe("predicateCount", () => {
   }
 
   test("null unless the wait matches on a predicate", () => {
-    expect(predicateCount(GRAPH, node("th-es9m"))).toBeNull();
-    expect(predicateCount(GRAPH, node("th-9xi1"))).toBeNull();
-    expect(predicateCount(GRAPH, node("th-nhwd"))).toBeNull();
+    expect(predicateCount(GRAPH, activity("th-es9m"))).toBeNull();
+    expect(predicateCount(GRAPH, activity("th-9xi1"))).toBeNull();
+    expect(predicateCount(GRAPH, activity("th-nhwd"))).toBeNull();
   });
 
   test("th-ymld needs one confirmation and has none", () => {
@@ -587,10 +587,10 @@ describe("predicateCount", () => {
       "th-0s7c",
     ]);
     // Dana and Sam answered, and both declined; Priya bounced and was dropped.
-    expect(node("th-es9m").status.outcome?.verdict).toBe("declined");
-    expect(node("th-ocwr").status.outcome?.verdict).toBe("declined");
+    expect(activity("th-es9m").status.outcome?.verdict).toBe("declined");
+    expect(activity("th-ocwr").status.outcome?.verdict).toBe("declined");
 
-    const count = predicateCount(GRAPH, node("th-ymld"));
+    const count = predicateCount(GRAPH, activity("th-ymld"));
     expect(count).not.toBeNull();
     expect(count?.have).toBe(answers("confirmed", "goalie").length);
     expect(count?.have).toBe(0);
@@ -602,7 +602,7 @@ describe("predicateCount", () => {
   });
 
   test("live is exactly the sources that could still answer", () => {
-    const sources = inEdges(GRAPH, "th-ymld").map((edge) => node(edge.from));
+    const sources = inEdges(GRAPH, "th-ymld").map((edge) => activity(edge.from));
     // Dana and Sam have given their resolving answer, and §6.7 makes it first-wins and final.
     // Priya bounced and was dropped. Marcus's ruling and Pat's reply are the two outstanding.
     expect(sources.filter((s) => s.status.outcome !== null).map((s) => s.id)).toEqual([
@@ -614,23 +614,23 @@ describe("predicateCount", () => {
       "th-9xi1",
       "th-0s7c",
     ]);
-    expect(predicateCount(GRAPH, node("th-ymld"))?.live).toBe(2);
+    expect(predicateCount(GRAPH, activity("th-ymld"))?.live).toBe(2);
   });
 
   test("a terminal source with no resolving outcome yet is still live", () => {
-    // D5. §6.4 makes `record_outcome` legal against a terminal node, so a `done` source that
+    // D5. §6.4 makes `record_outcome` legal against a terminal activity, so a `done` source that
     // has not answered can still answer. `blocked.ts` reasons the same way about the same
-    // node — its `wrong-resolution` cause with a null `fired` is the one it refuses to call
+    // activity — its `wrong-resolution` cause with a null `fired` is the one it refuses to call
     // permanent — and the two must not contradict each other on one edge.
     const graph = variant((g) => {
-      node("th-9xi1", g).status.state = "done";
+      activity("th-9xi1", g).status.state = "done";
     });
-    const ruling = node("th-9xi1", graph);
+    const ruling = activity("th-9xi1", graph);
     expect(isTerminal(ruling.status.state)).toBe(true);
     expect(satisfiesBlockingEdge(ruling)).toBe(true);
     expect(ruling.status.outcome).toBeNull();
 
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.live).toBe(2);
     expect(count?.have).toBe(0);
   });
@@ -638,10 +638,10 @@ describe("predicateCount", () => {
   test("a source that finished without succeeding is not live", () => {
     // The other half of D5: `failed` and `dropped` are over, and no op can reopen them.
     const graph = variant((g) => {
-      node("th-0s7c", g).status.state = "failed";
+      activity("th-0s7c", g).status.state = "failed";
     });
-    expect(satisfiesBlockingEdge(node("th-0s7c", graph))).toBe(false);
-    expect(predicateCount(graph, node("th-ymld", graph))?.live).toBe(1);
+    expect(satisfiesBlockingEdge(activity("th-0s7c", graph))).toBe(false);
+    expect(predicateCount(graph, activity("th-ymld", graph))?.live).toBe(1);
   });
 
   describe("an answer recorded without closing the wait is still an answer", () => {
@@ -653,7 +653,7 @@ describe("predicateCount", () => {
      *
      * So the outcome question has to be asked of every source, not only of the terminal ones.
      * Asking terminality first counts a source that has already spoken as one more answer
-     * still to come, and `live` is the number rule 4 puts on the node under `0/1` — the
+     * still to come, and `live` is the number rule 4 puts on the activity under `0/1` — the
      * reader is told the quorum has two more chances at it when it has one, and leaves an
      * escalation unfired on the strength of it.
      */
@@ -665,7 +665,7 @@ describe("predicateCount", () => {
           [
             {
               op: "record_outcome",
-              node: "th-9xi1",
+              activity: "th-9xi1",
               verdict: "ignore",
               evidence_ref: "<m-301@mail>",
             },
@@ -677,7 +677,7 @@ describe("predicateCount", () => {
     /** In-edge sources of the quorum that have not yet given a resolving answer. */
     function unanswered(graph: Graph): string[] {
       return inEdges(graph, "th-ymld")
-        .map((edge) => node(edge.from, graph))
+        .map((edge) => activity(edge.from, graph))
         .filter((source) => source.status.outcome === null)
         .map((source) => source.id);
     }
@@ -685,7 +685,7 @@ describe("predicateCount", () => {
     test("the appended record is real, and it leaves the wait open", () => {
       expect(answered.damaged).toEqual([]);
       expect(answered.torn_tail).toBeNull();
-      const ruling = node("th-9xi1", answered.graph);
+      const ruling = activity("th-9xi1", answered.graph);
       expect(ruling.status.outcome?.verdict).toBe("ignore");
       expect(ruling.status.state).toBe("active");
       expect(isTerminal(ruling.status.state)).toBe(false);
@@ -695,15 +695,15 @@ describe("predicateCount", () => {
       expect(unanswered(GRAPH)).toEqual(["th-9xi1", "th-0s7c"]);
       expect(unanswered(answered.graph)).toEqual(["th-0s7c"]);
 
-      const before = predicateCount(GRAPH, node("th-ymld"));
-      const after = predicateCount(answered.graph, node("th-ymld", answered.graph));
+      const before = predicateCount(GRAPH, activity("th-ymld"));
+      const after = predicateCount(answered.graph, activity("th-ymld", answered.graph));
       expect(before?.live).toBe(unanswered(GRAPH).length);
       expect(after?.live).toBe(unanswered(answered.graph).length);
       expect(after?.live).toBe((before?.live ?? 0) - 1);
     });
 
     test("and `have` does not move — `ignore` is not the verdict the quorum counts", () => {
-      const after = predicateCount(answered.graph, node("th-ymld", answered.graph));
+      const after = predicateCount(answered.graph, activity("th-ymld", answered.graph));
       expect(after?.have).toBe(answers("confirmed", "goalie", answered.graph).length);
       expect(after?.have).toBe(0);
       expect(after?.met).toBe(false);
@@ -712,11 +712,11 @@ describe("predicateCount", () => {
 
   test("a matching verdict with matching attrs contributes and meets the quorum", () => {
     const graph = variant((g) => {
-      const outcome = node("th-es9m", g).status.outcome;
+      const outcome = activity("th-es9m", g).status.outcome;
       if (outcome === null) throw new Error("dana has no outcome");
       outcome.verdict = "confirmed";
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(1);
     expect(count?.contributors).toEqual(["th-es9m"]);
     expect(count?.met).toBe(true);
@@ -725,12 +725,12 @@ describe("predicateCount", () => {
 
   test("the attrs filter rejects a confirmation for the wrong role", () => {
     const graph = variant((g) => {
-      const outcome = node("th-es9m", g).status.outcome;
+      const outcome = activity("th-es9m", g).status.outcome;
       if (outcome === null) throw new Error("dana has no outcome");
       outcome.verdict = "confirmed";
       outcome.attrs = { role: "striker" };
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(0);
     expect(count?.met).toBe(false);
   });
@@ -742,17 +742,17 @@ describe("predicateCount", () => {
     // them renders `1/1 met` on `th-ymld` — the roster locked, the escalation never
     // fired — on the strength of a reply that never mentioned the goal.
     const graph = variant((g) => {
-      const outcome = node("th-es9m", g).status.outcome;
+      const outcome = activity("th-es9m", g).status.outcome;
       if (outcome === null) throw new Error("dana has no outcome");
       outcome.verdict = "confirmed";
       delete outcome.attrs;
     });
-    const dana = node("th-es9m", graph);
+    const dana = activity("th-es9m", graph);
     expect(dana.status.outcome?.verdict).toBe("confirmed"); // the verdict alone would match
     expect(dana.status.outcome?.attrs).toBeUndefined();
     expect(satisfiesBlockingEdge(dana)).toBe(true); // and the source is otherwise countable
 
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(answers("confirmed", "goalie", graph).length);
     expect(count?.have).toBe(0);
     expect(count?.contributors).toEqual([]);
@@ -764,14 +764,14 @@ describe("predicateCount", () => {
     // Every key the filter asks for has to be THERE, not merely un-contradicted, or the
     // quorum counts an answer that never claimed the role it is counting.
     const graph = variant((g) => {
-      const outcome = node("th-es9m", g).status.outcome;
+      const outcome = activity("th-es9m", g).status.outcome;
       if (outcome === null) throw new Error("dana has no outcome");
       outcome.verdict = "confirmed";
       outcome.attrs = { reason: "happy to" };
     });
-    expect(node("th-es9m", graph).status.outcome?.attrs?.["role"]).toBeUndefined();
+    expect(activity("th-es9m", graph).status.outcome?.attrs?.["role"]).toBeUndefined();
 
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(answers("confirmed", "goalie", graph).length);
     expect(count?.have).toBe(0);
     expect(count?.contributors).toEqual([]);
@@ -788,7 +788,7 @@ describe("predicateCount", () => {
         n: 2,
       };
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(answers("declined").length);
     expect(count?.have).toBe(2);
     expect(count?.contributors).toEqual(["th-es9m", "th-ocwr"]);
@@ -801,16 +801,16 @@ describe("predicateCount", () => {
     // before the store abandoned the branch would render `1/1 met` next to a blocked reason
     // saying that same source can never satisfy anything.
     const graph = variant((g) => {
-      const outcome = node("th-1ppl", g).status.outcome;
+      const outcome = activity("th-1ppl", g).status.outcome;
       if (outcome === null) throw new Error("priya has no outcome");
       outcome.verdict = "confirmed";
     });
-    const priya = node("th-1ppl", graph);
+    const priya = activity("th-1ppl", graph);
     expect(priya.status.state).toBe("dropped");
     expect(priya.status.outcome?.attrs?.["role"]).toBe("goalie"); // the filter would match
     expect(satisfiesBlockingEdge(priya)).toBe(false);
 
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(0);
     expect(count?.contributors).toEqual([]);
     expect(count?.met).toBe(false);
@@ -818,12 +818,12 @@ describe("predicateCount", () => {
 
   test("a failed source's answer does not count either", () => {
     const graph = variant((g) => {
-      const sam = node("th-ocwr", g);
+      const sam = activity("th-ocwr", g);
       sam.status.state = "failed";
       if (sam.status.outcome === null) throw new Error("sam has no outcome");
       sam.status.outcome.verdict = "confirmed";
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(0);
     expect(count?.met).toBe(false);
   });
@@ -860,7 +860,7 @@ describe("predicateCount", () => {
         n,
       };
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(answers(verdict, "goalie").length);
     expect(count?.need).toBe(n);
     expect(count?.op).toBe(op);
@@ -875,7 +875,7 @@ describe("predicateCount", () => {
         n: 1,
       };
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count?.have).toBe(2); // Dana and Sam both declined as goalies.
     expect(count?.op).toBe("~=");
     expect(count?.met).toBe(false);
@@ -892,7 +892,7 @@ describe("predicateCount", () => {
     const graph = variant((g) => {
       firstCondition(g, "th-ymld").predicate = block;
     });
-    const count = predicateCount(graph, node("th-ymld", graph));
+    const count = predicateCount(graph, activity("th-ymld", graph));
     expect(count).not.toBeNull();
     expect(count?.need).toBe(0);
     expect(count?.have).toBe(0);
@@ -914,7 +914,7 @@ describe("predicateCount", () => {
     expect(state.matchKind).toBe("predicate");
     expect(state.matchLabel).toBe("count confirmed role=goalie >= 1");
     // And it is the same quorum the counter beneath it parsed, said once. The chip reading
-    // `0/1` and a line naming a different threshold would be the node disagreeing with itself.
+    // `0/1` and a line naming a different threshold would be the activity disagreeing with itself.
     expect(state.matchLabel).toBe(
       ["count", ...count.label.split(" · "), count.op, count.need].join(" "),
     );

@@ -63,7 +63,7 @@ function renderAttrs(attrs: Record<string, unknown> | undefined): string[] {
 }
 
 /**
- * Which node the row is about.
+ * Which activity the row is about.
  *
  * For `add_edge` that is `to`, not `from`: §6.2 says `{from: A, to: B}` means **B requires A**,
  * so the edge is a fact about B's dependencies. Reading it the other way round is the single
@@ -71,15 +71,15 @@ function renderAttrs(attrs: Record<string, unknown> | undefined): string[] {
  * every arrow simply points the wrong way.
  */
 function subjectOf(op: CommittedOp): string {
-  if (op.op === "add_node") return op.id;
+  if (op.op === "add_activity") return op.id;
   if (op.op === "add_edge") return op.to;
-  return op.node;
+  return op.activity;
 }
 
 /** The human half of the row. Phrasing, not judgment — nothing here decides anything. */
 function detailOf(op: CommittedOp): string {
   switch (op.op) {
-    case "add_node":
+    case "add_activity":
       // The type is in because the two behave differently and a reader wants to know which
       // arrived: a `wait` is a step that will sit there until the world answers.
       return `added ${op.type}`;
@@ -98,16 +98,16 @@ function detailOf(op: CommittedOp): string {
       // The name, never the value: an output is arbitrary JSON and rule 9's reveal is the
       // place for it. The name alone tells a reader which `inputs[].ref` just resolved.
       return `output ${op.output_name}`;
-    case "supersede_node":
+    case "supersede_activity":
       // `by` is optional (§6.4). Superseding with no replacement is how a branch is retired
       // outright — the fixture's Priya wait, after her address bounced — and calling that
-      // "superseded by undefined" would read as a missing node rather than a deliberate end.
+      // "superseded by undefined" would read as a missing activity rather than a deliberate end.
       return op.by === undefined ? "superseded" : `superseded by ${op.by}`;
   }
 }
 
 function timelineOp(op: CommittedOp): TimelineOp {
-  return { kind: op.op, node: subjectOf(op), detail: detailOf(op) };
+  return { kind: op.op, activity: subjectOf(op), detail: detailOf(op) };
 }
 
 export function buildTimeline(records: readonly MutationRecord[]): TimelineEntry[] {

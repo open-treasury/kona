@@ -9,7 +9,7 @@
  * re-made at read time.
  */
 
-import type { EffectRecord, Graph, Node } from "./graph.ts";
+import type { EffectRecord, Graph, Activity } from "./graph.ts";
 
 /**
  * §6.6 — **payload-independent by design.** The key names the SLOT; `payload_hash` proves
@@ -94,27 +94,27 @@ export function parseEffectEvidence(evidenceRef: string): EffectEvidence | null 
  * have acted on. §6.6 keeps `attempted_at` distinct from `completed_at` precisely so this
  * state is nameable, and an attempt without a completion is human adjudication, not retry.
  */
-export function openEffect(node: Node): EffectRecord | null {
-  return node.status.effect_log.find((entry) => entry.completed_at === null) ?? null;
+export function openEffect(activity: Activity): EffectRecord | null {
+  return activity.status.effect_log.find((entry) => entry.completed_at === null) ?? null;
 }
 
 /**
- * §6.6 — "A node with a non-empty `effect_log` is **never re-executed**", read precisely:
+ * §6.6 — "An activity with a non-empty `effect_log` is **never re-executed**", read precisely:
  * what is unrepeatable is a SEND, not an attempt. A bounce carries a message id too, so
  * testing for one would treat `550 user unknown` as bytes that reached somebody and close
- * the node against the very retry the restart budget exists to allow.
+ * the activity against the very retry the restart budget exists to allow.
  */
-export function hasSentEffect(node: Node): boolean {
-  return node.status.effect_log.some((entry) => entry.outcome === "sent");
+export function hasSentEffect(activity: Activity): boolean {
+  return activity.status.effect_log.some((entry) => entry.outcome === "sent");
 }
 
-export function effectByKey(node: Node, effectKey: string): EffectRecord | null {
-  return node.status.effect_log.find((entry) => entry.effect_key === effectKey) ?? null;
+export function effectByKey(activity: Activity, effectKey: string): EffectRecord | null {
+  return activity.status.effect_log.find((entry) => entry.effect_key === effectKey) ?? null;
 }
 
 /** §6.6 restart budget: attempts in a window, then escalate — never loop. */
-export function attemptCount(node: Node): number {
-  return node.status.effect_log.length;
+export function attemptCount(activity: Activity): number {
+  return activity.status.effect_log.length;
 }
 
 /**
@@ -125,10 +125,10 @@ export function attemptCount(node: Node): number {
  * two crash windows leave a reservation whose outcome is genuinely unknown, so a budget
  * that only counted confirmed sends would be spendable without limit by crashing. A bounce
  * costs one too — it put bytes on the wire, and a loop of them is exactly what a budget is
- * for now that the per-node retry cap is gone.
+ * for now that the per-activity retry cap is gone.
  */
 export function effectsCommitted(graph: Graph): number {
   let total = 0;
-  for (const node of graph.nodes.values()) total += node.status.effect_log.length;
+  for (const activity of graph.activities.values()) total += activity.status.effect_log.length;
   return total;
 }

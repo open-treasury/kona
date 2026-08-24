@@ -17,7 +17,7 @@ let h: Harness;
 
 const PLAN = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Confirm roster",
     type: "task",
     spec: { instruction: "Read the roster.", effect_class: "pure" },

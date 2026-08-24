@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { AuthoredOp, CommittedOp, Graph, Node, Verdict } from "../src/index.ts";
+import type { AuthoredOp, CommittedOp, Graph, Activity, Verdict } from "../src/index.ts";
 import {
   DERIVED_EVIDENCE_PREFIX,
   applyOps,
@@ -25,7 +25,7 @@ import {
   SCHEMA_VERSION,
   validate,
 } from "../src/index.ts";
-import { ORCHESTRATOR, commit, seeded, task, wait, nodeAt, resolveSlugs, slugOr, slugOf, nid } from "./fixtures.ts";
+import { ORCHESTRATOR, commit, seeded, task, wait, activityAt, resolveSlugs, slugOr, slugOf, nid } from "./fixtures.ts";
 
 function run(graph: Graph, ops: AuthoredOp[]) {
   const result = validate({
@@ -41,18 +41,18 @@ function run(graph: Graph, ops: AuthoredOp[]) {
   return result.value;
 }
 
-function nodeOf(graph: Graph, id: string): Node {
-  const node = nodeAt(graph, id);
-  if (node === undefined) throw new Error(`no node ${id}`);
-  return node;
+function activityOf(graph: Graph, id: string): Activity {
+  const activity = activityAt(graph, id);
+  if (activity === undefined) throw new Error(`no activity ${id}`);
+  return activity;
 }
 
-function outcome(node: string, verdict: Verdict): AuthoredOp {
-  return { op: "record_outcome", node, verdict, evidence_ref: "<m-1>" };
+function outcome(activity: string, verdict: Verdict): AuthoredOp {
+  return { op: "record_outcome", activity, verdict, evidence_ref: "<m-1>" };
 }
 
-function close(node: string, status = "done"): AuthoredOp {
-  return { op: "set_status", node, status, evidence_ref: "<m-1>" } as AuthoredOp;
+function close(activity: string, status = "done"): AuthoredOp {
+  return { op: "set_status", activity, status, evidence_ref: "<m-1>" } as AuthoredOp;
 }
 
 /** `gate` is a wait with one `accept` arm and one `ignore` arm. */
@@ -123,7 +123,7 @@ describe("isEdgeDead — the trichotomy is satisfied | pending | dead", () => {
 
   /**
    * §6.2 keeps `failed` and `dropped` distinct — "tried, didn't work" vs "we stopped
-   * wanting this". A subtree under a visibly failed node is a human's to look at; deleting
+   * wanting this". A subtree under a visibly failed activity is a human's to look at; deleting
    * it silently is the one thing worse than leaving it stuck.
    */
   test("a FAILED source is not dead, even though it can never satisfy", () => {
@@ -150,24 +150,24 @@ describe("isEdgeDead — the trichotomy is satisfied | pending | dead", () => {
     );
   });
 
-  test("an edge from a node that does not exist is never dead", () => {
+  test("an edge from an activity that does not exist is never dead", () => {
     expect(isEdgeDead(gated(), { from: "ghost", to: "accepted" })).toBe(false);
   });
 });
 
 describe("isDroppable — what the store may rewrite", () => {
-  test("an ordinary active node is droppable", () => {
-    expect(isDroppable(nodeOf(gated(), "ignored"))).toBe(true);
+  test("an ordinary active activity is droppable", () => {
+    expect(isDroppable(activityOf(gated(), "ignored"))).toBe(true);
   });
 
-  test("a SENDING node is not — §6.6, the world's answer is unknown", () => {
+  test("a SENDING activity is not — §6.6, the world's answer is unknown", () => {
     const graph = commit(gated(), [close("ignored", "in_flight")]);
-    expect(isDroppable(nodeOf(graph, "ignored"))).toBe(false);
+    expect(isDroppable(activityOf(graph, "ignored"))).toBe(false);
   });
 
-  test("a node that already moved bytes is not", () => {
+  test("an activity that already moved bytes is not", () => {
     const graph = gated();
-    nodeOf(graph, "ignored").status.effect_log.push({
+    activityOf(graph, "ignored").status.effect_log.push({
       effect_key: "ek_1",
       payload_hash: "h1",
       attempted_at: "2026-08-21T10:00:00.000Z",
@@ -175,7 +175,7 @@ describe("isDroppable — what the store may rewrite", () => {
       outcome: "sent",
       message_id: "<m-1>",
     });
-    expect(isDroppable(nodeOf(graph, "ignored"))).toBe(false);
+    expect(isDroppable(activityOf(graph, "ignored"))).toBe(false);
   });
 });
 
@@ -186,14 +186,14 @@ describe("the trigger is an op-delta, never a post-state scan", () => {
     expect(derived).toHaveLength(1);
     expect(derived[0]).toEqual({
       op: "set_status",
-      node: nid(head, "ignored"),
+      activity: nid(head, "ignored"),
       status: "dropped",
       evidence_ref: `${DERIVED_EVIDENCE_PREFIX}:${nid(head, "gate")}`,
     });
     // The authored ops keep their positions; derivation only ever appends.
     expect(ops).toHaveLength(3);
-    expect(nodeOf(graph, "ignored").status.state).toBe("dropped");
-    expect(nodeOf(graph, "accepted").status.state).toBe("active");
+    expect(activityOf(graph, "ignored").status.state).toBe("dropped");
+    expect(activityOf(graph, "accepted").status.state).toBe("active");
   });
 
   test("recording the outcome without closing the wait derives nothing", () => {
@@ -207,14 +207,14 @@ describe("the trigger is an op-delta, never a post-state scan", () => {
   test("out-of-order events still resolve: the drop lands on the commit that completes the pair", () => {
     const closed = commit(gated(), [close("gate")]);
     const { derived } = run(closed, [outcome("gate", "accept")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["ignored"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["ignored"]);
   });
 
   /**
    * The mutant this kills is the whole design. As a post-state scan, every later commit
-   * would re-derive `set_status(ignored, "dropped")` against a node terminal at head —
+   * would re-derive `set_status(ignored, "dropped")` against an activity terminal at head —
    * which invariant 1 refuses — and 422 every unrelated commit forever. That is exactly
-   * the bug `validate.test.ts`'s "EXISTING edges into a terminal node" case pins.
+   * the bug `validate.test.ts`'s "EXISTING edges into a terminal activity" case pins.
    */
   test("an unrelated later commit derives nothing and is accepted", () => {
     const resolved = commit(gated(), [outcome("gate", "accept"), close("gate")]);
@@ -235,16 +235,16 @@ describe("the trigger is an op-delta, never a post-state scan", () => {
 });
 
 describe("the cascade is transitive, and it stops where the spec says", () => {
-  test("an untaken arm two deep drops both nodes", () => {
+  test("an untaken arm two deep drops both activities", () => {
     const { derived, graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b1", "b2"]);
-    expect(nodeOf(graph, "b1").status.state).toBe("dropped");
-    expect(nodeOf(graph, "b2").status.state).toBe("dropped");
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["b1", "b2"]);
+    expect(activityOf(graph, "b1").status.state).toBe("dropped");
+    expect(activityOf(graph, "b2").status.state).toBe("dropped");
   });
 
   test("each derived op names its own immediate cause, not the original gate", () => {
     const { derived } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    // The ref names the node that caused each drop, so it carries a minted id; translate it
+    // The ref names the activity that caused each drop, so it carries a minted id; translate it
     // back rather than spelling it.
     expect(
       derived.map((op) =>
@@ -257,53 +257,53 @@ describe("the cascade is transitive, and it stops where the spec says", () => {
 
   test("the taken arm is untouched", () => {
     const { graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    expect(nodeOf(graph, "a1").status.state).toBe("active");
-    expect(nodeOf(graph, "a2").status.state).toBe("active");
+    expect(activityOf(graph, "a1").status.state).toBe("active");
+    expect(activityOf(graph, "a2").status.state).toBe("active");
   });
 
-  /** §6.4: "It stops at a node still held by a live in-edge — a shared descendant." */
+  /** §6.4: "It stops at an activity still held by a live in-edge — a shared descendant." */
   test("a shared descendant with one live in-edge survives", () => {
     const { derived, graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).not.toContain("join");
-    expect(nodeOf(graph, "join").status.state).toBe("active");
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).not.toContain("join");
+    expect(activityOf(graph, "join").status.state).toBe("active");
   });
 
   test("a root with no in-edges is never dropped", () => {
     const seed = commit(gated(), [task("Orphan")]);
     const { derived } = run(seed, [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["ignored"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["ignored"]);
   });
 
   /**
-   * The armed-pivot case. A node already terminal on a dead arm is NOT rewritten — the past
+   * The armed-pivot case. An activity already terminal on a dead arm is NOT rewritten — the past
    * is not edited, and invariant 1 would refuse it anyway — but the arm is still dead, so
    * the cascade must keep walking. Stopping here leaves its successor with a satisfied
-   * plain edge out of a `done` node, which puts it on the frontier and sends the email.
+   * plain edge out of a `done` activity, which puts it on the frontier and sends the email.
    */
-  test("a node already done on a dead arm is not rewritten, but its successors still drop", () => {
+  test("an activity already done on a dead arm is not rewritten, but its successors still drop", () => {
     const withDone = commit(twoDeep(), [close("b1")]);
     const { derived, graph } = run(withDone, [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2"]);
-    expect(nodeOf(graph, "b1").status.state).toBe("done");
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["b2"]);
+    expect(activityOf(graph, "b1").status.state).toBe("done");
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).not.toContain("b2");
   });
 
-  test("a SENDING node is withheld rather than dropped — and its successors still drop", () => {
+  test("a SENDING activity is withheld rather than dropped — and its successors still drop", () => {
     const sending = commit(twoDeep(), [close("b1", "in_flight")]);
     const { derived, withheld, graph } = run(sending, [outcome("gate", "accept"), close("gate")]);
     expect(withheld.map(slugOf)).toEqual(["b1"]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2"]);
-    expect(nodeOf(graph, "b1").status.state).toBe("in_flight");
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["b2"]);
+    expect(activityOf(graph, "b1").status.state).toBe("in_flight");
   });
 
-  test("a node the same batch set done is not dropped", () => {
+  test("an activity the same batch set done is not dropped", () => {
     const { derived } = run(twoDeep(), [outcome("gate", "accept"), close("gate"), close("b1")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["b2"]);
   });
 });
 
 describe("§7 — untaken arm, two deep", () => {
-  test("neither node appears on the frontier at any point", () => {
+  test("neither activity appears on the frontier at any point", () => {
     const { graph } = run(twoDeep(), [outcome("gate", "accept"), close("gate")]);
     const frontier = readyFrontier(graph).map((n) => n.id);
     expect(frontier.map(slugOf)).not.toContain("b1");
@@ -317,18 +317,18 @@ describe("§7 — untaken arm, two deep", () => {
     graph = commit(graph, [close("a2")]);
     // `join` still carries a live-looking in-edge from b2, which is dropped. §6.4 excludes
     // it from merge evaluation, so the join is satisfied by the arm that was actually taken.
-    expect(isReady(graph, nodeOf(graph, "join"))).toBe(true);
+    expect(isReady(graph, activityOf(graph, "join"))).toBe(true);
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).toContain("join");
   });
 
   test("a join loses its last live arm and is dropped, not left hanging", () => {
     const resolved = run(twoDeep(), [outcome("gate", "accept"), close("gate")]).graph;
     // Dropping `a1` kills its out-edge too, so the cascade takes `a2` — and `join`, whose
-    // every blocking in-edge now originates at a dropped node. §6.4's transitive rule
+    // every blocking in-edge now originates at a dropped activity. §6.4's transitive rule
     // reaches the merge itself; it does not stop one hop short and leave it unreachable.
     const { derived, graph } = run(resolved, [close("a1", "dropped")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["a2", "join"]);
-    expect(isReady(graph, nodeOf(graph, "join"))).toBe(false);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["a2", "join"]);
+    expect(isReady(graph, activityOf(graph, "join"))).toBe(false);
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).not.toContain("join");
   });
 });
@@ -340,7 +340,7 @@ describe("determinism — the log is the authority, not the code that wrote it",
     expect(JSON.stringify(run(graph, ops).ops)).toBe(JSON.stringify(run(graph, ops).ops));
   });
 
-  test("drops are emitted in node insertion order, never traversal order", () => {
+  test("drops are emitted in activity insertion order, never traversal order", () => {
     // `b2` is inserted before `b1` here, so a discovery-ordered implementation emits
     // b1 then b2 and this fails.
     const seed = seeded([
@@ -355,7 +355,7 @@ describe("determinism — the log is the authority, not the code that wrote it",
       { op: "add_edge", from: "b1", to: "b2" },
     ]);
     const { derived } = run(wired, [outcome("gate", "accept"), close("gate")]);
-    expect(derived.map((op) => op.op === "set_status" && slugOf(op.node))).toEqual(["b2", "b1"]);
+    expect(derived.map((op) => op.op === "set_status" && slugOf(op.activity))).toEqual(["b2", "b1"]);
   });
 
   /**
@@ -393,8 +393,8 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
    */
   test("a failed source with a resolved, non-matching outcome is still not dead", () => {
     const graph = commit(gated(), [outcome("gate", "accept"), close("gate", "failed")]);
-    expect(nodeOf(graph, "gate").status.state).toBe("failed");
-    expect(nodeOf(graph, "gate").status.outcome?.verdict).toBe("accept");
+    expect(activityOf(graph, "gate").status.state).toBe("failed");
+    expect(activityOf(graph, "gate").status.outcome?.verdict).toBe("accept");
     // Were `failed` treated as dropped, this would be dead and `ignored` would be rewritten.
     expect(isEdgeDead(graph, { from: slugOr(graph, "gate"), to: slugOr(graph, "ignored"), condition: { on: "ignore" } })).toBe(
       false,
@@ -416,7 +416,7 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
     const pre = commit(gated(), [outcome("gate", "accept"), close("gate")]);
     const fresh: CommittedOp[] = [
       {
-        op: "add_node",
+        op: "add_activity",
         id: "late",
         name: "Late",
         type: "task",
@@ -436,13 +436,13 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
       true,
     );
     // Dead, and still not derived from: it was born dead, so refusing it is the store's
-    // answer, not silently dropping the node the author has just written.
+    // answer, not silently dropping the activity the author has just written.
     expect(resolveBranches(pre, post.value).drops).toEqual([]);
   });
 
   /**
    * Kills `if (deadArm.has(id)) continue` -> `if (false)`, which without the guard revisits a
-   * node forever once a cycle sits on a dead arm. Nothing forbids a cycle: `add_edge` refuses
+   * activity forever once a cycle sits on a dead arm. Nothing forbids a cycle: `add_edge` refuses
    * only a self-edge and an exact duplicate.
    */
   test("a cycle on a dead arm terminates", () => {
@@ -490,7 +490,7 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
         op.op === "set_status"
           ? [
               [
-                String(slugOf(op.node)),
+                String(slugOf(op.activity)),
                 `${DERIVED_EVIDENCE_PREFIX}:${String(slugOf(op.evidence_ref.slice(DERIVED_EVIDENCE_PREFIX.length + 1)))}`,
               ],
             ]
@@ -505,20 +505,20 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
    * `set_status.evidence_ref` is now a shared channel: the outbox encodes reserve/record
    * transitions through it (§6.6, "there is no seventh op"), and branch resolution stamps
    * its cause through it too. They must not collide — a derived drop that parsed as an
-   * outbox transition would materialise a phantom reservation on a node nobody sent to.
+   * outbox transition would materialise a phantom reservation on an activity nobody sent to.
    */
   test("a derived drop's evidence_ref is not mistaken for an outbox transition", () => {
     const { derived, graph } = run(gated(), [outcome("gate", "accept"), close("gate")]);
     const ref = derived[0]?.op === "set_status" ? derived[0].evidence_ref : "";
     expect(ref.startsWith(DERIVED_EVIDENCE_PREFIX)).toBe(true);
     expect(parseEffectEvidence(ref)).toBeNull();
-    expect(nodeOf(graph, "ignored").status.effect_log).toEqual([]);
+    expect(activityOf(graph, "ignored").status.effect_log).toEqual([]);
   });
 
-  test("isDroppable gates emission and is read per node", () => {
+  test("isDroppable gates emission and is read per activity", () => {
     const graph = gated();
-    expect(isDroppable(nodeOf(graph, "ignored"))).toBe(true);
-    expect(isDroppable(nodeOf(graph, "accepted"))).toBe(true);
+    expect(isDroppable(activityOf(graph, "ignored"))).toBe(true);
+    expect(isDroppable(activityOf(graph, "accepted"))).toBe(true);
   });
 });
 
@@ -532,7 +532,7 @@ describe("hardening — edge identity and the evidence stamp", () => {
     const pre = commit(gated(), [outcome("gate", "accept"), close("gate")]);
     const fresh: CommittedOp[] = [
       {
-        op: "add_node",
+        op: "add_activity",
         id: "late",
         name: "Late",
         type: "task",
@@ -559,7 +559,7 @@ describe("hardening — edge identity and the evidence stamp", () => {
     const graph = gated();
     const { derived } = run(graph, [outcome("gate", "accept"), close("gate")]);
     const ref = derived[0]?.op === "set_status" ? derived[0].evidence_ref : "";
-    // The ref names the node that CAUSED the drop, so it carries a minted id. The constant
+    // The ref names the activity that CAUSED the drop, so it carries a minted id. The constant
     // is what this asserts; the id is read back rather than written down.
     expect(ref).toBe(`derived:branch-resolution:${nid(graph, "gate")}`);
   });
@@ -569,7 +569,7 @@ describe("hardening — edge identity and the evidence stamp", () => {
     const { derived } = run(graph, [outcome("gate", "accept"), close("gate")]);
     expect(
       derived.map((op) =>
-        op.op === "set_status" ? `${String(slugOf(op.node))}=${String(slugOf(op.evidence_ref.split(":").pop()))}` : "",
+        op.op === "set_status" ? `${String(slugOf(op.activity))}=${String(slugOf(op.evidence_ref.split(":").pop()))}` : "",
       ),
     ).toEqual(["b1=gate", "b2=b1"]);
   });
@@ -578,11 +578,11 @@ describe("hardening — edge identity and the evidence stamp", () => {
 /**
  * Arm-death — the readiness half of branch resolution.
  *
- * The cascade deliberately does not rewrite a node that is already terminal, or one that is
- * `sending`. Those nodes then sit on a dead arm wearing a live-looking status, their plain
+ * The cascade deliberately does not rewrite an activity that is already terminal, or one that is
+ * `sending`. Those activities then sit on a dead arm wearing a live-looking status, their plain
  * out-edges read as SATISFIED, and under `merge: "any"` one of them alone puts a shared
  * descendant on the frontier — which §6.8 says is what gets it dispatched, pivot send
- * included. Dropping cannot answer this: a `sending` node completing later makes no edge
+ * included. Dropping cannot answer this: a `sending` activity completing later makes no edge
  * newly dead, so no commit-time derivation ever sees it.
  */
 describe("arm-death (§6.4, read side)", () => {
@@ -606,15 +606,15 @@ describe("arm-death (§6.4, read side)", () => {
    * The reproduction. `b1` is marked `done` out of band on the arm that will NOT be taken,
    * so the cascade cannot rewrite it — and its plain edge into the pivot is satisfied.
    */
-  test("a DONE node on an untaken arm does not satisfy a merge:'any' descendant", () => {
+  test("a DONE activity on an untaken arm does not satisfy a merge:'any' descendant", () => {
     const withDone = commit(shared("any"), [close("b1")]);
     // Before the gate resolves, b1's arm is not yet dead and `any` is legitimately satisfied.
-    expect(isReady(withDone, nodeOf(withDone, "pivot"))).toBe(true);
+    expect(isReady(withDone, activityOf(withDone, "pivot"))).toBe(true);
 
     const graph = run(withDone, [outcome("gate", "accept"), close("gate")]).graph;
-    expect(nodeOf(graph, "b1").status.state).toBe("done");
-    expect(nodeOf(graph, "a1").status.state).toBe("active");
-    expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(false);
+    expect(activityOf(graph, "b1").status.state).toBe("done");
+    expect(activityOf(graph, "a1").status.state).toBe("active");
+    expect(isReady(graph, activityOf(graph, "pivot"))).toBe(false);
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["a1"]);
   });
 
@@ -623,26 +623,26 @@ describe("arm-death (§6.4, read side)", () => {
    * when the gate resolves, so it is withheld; the send then completes normally, and that
    * batch makes no edge newly dead, so nothing re-seeds.
    */
-  test("nor does a SENDING node that later completes", () => {
+  test("nor does a SENDING activity that later completes", () => {
     const sending = commit(shared("any"), [close("b1", "in_flight")]);
     const resolved = run(sending, [outcome("gate", "accept"), close("gate")]);
     expect(resolved.withheld.map(slugOf)).toEqual(["b1"]);
 
     const completed = commit(resolved.graph, [close("b1")]);
-    expect(isReady(completed, nodeOf(completed, "pivot"))).toBe(false);
+    expect(isReady(completed, activityOf(completed, "pivot"))).toBe(false);
     expect(readyFrontier(completed).map((n) => slugOf(n.id))).toEqual(["a1"]);
   });
 
   test("the taken arm still opens the descendant normally", () => {
     let graph = run(shared("any"), [outcome("gate", "accept"), close("gate")]).graph;
     graph = commit(graph, [close("a1")]);
-    expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(true);
+    expect(isReady(graph, activityOf(graph, "pivot"))).toBe(true);
   });
 
   test("merge:'all' was never exposed to this, and still is not", () => {
     const withDone = commit(shared("all"), [close("b1")]);
     const graph = run(withDone, [outcome("gate", "accept"), close("gate")]).graph;
-    expect(isReady(graph, nodeOf(graph, "pivot"))).toBe(false);
+    expect(isReady(graph, activityOf(graph, "pivot"))).toBe(false);
   });
 
   test("a cycle is mutual dependency, not death — the predicate stays total", () => {
@@ -658,7 +658,7 @@ describe("arm-death (§6.4, read side)", () => {
     expect(isArmDead(graph, slugOr(graph, "y"))).toBe(false);
   });
 
-  test("a node whose every in-edge is dropped is arm-dead, and not ready", () => {
+  test("an activity whose every in-edge is dropped is arm-dead, and not ready", () => {
     const graph = run(twoDeep(), [outcome("gate", "accept"), close("gate")]).graph;
     expect(isArmDead(graph, slugOr(graph, "b2"))).toBe(true);
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).toEqual(["a1"]);

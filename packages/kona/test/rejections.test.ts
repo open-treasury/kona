@@ -18,15 +18,15 @@ let h: Harness;
 
 const NODE = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Ask Dana",
     type: "task",
     spec: { instruction: "Email Dana.", effect_class: "pure" },
   },
 ];
-// The node id is minted, so this is a function evaluated inside a test.
+// The activity id is minted, so this is a function evaluated inside a test.
 const FINISH = () => [
-  { op: "set_status", node: h.id("ask-dana"), status: "done", evidence_ref: "e" },
+  { op: "set_status", activity: h.id("ask-dana"), status: "done", evidence_ref: "e" },
 ];
 
 async function mutate(ops: unknown[], base: number, why: string, ...extra: string[]): Promise<number> {
@@ -63,9 +63,9 @@ describe("what gets remembered", () => {
   test("an invariant violation is written whole", async () => {
     expect(await mutate(FINISH(), 2, "reopen it, I want another go")).toBe(4);
     const [record] = refusals();
-    expect(record?.rejection.reason).toBe("TERMINAL_NODE_PROTECTED");
+    expect(record?.rejection.reason).toBe("TERMINAL_ACTIVITY_PROTECTED");
     expect(record?.rejection.invariant).toBe(1);
-    expect(record?.rejection.node).toBe(h.id("ask-dana"));
+    expect(record?.rejection.activity).toBe(h.id("ask-dana"));
     expect(record?.head_version).toBe(2);
     expect(record?.base_version).toBe(2);
   });
@@ -88,7 +88,7 @@ describe("what gets remembered", () => {
   });
 
   test("a malformed batch is remembered too, even though it never reached the graph", async () => {
-    expect(await mutate([{ op: "delete_node", node: h.id("ask-dana") }], 2, "just remove it")).toBe(1);
+    expect(await mutate([{ op: "delete_node", activity: h.id("ask-dana") }], 2, "just remove it")).toBe(1);
     expect(refusals()[0]?.rejection.reason).toBe("MALFORMED_OPS");
     expect(refusals()[0]?.rationale?.why).toBe("just remove it");
   });
@@ -108,9 +108,9 @@ describe("what gets remembered", () => {
 
 describe("what is deliberately NOT remembered", () => {
   test("a successful commit writes nothing here", async () => {
-    expect(await mutate([{ op: "record_output", node: h.id("ask-dana"), output_name: "x", value: 1, evidence_ref: "e" }], 2, "ok")).not.toBe(0);
+    expect(await mutate([{ op: "record_output", activity: h.id("ask-dana"), output_name: "x", value: 1, evidence_ref: "e" }], 2, "ok")).not.toBe(0);
     const afterFailure = refusals().length;
-    expect(await mutate(NODE, 2, "another node")).toBe(0);
+    expect(await mutate(NODE, 2, "another activity")).toBe(0);
     expect(refusals()).toHaveLength(afterFailure);
   });
 
@@ -123,7 +123,7 @@ describe("what is deliberately NOT remembered", () => {
 });
 
 describe("the graph is still exactly fold(mutations.jsonl)", () => {
-  test("a refusal changes no version and no node", async () => {
+  test("a refusal changes no version and no activity", async () => {
     h.reset();
     expect(await run(["graph", "--json"], h.io)).toBe(0);
     const before = h.out[0];
@@ -152,7 +152,7 @@ describe("reading them back", () => {
     expect(await run(["graph", "--rejections"], h.io)).toBe(0);
     const text = h.out.join("\n");
     expect(text).toContain("1 refusal(s)");
-    expect(text).toContain("TERMINAL_NODE_PROTECTED");
+    expect(text).toContain("TERMINAL_ACTIVITY_PROTECTED");
     expect(text).toContain("wanted: reopen it, I want another go");
   });
 
@@ -189,7 +189,7 @@ describe("it is memory, so it fails soft", () => {
     mkdirSync(join(dir, "rejections.jsonl"), { recursive: true });
     expect(await mutate(FINISH(), 2, "reopen it")).toBe(4);
     expect(h.err.some((line) => line.includes("REJECTION_NOT_LOGGED"))).toBe(true);
-    expect(h.err[0]).toContain("TERMINAL_NODE_PROTECTED");
+    expect(h.err[0]).toContain("TERMINAL_ACTIVITY_PROTECTED");
   });
 
   test("an unreadable log does not break the read verb", async () => {

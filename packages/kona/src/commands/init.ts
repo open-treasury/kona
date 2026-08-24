@@ -24,7 +24,7 @@ export interface InitOptions {
   /** Pursuit-wide config — identity and effect budget — written onto the genesis record. */
   configFile?: string;
   /**
-   * `--prefix`: the string every node id in this pursuit opens with. Settable only here,
+   * `--prefix`: the string every activity id in this pursuit opens with. Settable only here,
    * because ids already minted cannot be re-minted — a prefix that could change would leave
    * the log carrying two shapes with neither of them wrong.
    */
@@ -106,7 +106,7 @@ export async function runInit(io: Io, options: InitOptions): Promise<number> {
   // ids it produced are already in the log.
   if (options.prefix === undefined && config?.prefix === undefined) {
     io.err(
-      "REFUSED MISSING_FLAG --prefix is required: every node id opens with it, and it is " +
+      "REFUSED MISSING_FLAG --prefix is required: every activity id opens with it, and it is " +
         "fixed for the life of the pursuit",
     );
     return EXIT_REFUSED;

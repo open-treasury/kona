@@ -2,16 +2,16 @@
  * A4: a status-only mutation must not re-run dagre.
  *
  * The fixture is the whole point of these tests. v3 and v4 are real mutations the binary wrote
- * — statuses, outcomes, two outputs — and they bump `graph.version` without touching a node,
+ * — statuses, outcomes, two outputs — and they bump `graph.version` without touching an activity,
  * an edge or a supersession. Anything keyed on the version would re-lay-out there, which is
  * the one moment §6.10 rule 2 forbids.
  */
 
 import { describe, expect, test } from "bun:test";
-import type { Graph, Node } from "@kona/core";
+import type { Graph, Activity } from "@kona/core";
 import type { Layout, NodeBox } from "../src/layout/dagre.ts";
 import {
-  NODE_SIZE,
+  ACTIVITY_SIZE,
   createLayoutCache,
   layoutGraph,
   topologySignature,
@@ -19,10 +19,10 @@ import {
 import { END_MARKER_ID, START_MARKER_ID, flowTerminals } from "../src/model/edges.ts";
 import { V, folded, headVersion } from "./fixture.ts";
 
-function nodeOf(graph: Graph, id: string): Node {
-  const node = graph.nodes.get(id);
-  if (node === undefined) throw new Error(`the fixture has no node ${id}`);
-  return node;
+function nodeOf(graph: Graph, id: string): Activity {
+  const activity = graph.activities.get(id);
+  if (activity === undefined) throw new Error(`the fixture has no activity ${id}`);
+  return activity;
 }
 
 function boxOf(layout: Layout, id: string): NodeBox {
@@ -32,18 +32,18 @@ function boxOf(layout: Layout, id: string): NodeBox {
 }
 
 function states(version: number): string[] {
-  return [...folded(version).graph.nodes.values()].map((n) => `${n.id}=${n.status.state}`);
+  return [...folded(version).graph.activities.values()].map((n) => `${n.id}=${n.status.state}`);
 }
 
 /**
- * The first node the fixture has both an edge into and an edge out of, so deleting it strands
+ * The first activity the fixture has both an edge into and an edge out of, so deleting it strands
  * one of each. Derived rather than named, because a regenerated fixture is free to rename its
- * nodes and a hardcoded id would strand the test instead.
+ * activities and a hardcoded id would strand the test instead.
  */
 function nodeWithEdgesBothWays(graph: Graph): string {
   const targets = new Set(graph.edges.map((edge) => edge.to));
   const id = graph.edges.find((edge) => targets.has(edge.from))?.from;
-  if (id === undefined) throw new Error("the fixture has no node with an in-edge and an out-edge");
+  if (id === undefined) throw new Error("the fixture has no activity with an in-edge and an out-edge");
   return id;
 }
 
@@ -95,11 +95,11 @@ describe("topologySignature", () => {
     const graph = folded().graph;
     const before = topologySignature(graph);
 
-    const node = nodeOf(graph, "th-gk0l");
-    node.status.state = "dropped";
-    node.status.output = { transcript_ref: "msg-999" };
-    node.status.observed_at_version = 99;
-    node.status.effect_log.push({
+    const activity = nodeOf(graph, "th-gk0l");
+    activity.status.state = "dropped";
+    activity.status.output = { transcript_ref: "msg-999" };
+    activity.status.observed_at_version = 99;
+    activity.status.effect_log.push({
       effect_key: "resend",
       payload_hash: "deadbeef",
       attempted_at: "2026-08-22T02:00:00.000Z",
@@ -116,11 +116,11 @@ describe("topologySignature", () => {
     expect(topologySignature(graph)).toBe(before);
   });
 
-  test("a supersede changes it even when no node or edge is added", () => {
+  test("a supersede changes it even when no activity or edge is added", () => {
     const graph = folded().graph;
     const before = topologySignature(graph);
     // `th-vipt` is already in the fixture, so this is a supersession and
-    // nothing else — no new node, no new edge.
+    // nothing else — no new activity, no new edge.
     nodeOf(graph, "th-gk0l").provenance.superseded_by = "th-vipt";
     expect(topologySignature(graph)).not.toBe(before);
   });
@@ -129,7 +129,7 @@ describe("topologySignature", () => {
     const graph = folded().graph;
     const before = topologySignature(graph);
     // `th-9xi1 -> th-ymld` fires on `accept`; the three goalie
-    // waits fire on `satisfied`. Flipping one is a different graph, same node set.
+    // waits fire on `satisfied`. Flipping one is a different graph, same activity set.
     const edge = graph.edges.find((e) => e.condition?.on === "accept");
     if (edge?.condition === undefined) throw new Error("the fixture lost its `accept` edge");
     edge.condition.on = "satisfied";
@@ -138,26 +138,26 @@ describe("topologySignature", () => {
 
   test("insertion order is part of the shape (rule 7 pins visual order to it)", () => {
     const graph = folded().graph;
-    const reversed: Graph = { ...graph, nodes: new Map([...graph.nodes].toReversed()) };
+    const reversed: Graph = { ...graph, activities: new Map([...graph.activities].toReversed()) };
     expect(topologySignature(reversed)).not.toBe(topologySignature(graph));
   });
 });
 
 describe("layoutGraph", () => {
-  test("places all 14 head nodes, at the size their type asks for", () => {
+  test("places all 14 head activities, at the size their type asks for", () => {
     const graph = folded().graph;
     const layout = layoutGraph(graph);
 
-    expect(graph.nodes.size).toBe(14);
-    expect(layout.boxes.size).toBe(graph.nodes.size);
-    for (const node of graph.nodes.values()) {
-      const box = boxOf(layout, node.id);
-      expect(box.width).toBe(NODE_SIZE[node.type].width);
-      expect(box.height).toBe(NODE_SIZE[node.type].height);
+    expect(graph.activities.size).toBe(14);
+    expect(layout.boxes.size).toBe(graph.activities.size);
+    for (const activity of graph.activities.values()) {
+      const box = boxOf(layout, activity.id);
+      expect(box.width).toBe(ACTIVITY_SIZE[activity.type].width);
+      expect(box.height).toBe(ACTIVITY_SIZE[activity.type].height);
       expect(Number.isFinite(box.x)).toBe(true);
       expect(Number.isFinite(box.y)).toBe(true);
     }
-    expect([...layout.boxes.keys()]).toEqual([...graph.nodes.keys()]);
+    expect([...layout.boxes.keys()]).toEqual([...graph.activities.keys()]);
     expect(layout.width).toBeGreaterThan(0);
     expect(layout.height).toBeGreaterThan(0);
     expect(layout.signature).toBe(topologySignature(graph));
@@ -185,10 +185,10 @@ describe("layoutGraph", () => {
     const top = Math.min(...boxes.map((b) => b.y));
     const bottom = Math.max(...boxes.map((b) => b.y + b.height));
 
-    // dagre translates its result so the bounding box of the nodes sits inside an equal margin
+    // dagre translates its result so the bounding box of the activities sits inside an equal margin
     // on both sides: `left === marginx` and `right === width - marginx`, hence `left + right
     // === width`. That identity holds only for corners. Left as centres, both extremes would
-    // be half a box out and the sums would exceed the reported size by a node's width.
+    // be half a box out and the sums would exceed the reported size by an activity's width.
     expect(left + right).toBe(layout.width);
     expect(top + bottom).toBe(layout.height);
     expect(left).toBeGreaterThan(0);
@@ -208,8 +208,8 @@ describe("layoutGraph", () => {
     expect(task.y).not.toBe(wait.y);
   });
 
-  test("an edge to a node that is gone is skipped, not minted as a phantom", () => {
-    // `setEdge` mints any endpoint it does not already know, and a minted node has no size, so
+  test("an edge to an activity that is gone is skipped, not minted as a phantom", () => {
+    // `setEdge` mints any endpoint it does not already know, and a minted activity has no size, so
     // dagre ranks and separates a zero-sized phantom in the middle of the graph and shoves the
     // real boxes around it. A dangling edge is a shape the model already names
     // (`BlockedCause.kind === "missing"`), so the layout has to ignore it rather than draw it.
@@ -217,10 +217,10 @@ describe("layoutGraph", () => {
     const stranded = nodeWithEdgesBothWays(folded().graph);
 
     const dangling = folded().graph;
-    dangling.nodes.delete(stranded); // the node goes, its edges stay — that is the hazard
+    dangling.activities.delete(stranded); // the activity goes, its edges stay — that is the hazard
 
     const pruned = folded().graph;
-    pruned.nodes.delete(stranded);
+    pruned.activities.delete(stranded);
     pruned.edges = pruned.edges.filter((e) => e.from !== stranded && e.to !== stranded);
 
     // Guard the premise: something has to actually dangle, on both sides, or the two layouts
@@ -232,7 +232,7 @@ describe("layoutGraph", () => {
     const withDangling = layoutGraph(dangling);
     const withoutThem = layoutGraph(pruned);
 
-    expect(withDangling.boxes.size).toBe(folded().graph.nodes.size - 1);
+    expect(withDangling.boxes.size).toBe(folded().graph.activities.size - 1);
     // The count alone would not catch it — a phantom is never asked for a box. What gives it
     // away is that the survivors move, so the expected picture is the one the pruned graph
     // lays out, compared whole rather than at a coordinate anyone typed in.
@@ -256,7 +256,7 @@ describe("createLayoutCache", () => {
     const second = layoutOf(folded(V.danaSent).graph);
 
     // `toBe`, deliberately: React re-renders on identity, so an equal-but-fresh object would
-    // move every node's props and defeat the memo at the only layer where it pays. Identity is
+    // move every activity's props and defeat the memo at the only layer where it pays. Identity is
     // also the invocation count — a layout that ran would have built a new `Map`.
     expect(second).toBe(first);
     expect(second.boxes).toBe(first.boxes);
@@ -269,7 +269,7 @@ describe("createLayoutCache", () => {
 
     expect(after).not.toBe(before);
     expect(after.signature).not.toBe(before.signature);
-    expect(after.boxes.size).toBe(folded(V.samRefers).graph.nodes.size);
+    expect(after.boxes.size).toBe(folded(V.samRefers).graph.activities.size);
   });
 
   test("walking the whole log lays out once per shape change and no more", () => {
@@ -285,15 +285,15 @@ describe("createLayoutCache", () => {
 });
 
 describe("the notation markers", () => {
-  test("are placed, and kept OUT of the node boxes", () => {
+  test("are placed, and kept OUT of the activity boxes", () => {
     const layout = layoutGraph(folded().graph);
-    // The separation is the point: anything counting or iterating the pursuit's nodes must not
+    // The separation is the point: anything counting or iterating the pursuit's activities must not
     // pick up two circles that correspond to nothing in the log.
     expect(layout.boxes.has(START_MARKER_ID)).toBe(false);
     expect(layout.boxes.has(END_MARKER_ID)).toBe(false);
     expect(layout.markers.has(START_MARKER_ID)).toBe(true);
     expect(layout.markers.has(END_MARKER_ID)).toBe(true);
-    expect(layout.boxes.size).toBe(folded().graph.nodes.size);
+    expect(layout.boxes.size).toBe(folded().graph.activities.size);
   });
 
   test("the start sits left of every card it points at, and the end right of every one", () => {
@@ -321,7 +321,7 @@ describe("the notation markers", () => {
   });
 
   test("an empty graph gets no markers at all", () => {
-    // v0 is genesis: no nodes, so no flow, so nothing to punctuate.
+    // v0 is genesis: no activities, so no flow, so nothing to punctuate.
     const layout = layoutGraph(folded(0).graph);
     expect(layout.boxes.size).toBe(0);
     expect(layout.markers.size).toBe(0);

@@ -98,7 +98,7 @@ describe("engine-stamped fields", () => {
   test("versions increment by exactly one", async () => {
     expect(await mutate()).toBe(0);
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
@@ -122,7 +122,7 @@ describe("what mutate reports", () => {
     await mutate();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
@@ -141,7 +141,7 @@ describe("what mutate reports", () => {
     await mutate();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", node: h.id("wait-for-dana"), status: "done", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("wait-for-dana"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER", "--json"], h.io),

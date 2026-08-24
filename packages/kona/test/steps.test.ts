@@ -54,7 +54,7 @@ describe("--steps", () => {
 
     const committed = records().at(-1)?.ops ?? [];
     expect(committed).toHaveLength(3);
-    expect(committed.filter((op) => op.op === "add_node")).toHaveLength(2);
+    expect(committed.filter((op) => op.op === "add_activity")).toHaveLength(2);
 
     const edges = committed.filter((op) => op.op === "add_edge");
     expect(edges).toHaveLength(1);
@@ -70,15 +70,15 @@ describe("--steps", () => {
     h.reset();
     expect(await run(["next", "--json"], h.io)).toBe(0);
 
-    const frontier = JSON.parse(h.out.join("\n")) as { nodes: { id: string }[] };
-    expect(frontier.nodes.map((node) => node.id)).toEqual([h.id("first")]);
+    const frontier = JSON.parse(h.out.join("\n")) as { activities: { id: string }[] };
+    expect(frontier.activities.map((activity) => activity.id)).toEqual([h.id("first")]);
   });
 
   test("a single step commits, with no edge to draw", async () => {
     expect(await steps("Just the one")).toBe(0);
     const committed = records().at(-1)?.ops ?? [];
     expect(committed).toHaveLength(1);
-    expect(committed[0]).toMatchObject({ op: "add_node", name: "Just the one" });
+    expect(committed[0]).toMatchObject({ op: "add_activity", name: "Just the one" });
   });
 
   test("the rationale is still required — sugar does not buy an exemption", async () => {
@@ -130,7 +130,7 @@ describe("--steps", () => {
 });
 
 describe("opsFromSteps", () => {
-  test("emits n nodes and n-1 edges", () => {
+  test("emits n activities and n-1 edges", () => {
     expect(opsFromSteps(["a", "b", "c", "d"])).toHaveLength(7);
   });
 
@@ -139,20 +139,20 @@ describe("opsFromSteps", () => {
   });
 
   test("the label is the instruction — no words are invented for the author", () => {
-    const [node] = opsFromSteps(["Read the failing test"]);
-    expect(node).toMatchObject({
-      op: "add_node",
+    const [activity] = opsFromSteps(["Read the failing test"]);
+    expect(activity).toMatchObject({
+      op: "add_activity",
       name: "Read the failing test",
       type: "task",
       spec: { instruction: "Read the failing test", effect_class: "pure" },
     });
   });
 
-  test("every node is pure — sugar can never author an effect", () => {
+  test("every activity is pure — sugar can never author an effect", () => {
     // The whole point of the one-line path is that it cannot reach the world. Anything that
     // sends is a deliberate act through --ops, where the invariants have something to check.
     const ops = opsFromSteps(["a", "b", "c"]) as { op: string; spec?: { effect_class: string } }[];
-    for (const op of ops.filter((candidate) => candidate.op === "add_node")) {
+    for (const op of ops.filter((candidate) => candidate.op === "add_activity")) {
       expect(op.spec?.effect_class).toBe("pure");
     }
   });

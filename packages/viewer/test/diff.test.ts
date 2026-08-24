@@ -34,8 +34,8 @@ function edgeBetween(edges: readonly Edge[], from: string, to: string): Edge {
 }
 
 /**
- * The next version, produced by the store's own `applyOps` rather than by editing a node in
- * place. Both fixture versions that supersede also add a node, so a supersede on its own is a
+ * The next version, produced by the store's own `applyOps` rather than by editing an activity in
+ * place. Both fixture versions that supersede also add an activity, so a supersede on its own is a
  * pair the committed log cannot supply — but it has to be a pair `kona` could have written,
  * and only `apply.ts` knows what a supersede does to status and provenance. It clones, so the
  * `before` graph handed in stays pristine and is safe to diff against.
@@ -49,7 +49,7 @@ function applied(graph: Graph, ops: CommittedOp[]): Graph {
 describe("the topology table", () => {
   test("eight of the thirteen versions are status ticks", () => {
     // Most of them are the outbox: a send is `effect reserve` then `effect record`, two
-    // commits that move one node's status and touch nothing else. That is the single most
+    // commits that move one activity's status and touch nothing else. That is the single most
     // common thing a live pursuit does, and re-running dagre for each would make the picture
     // jump every time an email goes out.
     const table = Object.fromEntries(VERSIONS.map((v) => [v, step(v).topologyStable]));
@@ -75,7 +75,7 @@ describe("the topology table", () => {
     // two versions are one email. The graph must not move while a send completes.
     const before = folded(V.danaReserved).graph;
     const after = folded(V.danaSent).graph;
-    expect([...after.nodes.keys()]).toEqual([...before.nodes.keys()]);
+    expect([...after.activities.keys()]).toEqual([...before.activities.keys()]);
     expect(after.edges).toEqual(before.edges);
 
     const diff = diffGraphs(before, after);
@@ -104,7 +104,7 @@ describe("versions that change the shape", () => {
       "th-vipt",
     ]);
     expect(diff.addedEdges).toEqual([]);
-    // Nothing CHANGED status: the roster node is added and finished inside one version, so
+    // Nothing CHANGED status: the roster activity is added and finished inside one version, so
     // it is an addition, not a transition. There is no earlier state to have moved from.
     expect(diff.statusChanged).toEqual([]);
   });
@@ -146,7 +146,7 @@ describe("versions that change the shape", () => {
     const diff = step(V.rosterSuperseded);
     expect(diff.addedNodes).toEqual(["th-five"]);
     expect(diff.addedEdges).toEqual([]);
-    // The superseded node was already `done`, so superseding it moved nothing observable.
+    // The superseded activity was already `done`, so superseding it moved nothing observable.
     // Only `superseded` records what happened — and it alone has to unstick the layout.
     expect(diff.statusChanged).toEqual([]);
     expect(diff.outcomeAdded).toEqual([]);
@@ -190,7 +190,7 @@ describe("versions that change the shape", () => {
     // `superseded` would mean inventing a replacement that the log does not name.
     const diff = step(V.patPlanned);
     expect(diff.superseded).toEqual([]);
-    expect(folded(V.patPlanned).graph.nodes.get("th-1ppl")?.provenance.superseded_by).toBe(
+    expect(folded(V.patPlanned).graph.activities.get("th-1ppl")?.provenance.superseded_by).toBe(
       null,
     );
     expect(diff.statusChanged).toContainEqual({
@@ -204,17 +204,17 @@ describe("versions that change the shape", () => {
 describe("supersede, on its own", () => {
   test("a supersede alone unsticks the layout, though it adds nothing", () => {
     const before = folded(V.samRefers).graph;
-    const retired = before.nodes.get("th-ahf6");
+    const retired = before.activities.get("th-ahf6");
     expect(retired?.status.state).toBe("done");
     expect(retired?.provenance.superseded_by).toBe(null);
 
-    // The supersede version with its own `add_node` taken away: the roster step retired in
+    // The supersede version with its own `add_activity` taken away: the roster step retired in
     // favour of the eligibility check the version before had just added, which already exists
     // here — so the replacement is real without the batch having to create it.
     const after = applied(before, [
       {
-        op: "supersede_node",
-        node: "th-ahf6",
+        op: "supersede_activity",
+        activity: "th-ahf6",
         by: "th-etsk",
       },
     ]);
@@ -229,7 +229,7 @@ describe("supersede, on its own", () => {
     expect(diff.superseded).toEqual([
       { id: "th-ahf6", by: "th-etsk" },
     ]);
-    // ...so it alone has to re-run dagre. The replacement must be drawn beside the node it
+    // ...so it alone has to re-run dagre. The replacement must be drawn beside the activity it
     // replaces with the chain between them, and leaving this stable would lay one on top of
     // the other.
     expect(diff.topologyStable).toBe(false);
@@ -237,12 +237,12 @@ describe("supersede, on its own", () => {
 
   test("a bare supersede retires a branch without moving the picture", () => {
     const before = folded(6).graph;
-    expect(before.nodes.get("th-1ppl")?.status.state).toBe("active");
+    expect(before.activities.get("th-1ppl")?.status.state).toBe("active");
 
     // No `by` — what v7 does to Priya's wait once her address bounces. §6.4: `superseded_by`
-    // stays null because no replacement was named, and the node stops being work instead.
-    const after = applied(before, [{ op: "supersede_node", node: "th-1ppl" }]);
-    expect(after.nodes.get("th-1ppl")?.provenance.superseded_by).toBe(null);
+    // stays null because no replacement was named, and the activity stops being work instead.
+    const after = applied(before, [{ op: "supersede_activity", activity: "th-1ppl" }]);
+    expect(after.activities.get("th-1ppl")?.provenance.superseded_by).toBe(null);
 
     const diff = diffGraphs(before, after);
     // These two answers are consistent, not contradictory. `superseded` is empty because
@@ -281,8 +281,8 @@ describe("status ticks", () => {
     expect(diff.statusChanged).toEqual([{ id: "th-es9m", from: "active", to: "done" }]);
     expect(diff.outcomeAdded).toEqual(["th-es9m"]);
     expect(diff.topologyStable).toBe(true);
-    // `declined` closes the wait, so the node is `done`. It did not fail; somebody answered.
-    expect(folded(V.danaDeclines).graph.nodes.get("th-es9m")?.status.outcome?.verdict).toBe(
+    // `declined` closes the wait, so the activity is `done`. It did not fail; somebody answered.
+    expect(folded(V.danaDeclines).graph.activities.get("th-es9m")?.status.outcome?.verdict).toBe(
       "declined",
     );
   });
@@ -303,7 +303,7 @@ describe("the first paint", () => {
     });
   });
 
-  test("head against null adds all fourteen nodes and eleven edges", () => {
+  test("head against null adds all fourteen activities and eleven edges", () => {
     const head = folded().graph;
     const diff = diffGraphs(null, head);
     expect(diff.addedNodes).toHaveLength(14);
@@ -313,7 +313,7 @@ describe("the first paint", () => {
     // Additions in insertion order (rule 7), so the canvas can pin visual order to it.
     expect(diff.addedNodes[0]).toBe("th-ahf6");
     expect(diff.addedNodes.at(-1)).toBe("th-0s7c");
-    // A node that appears for the first time is an addition, never a transition — there is
+    // An activity that appears for the first time is an addition, never a transition — there is
     // no earlier state for it to have moved from.
     expect(diff.statusChanged).toEqual([]);
     expect(diff.outcomeAdded).toEqual([]);
@@ -359,25 +359,25 @@ describe("diffs across more than one version", () => {
 
 describe("nothing is ever removed", () => {
   test("every id present at a version is still present at head", () => {
-    const head = new Set(folded().graph.nodes.keys());
+    const head = new Set(folded().graph.activities.keys());
     for (const v of VERSIONS) {
-      for (const id of folded(v).graph.nodes.keys()) {
+      for (const id of folded(v).graph.activities.keys()) {
         expect(head.has(id)).toBe(true);
       }
     }
   });
 
-  test("the node and edge counts never go down", () => {
-    let nodes = 0;
+  test("the activity and edge counts never go down", () => {
+    let activities = 0;
     let edges = 0;
     for (const v of [0, ...VERSIONS]) {
       const graph = folded(v).graph;
-      expect(graph.nodes.size).toBeGreaterThanOrEqual(nodes);
+      expect(graph.activities.size).toBeGreaterThanOrEqual(activities);
       expect(graph.edges.length).toBeGreaterThanOrEqual(edges);
-      nodes = graph.nodes.size;
+      activities = graph.activities.size;
       edges = graph.edges.length;
     }
-    expect(nodes).toBe(14);
+    expect(activities).toBe(14);
     expect(edges).toBe(11);
   });
 });

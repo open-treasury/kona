@@ -1,8 +1,8 @@
 /**
  * "…then flash the new subtree" — the last beat of §6.10 rule 1.
  *
- * The diff already knows exactly which nodes and edges a version added. This hook is only the
- * decay: it holds that set for long enough to be seen and then drops it, so a node added three
+ * The diff already knows exactly which activities and edges a version added. This hook is only the
+ * decay: it holds that set for long enough to be seen and then drops it, so an activity added three
  * versions ago is not still glowing when the fourth lands. Without the decay the canvas
  * accumulates highlight until everything is highlighted, which is the same as nothing being
  * highlighted.
@@ -15,11 +15,11 @@ import { edgeKeyString } from "../model/diff.ts";
 const FLASH_MS = 1500;
 
 export interface Fresh {
-  nodes: ReadonlySet<string>;
+  activities: ReadonlySet<string>;
   edges: ReadonlySet<string>;
 }
 
-const EMPTY: Fresh = { nodes: new Set(), edges: new Set() };
+const EMPTY: Fresh = { activities: new Set(), edges: new Set() };
 
 /**
  * `diff` is the change the newest version made. It is compared by version rather than by
@@ -39,7 +39,7 @@ export function useFresh(diff: GraphDiff | null, holdMs: number = FLASH_MS): Fre
     }
 
     setFresh({
-      nodes: new Set(diff.addedNodes),
+      activities: new Set(diff.addedNodes),
       edges: new Set(diff.addedEdges.map(edgeKeyString)),
     });
 
@@ -57,7 +57,7 @@ export function useFresh(diff: GraphDiff | null, holdMs: number = FLASH_MS): Fre
 /**
  * The same highlight, held rather than decayed — for a version the reader PINNED.
  *
- * `useFresh` answers "what just arrived", so it fades: a node added three versions ago must
+ * `useFresh` answers "what just arrived", so it fades: an activity added three versions ago must
  * stop glowing or everything glows and nothing is highlighted. Pinning asks a different
  * question — "what did v8 touch" — and the answer has to stay on screen while the reader
  * looks from the row to the canvas and back.
@@ -69,7 +69,7 @@ export function useFresh(diff: GraphDiff | null, holdMs: number = FLASH_MS): Fre
  */
 export function freshFromDiff(diff: GraphDiff): Fresh {
   return {
-    nodes: new Set([
+    activities: new Set([
       ...diff.addedNodes,
       ...diff.statusChanged.map((change) => change.id),
       ...diff.outcomeAdded,

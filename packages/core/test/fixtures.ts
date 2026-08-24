@@ -1,6 +1,6 @@
 /** Shared builders. Every fixture is a *legal* value; tests break exactly one thing. */
 
-import type { Actor, AuthoredOp, Graph, MutationRecord, Node } from "../src/index.ts";
+import type { Actor, AuthoredOp, Graph, MutationRecord, Activity } from "../src/index.ts";
 import { SCHEMA_VERSION, emptyGraph, slugify, validate } from "../src/index.ts";
 
 export const ORCHESTRATOR: Actor = { kind: "orchestrator", id: "run-1" };
@@ -8,7 +8,7 @@ export const SUBAGENT: Actor = { kind: "subagent", id: "exec-3" };
 
 export function task(name: string, extra: Record<string, unknown> = {}): AuthoredOp {
   return {
-    op: "add_node",
+    op: "add_activity",
     name,
     type: "task",
     spec: {
@@ -23,7 +23,7 @@ export function task(name: string, extra: Record<string, unknown> = {}): Authore
 
 export function wait(name: string, extra: Record<string, unknown> = {}): AuthoredOp {
   return {
-    op: "add_node",
+    op: "add_activity",
     name,
     type: "wait",
     spec: {
@@ -42,14 +42,14 @@ export function wait(name: string, extra: Record<string, unknown> = {}): Authore
 /**
  * Ids are hashes now, and a test that named one literally would be asserting a magic string.
  *
- * Every fixture still builds nodes from labels, so the label is the stable handle — and the
+ * Every fixture still builds activities from labels, so the label is the stable handle — and the
  * id a label *used* to mint is exactly `slugify(label)`. These two functions translate that
  * old slug into whatever the store actually minted, which keeps the tests reading in the
- * vocabulary they were written in: `nodeAt(graph, "a")`, not `graph.nodes.get("t-9x4k")`.
+ * vocabulary they were written in: `activityAt(graph, "a")`, not `graph.activities.get("t-9x4k")`.
  */
 export function nid(graph: Graph, slug: string): string {
-  for (const [id, node] of graph.nodes) if (slugify(node.name) === slug) return id;
-  throw new Error(`no node in the graph whose label slugs to "${slug}"`);
+  for (const [id, activity] of graph.activities) if (slugify(activity.name) === slug) return id;
+  throw new Error(`no activity in the graph whose label slugs to "${slug}"`);
 }
 
 /**
@@ -59,23 +59,23 @@ export function nid(graph: Graph, slug: string): string {
  * to reach the code under test rather than die in the fixture.
  */
 export function slugOr(graph: Graph, slug: string): string {
-  for (const [id, node] of graph.nodes) if (slugify(node.name) === slug) return id;
+  for (const [id, activity] of graph.activities) if (slugify(activity.name) === slug) return id;
   return slug;
 }
 
-/** Drop-in for `graph.nodes.get(slug)`, including its `undefined` for an absent node. */
-export function nodeAt(graph: Graph, slug: string): Node | undefined {
-  for (const [, node] of graph.nodes) if (slugify(node.name) === slug) return node;
+/** Drop-in for `graph.activities.get(slug)`, including its `undefined` for an absent activity. */
+export function activityAt(graph: Graph, slug: string): Activity | undefined {
+  for (const [, activity] of graph.activities) if (slugify(activity.name) === slug) return activity;
   return undefined;
 }
 
 /**
  * Rewrite the slug references in a batch into the ids the store minted.
  *
- * Fixtures name nodes the way the tests do — `{op:"set_status", node:"a"}` — and with slug ids
+ * Fixtures name activities the way the tests do — `{op:"set_status", node:"a"}` — and with slug ids
  * that string WAS the id. It no longer is. Resolving here rather than at 168 call sites keeps
  * the change to the id format out of tests that are not about ids, and leaves each test saying
- * what it meant: "the node labelled A".
+ * what it meant: "the activity labelled A".
  *
  * `$N` refs are left alone; they are batch-local and the normalizer owns them. A string that
  * is already a real id is left alone too, so a test that deliberately passes a minted id — or
@@ -85,12 +85,12 @@ export function resolveSlugs(graph: Graph, ops: unknown): unknown {
   // Malformed batches are the parser's business, not this helper's.
   if (!Array.isArray(ops)) return ops;
   const resolve = (value: unknown): unknown => {
-    if (typeof value !== "string" || value.startsWith("$") || graph.nodes.has(value)) return value;
-    for (const [id, node] of graph.nodes) if (slugify(node.name) === value) return id;
+    if (typeof value !== "string" || value.startsWith("$") || graph.activities.has(value)) return value;
+    for (const [id, activity] of graph.activities) if (slugify(activity.name) === value) return id;
     return value;
   };
-  // A node's spec carries ids too — the timeout arm, what it compensates, the wait an
-  // obviation watches, and the `node.output` on the left of every input ref.
+  // An activity's spec carries ids too — the timeout arm, what it compensates, the wait an
+  // obviation watches, and the `activity.output` on the left of every input ref.
   const resolveSpec = (spec: unknown): unknown => {
     if (spec === null || typeof spec !== "object") return spec;
     const draft: Record<string, unknown> = { ...(spec as Record<string, unknown>) };
@@ -118,7 +118,7 @@ export function resolveSlugs(graph: Graph, ops: unknown): unknown {
           resolvedInputs.push(input);
           continue;
         }
-        // `<node>.<output>` — only the node half is an id.
+        // `<activity>.<output>` — only the activity half is an id.
         const dot = ref.indexOf(".");
         if (dot < 0) {
           resolvedInputs.push({ ...i, ref: resolve(ref) });
@@ -142,7 +142,7 @@ export function resolveSlugs(graph: Graph, ops: unknown): unknown {
   const out: AuthoredOp[] = [];
   for (const op of ops as AuthoredOp[]) {
     const draft: Record<string, unknown> = { ...op };
-    for (const field of ["node", "from", "to", "by"]) {
+    for (const field of ["activity", "from", "to", "by"]) {
       if (field in draft) draft[field] = resolve(draft[field]);
     }
     if ("spec" in draft) draft["spec"] = resolveSpec(draft["spec"]);
@@ -154,7 +154,7 @@ export function resolveSlugs(graph: Graph, ops: unknown): unknown {
 /**
  * Every id the fixtures have ever minted, mapped back to its label's slug.
  *
- * Assertions are the one place the graph is often not in scope: `expect(r.node).toBe("a")`
+ * Assertions are the one place the graph is often not in scope: `expect(r.activity).toBe("a")`
  * reads a rejection, not a graph, and threading a graph into it just to translate an id would
  * change what each test looks like it is about. So the fixture remembers what it minted, and
  * `slugOf` turns an id back into the name the test uses.
@@ -178,14 +178,14 @@ export function slugOf(id: string | undefined | null): string | undefined | null
 export function slugOps(op: unknown): unknown {
   if (op === null || typeof op !== "object") return op;
   const draft: Record<string, unknown> = { ...(op as Record<string, unknown>) };
-  for (const field of ["node", "from", "to", "by"]) {
+  for (const field of ["activity", "from", "to", "by"]) {
     if (field in draft) draft[field] = slugOf(draft[field] as string);
   }
   return draft;
 }
 
 function remember(graph: Graph): Graph {
-  for (const [id, node] of graph.nodes) MINTED.set(id, slugify(node.name));
+  for (const [id, activity] of graph.activities) MINTED.set(id, slugify(activity.name));
   return graph;
 }
 
@@ -207,7 +207,7 @@ export function seeded(ops: AuthoredOp[]): Graph {
 }
 
 /**
- * A graph whose head ALREADY attests to these people, so a node addressed to one of them is
+ * A graph whose head ALREADY attests to these people, so an activity addressed to one of them is
  * legal under invariant 3(b).
  *
  * Two commits, and it has to be two: "a recipient existing only in the proposing batch is
@@ -222,7 +222,7 @@ export function rostered(names: readonly string[], ops: AuthoredOp[] = []): Grap
   const evidenced = commit(planned, [
     {
       op: "record_output",
-      node: "confirm-roster",
+      activity: "confirm-roster",
       output_name: "availability",
       value: [...names],
       evidence_ref: "roster.csv#v3",

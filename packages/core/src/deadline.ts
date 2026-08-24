@@ -8,7 +8,7 @@
  */
 
 import type { Deadline, MutationRecord } from "./schema.ts";
-import type { Graph, Node } from "./graph.ts";
+import type { Graph, Activity } from "./graph.ts";
 import { isTerminal } from "./vocab.ts";
 
 const UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
@@ -24,7 +24,7 @@ export function parseDuration(duration: string): number | null {
 }
 
 /**
- * When a node reached a terminal state, taken from the log rather than from the graph.
+ * When an activity reached a terminal state, taken from the log rather than from the graph.
  *
  * The graph keeps `observed_at_version`, not a timestamp — deliberately, since a fold must
  * not invent times. The record that moved it is where the time lives.
@@ -32,7 +32,7 @@ export function parseDuration(duration: string): number | null {
 export function settledAt(records: readonly MutationRecord[], nodeId: string): string | null {
   for (const record of records.toReversed()) {
     for (const op of record.ops) {
-      if (op.op === "set_status" && op.node === nodeId && isTerminal(op.status)) {
+      if (op.op === "set_status" && op.activity === nodeId && isTerminal(op.status)) {
         return record.occurred_at;
       }
     }
@@ -85,35 +85,35 @@ export function effectiveDeadline(
 }
 
 /** A wait that is still armed: live, unresolved, and holding something up. */
-export function armedWaits(graph: Graph): Node[] {
-  return [...graph.nodes.values()].filter(
-    (node) =>
-      node.type === "wait" &&
-      node.status.state === "active" &&
-      node.provenance.superseded_by === null,
+export function armedWaits(graph: Graph): Activity[] {
+  return [...graph.activities.values()].filter(
+    (activity) =>
+      activity.type === "wait" &&
+      activity.status.state === "active" &&
+      activity.provenance.superseded_by === null,
   );
 }
 
 export interface WaitStatus {
-  node: Node;
+  activity: Activity;
   deadline: EffectiveDeadline;
   overdue: boolean;
 }
 
 export function waitStatus(
   records: readonly MutationRecord[],
-  node: Node,
+  activity: Activity,
   now: string,
 ): WaitStatus {
-  if (node.spec.deadline === undefined) {
-    return { node, deadline: { at: null, basis: "no deadline" }, overdue: false };
+  if (activity.spec.deadline === undefined) {
+    return { activity, deadline: { at: null, basis: "no deadline" }, overdue: false };
   }
-  const deadline = effectiveDeadline(records, node.spec.deadline);
+  const deadline = effectiveDeadline(records, activity.spec.deadline);
   // Fail SAFE: an unresolvable deadline is not an expired one. Treating "cannot tell"
   // as "expired" would fire a timeout branch — and possibly a pivot — on a wait whose
   // anchor simply has not run yet.
   const overdue = deadline.at !== null && Date.parse(now) >= Date.parse(deadline.at);
-  return { node, deadline, overdue };
+  return { activity, deadline, overdue };
 }
 
 export function overdueWaits(
@@ -122,6 +122,6 @@ export function overdueWaits(
   now: string,
 ): WaitStatus[] {
   return armedWaits(graph)
-    .map((node) => waitStatus(records, node, now))
+    .map((activity) => waitStatus(records, activity, now))
     .filter((status) => status.overdue);
 }

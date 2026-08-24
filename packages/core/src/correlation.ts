@@ -1,5 +1,5 @@
 /**
- * §6.5 — **correlation derives from the node id**, never minted per run.
+ * §6.5 — **correlation derives from the activity id**, never minted per run.
  *
  * A token that changes across executions goes stale in somebody's inbox: the reply comes
  * back addressed to a tag no longer armed, and the wait it was supposed to satisfy hangs
@@ -59,9 +59,9 @@ export function deriveCorrelation(mailbox: string, nodeId: string): CorrelationR
 
 /**
  * The inverse, for matching an inbound message back to the wait that is expecting it.
- * Returns the node id, or null if this address carries no Kona tag.
+ * Returns the activity id, or null if this address carries no Kona tag.
  */
-export function nodeIdFromCorrelation(address: string): string | null {
+export function activityIdFromCorrelation(address: string): string | null {
   const at = address.lastIndexOf("@");
   const local = at === -1 ? address : address.slice(0, at);
   const plus = local.indexOf("+");

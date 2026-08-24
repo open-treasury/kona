@@ -76,7 +76,7 @@ function Entry({
           {/*
             Press it to highlight what that version touched, ON THE HEAD CANVAS. It does not
             put an earlier graph there — `viewing`, the "as it stood at v8" banner and the
-            layout jump are gone and stay gone. This answers "which of these nodes did v8
+            layout jump are gone and stay gone. This answers "which of these activities did v8
             touch", which is a question about the graph already on screen.
 
             The chip and not the row, because the row already contains the `+ N ops` toggle
@@ -162,7 +162,7 @@ function Entry({
                   >
                     <span className="w-24 shrink-0 text-carbon-40">{op.kind}</span>
                     <span className="truncate">
-                      {op.node}
+                      {op.activity}
                       {op.detail === "" ? "" : ` · ${op.detail}`}
                     </span>
                   </li>

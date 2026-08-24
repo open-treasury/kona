@@ -1,7 +1,7 @@
 /**
  * Radix Tooltip, in the shadcn shape.
  *
- * It replaces the `title` attribute, which was doing real work on the canvas — a node's full
+ * It replaces the `title` attribute, which was doing real work on the canvas — an activity's full
  * instruction, the effect class behind the ⚡, what the ready dot means. The native tooltip
  * takes about a second to appear, renders in the OS chrome rather than the page, and cannot be
  * read at a glance while somebody is talking over it. All three matter for a thing whose job

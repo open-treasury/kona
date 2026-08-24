@@ -15,12 +15,12 @@ import type { GraphView } from "../model/types.ts";
 import type { ViewEdge } from "../model/edges.ts";
 import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 import { edgeKeyString } from "../model/diff.ts";
-import { MARKER_SIZE, NODE_SIZE } from "../layout/dagre.ts";
+import { MARKER_SIZE, ACTIVITY_SIZE } from "../layout/dagre.ts";
 import { edgeHandles } from "../layout/handles.ts";
 import type { Fresh } from "./useFresh.ts";
 import type { Positions } from "./useTween.ts";
-import { KONA_NODE_TYPE, nodeTypes } from "./NodeCard.tsx";
-import type { CardData } from "./NodeCard.tsx";
+import { KONA_ACTIVITY_TYPE, nodeTypes } from "./ActivityCard.tsx";
+import type { CardData } from "./ActivityCard.tsx";
 import { KONA_MARKER_TYPE, markerNodeTypes } from "./MarkerNode.tsx";
 import { Legend } from "./Legend.tsx";
 
@@ -74,29 +74,30 @@ export function Canvas({
   selected,
   onSelect,
 }: CanvasProps): React.ReactElement {
-  // `data` identity is held stable across tween frames: React Flow memoizes a node's render on
+  // `data` identity is held stable across tween frames: React Flow memoizes an activity's render on
   // it, so rebuilding it 60 times a second would re-render every card for the whole animation.
   const data = useMemo(() => {
     const map = new Map<string, CardData>();
-    for (const nodeView of view.nodes) {
-      map.set(nodeView.node.id, { view: nodeView, fresh: fresh.nodes.has(nodeView.node.id) });
+    for (const activityView of view.activities) {
+      map.set(activityView.activity.id, { view: activityView, fresh: fresh.activities.has(activityView.activity.id) });
     }
     return map;
   }, [view, fresh]);
 
-  const nodes = useMemo<FlowNode[]>(
+  // React Flow calls these nodes; they are the flow representation of our activities.
+  const flowActivities = useMemo<FlowNode[]>(
     () =>
-      view.nodes.map((nodeView) => {
-        const id = nodeView.node.id;
-        const size = NODE_SIZE[nodeView.node.type];
+      view.activities.map((activityView) => {
+        const id = activityView.activity.id;
+        const size = ACTIVITY_SIZE[activityView.activity.type];
         return {
           id,
-          type: KONA_NODE_TYPE,
+          type: KONA_ACTIVITY_TYPE,
           position: positions.get(id) ?? { x: 0, y: 0 },
-          data: data.get(id) ?? { view: nodeView, fresh: false },
+          data: data.get(id) ?? { view: activityView, fresh: false },
           // The dagre box, so an edge knows where to land before the DOM has been measured.
           // Do NOT also set `style.width` / `style.height`: measured on React Flow 12.11.3,
-          // a node carrying explicit style dimensions is skipped by the measuring pass, its
+          // an activity carrying explicit style dimensions is skipped by the measuring pass, its
           // handle bounds are never computed, and every edge touching it silently fails to
           // render — no warning, no error, just no lines. The card pins its own box instead.
           width: size.width,
@@ -112,9 +113,9 @@ export function Canvas({
   );
 
   /**
-   * The two notation circles. Appended to the node list rather than mixed into `view.nodes`,
+   * The two notation circles. Appended to the activity list rather than mixed into `view.activities`,
    * so that everything upstream — the model, the inspector, every count — still sees exactly
-   * the pursuit's own nodes and nothing else.
+   * the pursuit's own activities and nothing else.
    */
   const markers = useMemo<FlowNode[]>(() => {
     const terminals = flowTerminals(graph);
@@ -206,7 +207,7 @@ export function Canvas({
 
   return (
     <ReactFlow
-      nodes={[...nodes, ...markers]}
+      nodes={[...flowActivities, ...markers]}
       edges={[...edges, ...markerEdges]}
       nodeTypes={ALL_NODE_TYPES}
       nodesDraggable={false}
@@ -216,12 +217,12 @@ export function Canvas({
       deleteKeyCode={null}
       selectionKeyCode={null}
       multiSelectionKeyCode={null}
-      onNodeClick={(_event, node) => {
-        // The markers are notation. Selecting one would ask the inspector for a node the
+      onNodeClick={(_event, flowActivity) => {
+        // The markers are notation. Selecting one would ask the inspector for an activity the
         // graph does not have, and clearing the selection would make the two circles the
         // only cards on the canvas that close the panel.
-        if (node.type === KONA_MARKER_TYPE) return;
-        onSelect(node.id);
+        if (flowActivity.type === KONA_MARKER_TYPE) return;
+        onSelect(flowActivity.id);
       }}
       onPaneClick={() => {
         onSelect(null);

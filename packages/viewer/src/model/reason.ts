@@ -21,7 +21,7 @@
 /**
  * One sentence per code, in the vocabulary a reader of the pursuit has rather than the
  * vocabulary the schema has. Deliberately about the CAUSE, not about the mechanics of the
- * mutation: "someone said no" rather than "a node was superseded".
+ * mutation: "someone said no" rather than "an activity was superseded".
  */
 const GLOSS: Readonly<Record<string, string>> = {
   COUNTERPARTY_DECLINED: "someone the pursuit asked said no",

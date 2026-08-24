@@ -2,7 +2,7 @@
  * Display formatting, kept away from the model.
  *
  * These functions decide how something reads, never what it means. Anything that decides what
- * a value *is* — whether a deadline has blown, whether a node is ready — belongs in `model/`
+ * a value *is* — whether a deadline has blown, whether an activity is ready — belongs in `model/`
  * and is tested against the fixture; anything here is free to change without a test breaking.
  */
 

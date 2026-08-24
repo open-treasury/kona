@@ -175,7 +175,7 @@ probes that need no instrumentation:
 
 | Probe | Definition | Prediction if the thesis holds |
 |---|---|---|
-| **Redo rate** | fraction of actions repeating an already-completed action (same command, same write) | lower with Kona — `kona next` never offers a done node |
+| **Redo rate** | fraction of actions repeating an already-completed action (same command, same write) | lower with Kona — `kona next` never offers a done activity |
 | **Loop count** | repeated (state, action) cycles of length ≥2 | lower with Kona |
 
 *(Constraint- and decision-retention probes need scripted instrumentation in the tasks; they belong
@@ -394,7 +394,7 @@ the horizon on DeepSeek V4" belongs in the spec, not a drawer.
 ## 8. Open questions — in the order they gate spending
 
 1. **Does the plugin have anything to say to a solo coding task?** `effect_class: "pure"` makes
-   effect-free nodes first-class in the store, but the plugin's loop was built around a pursuit with
+   effect-free activities first-class in the store, but the plugin's loop was built around a pursuit with
    counterparties. If it has no useful behaviour when nothing is ever sent, T1 measures overhead.
    **Gate on this before T0.**
 2. **Can LHTB's grader score an intermediate container state?** Worth ~5× the experiment's cost
@@ -407,7 +407,7 @@ the horizon on DeepSeek V4" belongs in the spec, not a drawer.
    URL surfaced. If unreleased, T3 becomes "implement six probes from the definitions" — still zero
    tokens, ~2 days instead of ~1.
 6. **FD/FI have no obvious Kona mapping.** Kona has no fork-vs-retry discriminator because it has no
-   replay — `supersede_node` plus compensation is the whole story. Arguably a conformance gap,
+   replay — `supersede_activity` plus compensation is the whole story. Arguably a conformance gap,
    arguably out of scope by design. Needs an answer in the spec's voice before the row is published.
 7. **Confirm pricing and model IDs at run time** against [deepseek.ai/pricing](https://deepseek.ai/pricing).
    The rates in §4 came from an August 2026 snapshot; the peak/off-peak split makes scheduling worth
@@ -474,11 +474,11 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
 
 *Amendments:*
 
-- **2026-08-22 — invariant coverage on effect-free pursuits is 1 of 3, measured.** A five-node pure
+- **2026-08-22 — invariant coverage on effect-free pursuits is 1 of 3, measured.** A five-activity pure
   pursuit run through the real binary shows: invariant 1 (terminal protection) **fires** on pure
-  nodes — re-opening a done node is refused with exit 4 — while invariants 2 and 3 are inert,
+  activities — re-opening a done activity is refused with exit 4 — while invariants 2 and 3 are inert,
   because a pursuit with no waits and no sends gives them nothing to protect. Dependency ordering
-  is **not** enforced at write time either: `set_status done` on a node with unsatisfied
+  is **not** enforced at write time either: `set_status done` on an activity with unsatisfied
   dependencies commits cleanly, the check being a read-side advisory in `brief`. The mechanism under
   test therefore narrows to **terminal protection plus a durable frontier**, which is what the
   redo-rate probe already measures. The expected effect is correspondingly smaller, and no write-up
@@ -630,7 +630,7 @@ So one model declined on the description and the other declined *after full info
 
 3. **The blank page.** Authoring a graph from zero means committing to the whole decomposition
    at the moment of least information; maintaining one is incremental. Instructed but unseeded,
-   the models authored nothing; handed a five-node skeleton they extended it to twenty in a
+   the models authored nothing; handed a five-activity skeleton they extended it to twenty in a
    single commit. The cost is *starting*, not *using*.
 
 4. **Deferred payoff under a clock.** 1800s timeout, binary reward: tokens spent on the plan are
@@ -649,7 +649,7 @@ its job. The defect is specific to the autonomous-adoption path.
 |---|---|---|---|
 | 1 | `description:` no longer asks for a step-count forecast — the trigger is "before your first command", which is evaluable when read | H1 | DeepSeek-shaped declines stop |
 | 2 | New §0: the response's `plan` field is per-turn scratch; make it a one-line echo of `kona next` | H2 | Sonnet-shaped declines stop — the mandatory field becomes a consumer of the graph rather than a rival |
-| 3 | §1 states the first commit may be two nodes, and that §4 is the normal way the rest arrives | H3 | authoring starts without a seed |
+| 3 | §1 states the first commit may be two activities, and that §4 is the normal way the rest arrives | H3 | authoring starts without a seed |
 
 Change 2 is the one worth watching. The competitor was not another tool — it was a field the
 agent is *required* to fill in, which is a much stronger incumbent than anything we could have

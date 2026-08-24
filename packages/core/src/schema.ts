@@ -9,7 +9,7 @@
  *
  * ## What mutation testing reports here, and why most of it stays
  *
- * A third of this file is zod error TEXT — `"node id must match …"`, `"every wait requires a
+ * A third of this file is zod error TEXT — `"activity id must match …"`, `"every wait requires a
  * deadline (§6.2)"` — plus zod's own `code` and `path` fields. Mutants that blank those
  * strings survive, and deliberately: §6.8 makes the symbolic REASON the API and zod's message
  * merely the detail behind it. Pinning the wording would be testing the phrasing of an error
@@ -21,25 +21,25 @@
  */
 
 import { z } from "zod";
-import { NODE_ID_PATTERN, MAX_NODE_ID_LENGTH, PREFIX_PATTERN, isValidNodeId } from "./ids.ts";
+import { ACTIVITY_ID_PATTERN, MAX_ACTIVITY_ID_LENGTH, PREFIX_PATTERN, isValidActivityId } from "./ids.ts";
 import {
   ACTOR_KINDS,
   EDGE_CONDITIONS,
   EFFECT_CLASSES,
   MATCH_KINDS,
   MERGE_MODES,
-  NODE_TYPES,
+  ACTIVITY_TYPES,
   REASON_CODES,
   STATUSES,
   TRIGGER_RELATIONS,
   VERDICTS,
 } from "./vocab.ts";
 
-/** A committed node id. §6.2. */
-export const NodeIdSchema = z
+/** A committed activity id. §6.2. */
+export const ActivityIdSchema = z
   .string()
-  .max(MAX_NODE_ID_LENGTH)
-  .regex(NODE_ID_PATTERN, "node id must match [a-z0-9][a-z0-9-]* and never contain '/'");
+  .max(MAX_ACTIVITY_ID_LENGTH)
+  .regex(ACTIVITY_ID_PATTERN, "activity id must match [a-z0-9][a-z0-9-]* and never contain '/'");
 
 /**
  * §6.4 intra-batch reference: `$0` is the id minted by `ops[0]`.
@@ -64,12 +64,12 @@ export function isOpRef(value: string): boolean {
 const AuthoredRefSchema = z
   .string()
   .refine(
-    (value) => isOpRef(value) || isValidNodeId(value),
-    "must be a node id matching [a-z0-9][a-z0-9-]* (never '/'), or a batch ref like $0",
+    (value) => isOpRef(value) || isValidActivityId(value),
+    "must be an activity id matching [a-z0-9][a-z0-9-]* (never '/'), or a batch ref like $0",
   );
 
 // ---------------------------------------------------------------------------
-// Node spec — the AUTHORED half of a node (§6.2)
+// Activity spec — the AUTHORED half of an activity (§6.2)
 // ---------------------------------------------------------------------------
 
 /** §6.2 — deadlines take one of exactly three shapes. */
@@ -93,7 +93,7 @@ export const DeadlineSchema = z.union([
 export type Deadline = z.infer<typeof DeadlineSchema>;
 
 const InputRefSchema = z.strictObject({
-  /** Resolves to a DECLARED output of some node. Without the pair, every ref dangles. */
+  /** Resolves to a DECLARED output of some activity. Without the pair, every ref dangles. */
   ref: z.string().min(1),
 });
 
@@ -106,7 +106,7 @@ const OutputDeclSchema = z.strictObject({
  * §6.2 — the effect block, required on `pivot` and `compensatable`.
  *
  * `correlation` and `effect_key` are absent when authored and filled in by the store:
- * correlation derives from the node id (§6.5) and the key from (node_id, created_by_version)
+ * correlation derives from the activity id (§6.5) and the key from (activity_id, created_by_version)
  * (§6.6). An author who supplied either would be minting identity, which §6.4 forbids.
  */
 const AuthoredEffectSchema = z.strictObject({
@@ -135,7 +135,7 @@ const WaitMatchSchema = z.strictObject({
       }),
     )
     .min(1, "a wait with no conditions can never resolve"),
-  /** Derived from the node id by the store; absent when authored. */
+  /** Derived from the activity id by the store; absent when authored. */
   correlation: z.string().optional(),
   /**
    * DECLARED BY §6.5 AND READ BY NOTHING. Recorded here rather than quietly carried.
@@ -165,7 +165,7 @@ const WaitMatchSchema = z.strictObject({
  */
 export type WaitCondition = z.infer<typeof WaitMatchSchema>["conditions"][number];
 
-function nodeSpecSchema<R extends z.ZodType>(ref: R) {
+function activitySpecSchema<R extends z.ZodType>(ref: R) {
   return z.strictObject({
     instruction: z.string().min(1),
     inputs: z.array(InputRefSchema).default([]),
@@ -240,7 +240,7 @@ function refineNode(
     ctx.addIssue({
       code: "custom",
       path: ["spec", "effect"],
-      message: "an effect block on a pure or reversible node would never be reserved",
+      message: "an effect block on a pure or reversible activity would never be reserved",
     });
   }
 }
@@ -251,7 +251,7 @@ function refineNode(
 
 /**
  * The five ops that carry no minted identity. Shared verbatim between the authored and
- * committed unions — only `add_node` differs between the two, and only by gaining an `id`.
+ * committed unions — only `add_activity` differs between the two, and only by gaining an `id`.
  */
 function tailOps<R extends z.ZodType>(ref: R) {
   return [
@@ -264,46 +264,46 @@ function tailOps<R extends z.ZodType>(ref: R) {
     }),
     z.strictObject({
       op: z.literal("set_status"),
-      node: ref,
+      activity: ref,
       status: z.enum(STATUSES),
       evidence_ref: z.string().min(1),
     }),
     z.strictObject({
       op: z.literal("record_outcome"),
-      node: ref,
+      activity: ref,
       verdict: z.enum(VERDICTS),
       evidence_ref: z.string().min(1),
       attrs: z.record(z.string(), z.unknown()).optional(),
     }),
     z.strictObject({
       op: z.literal("record_output"),
-      node: ref,
+      activity: ref,
       output_name: z.string().min(1),
       value: z.unknown(),
       evidence_ref: z.string().min(1),
     }),
     z.strictObject({
-      op: z.literal("supersede_node"),
-      node: ref,
+      op: z.literal("supersede_activity"),
+      activity: ref,
       by: ref.optional(),
     }),
   ] as const;
 }
 
-function addNodeShape<R extends z.ZodType>(ref: R) {
+function addActivityShape<R extends z.ZodType>(ref: R) {
   return {
-    op: z.literal("add_node"),
-    /** Becomes `provenance.group`; the fan-out arm this node belongs to. */
+    op: z.literal("add_activity"),
+    /** Becomes `provenance.group`; the fan-out arm this activity belongs to. */
     scope: z.string().min(1).optional(),
     name: z.string().min(1),
-    type: z.enum(NODE_TYPES),
-    spec: nodeSpecSchema(ref),
+    type: z.enum(ACTIVITY_TYPES),
+    spec: activitySpecSchema(ref),
   };
 }
 
 /** What an author submits: `$N` refs allowed, no minted ids (§6.4 forbids client ids). */
 export const AuthoredOpSchema = z.discriminatedUnion("op", [
-  z.strictObject(addNodeShape(AuthoredRefSchema)).superRefine(refineNode),
+  z.strictObject(addActivityShape(AuthoredRefSchema)).superRefine(refineNode),
   ...tailOps(AuthoredRefSchema),
 ]);
 export type AuthoredOp = z.infer<typeof AuthoredOpSchema>;
@@ -314,18 +314,18 @@ export type AuthoredOp = z.infer<typeof AuthoredOpSchema>;
  */
 export const CommittedOpSchema = z.discriminatedUnion("op", [
   z
-    .strictObject({ ...addNodeShape(NodeIdSchema), id: NodeIdSchema })
+    .strictObject({ ...addActivityShape(ActivityIdSchema), id: ActivityIdSchema })
     .superRefine(refineNode),
-  ...tailOps(NodeIdSchema),
+  ...tailOps(ActivityIdSchema),
 ]);
 export type CommittedOp = z.infer<typeof CommittedOpSchema>;
 
 /**
- * The AUTHORED half of a node, derived from the parser rather than restated beside it.
+ * The AUTHORED half of an activity, derived from the parser rather than restated beside it.
  * Two hand-kept copies of this shape would drift, and the one that drifts is whichever
  * the invariants read.
  */
-export type ParsedNodeSpec = z.infer<ReturnType<typeof nodeSpecSchema<typeof NodeIdSchema>>>;
+export type ParsedNodeSpec = z.infer<ReturnType<typeof activitySpecSchema<typeof ActivityIdSchema>>>;
 
 export const AuthoredBatchSchema = z
   .array(AuthoredOpSchema)
@@ -361,7 +361,7 @@ export type Trigger = z.infer<typeof TriggerSchema>;
 
 /**
  * §6.9 — who the executor is speaking as. The graph cannot know this, and an executor
- * handed a node without it signs as nobody and commits to anything.
+ * handed an activity without it signs as nobody and commits to anything.
  */
 const IdentitySchema = z.strictObject({
   mailbox: z.string().min(3),
@@ -382,7 +382,7 @@ export type Identity = z.infer<typeof IdentitySchema>;
 export const PursuitConfigSchema = z.strictObject({
   identity: IdentitySchema.optional(),
   /**
-   * The prefix every node id in this pursuit opens with, fixed at `kona init`.
+   * The prefix every activity id in this pursuit opens with, fixed at `kona init`.
    *
    * It lives on the genesis record rather than in a flag or a second file because ids
    * already committed cannot be re-minted: if the prefix could change, the log would carry
@@ -423,4 +423,4 @@ export type MutationRecord = z.infer<typeof MutationRecordSchema>;
  * silently accepts two spellings of one state has two spellings to keep true forever.
  * Prototype-stage call — nothing durable is running on v1.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;

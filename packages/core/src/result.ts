@@ -15,8 +15,8 @@ export interface Rejection {
   /** Symbolic, stable, greppable. The first token of the stderr line. */
   reason: string;
   message: string;
-  /** The node the operator has to go look at. §6.7: "Reject the commit, name the node." */
-  node?: string;
+  /** The activity the operator has to go look at. §6.7: "Reject the commit, name the activity." */
+  activity?: string;
   /** Which op in the batch. Absent when the rejection is about the batch as a whole. */
   op_index?: number;
   /** Which invariant, when `code` is INVARIANT_VIOLATION. */
@@ -53,7 +53,7 @@ export function violate(
 export function formatRejection(rejection: Rejection): string {
   const parts = [rejection.reason];
   if (rejection.invariant !== undefined) parts.push(`invariant=${rejection.invariant}`);
-  if (rejection.node !== undefined) parts.push(`node=${rejection.node}`);
+  if (rejection.activity !== undefined) parts.push(`activity=${rejection.activity}`);
   if (rejection.op_index !== undefined) parts.push(`op=${rejection.op_index}`);
   parts.push(rejection.message);
   return parts.join(" ");

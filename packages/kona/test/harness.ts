@@ -16,9 +16,9 @@ export interface Harness {
   err: string[];
   writeOps: (name: string, ops: unknown) => string;
   /**
-   * The minted id of the node whose label slugs to `slug`.
+   * The minted id of the activity whose label slugs to `slug`.
    *
-   * `brief`, `effect reserve` and `effect record` take a node id as a positional argument, so
+   * `brief`, `effect reserve` and `effect record` take an activity id as a positional argument, so
    * the ops-file resolver never sees it. Same translation, different doorway.
    */
   id: (slug: string) => string;
@@ -31,13 +31,13 @@ export interface Harness {
 /**
  * Translate the label-slugs a test writes into the ids the store actually minted.
  *
- * Ids are hashes, so an ops file cannot name a node literally. Every fixture still builds
- * nodes from labels, and the name a test uses is the slug that label would have made — so
+ * Ids are hashes, so an ops file cannot name an activity literally. Every fixture still builds
+ * activities from labels, and the name a test uses is the slug that label would have made — so
  * this reads the live log, folds it, and rewrites the id-valued fields against what is there.
  *
  * `$N` refs are left alone: they are batch-local and the normalizer owns them. So is any
  * string that is already an id in the graph, and any string that matches nothing — a test
- * that deliberately names a node the store has never seen still reaches the refusal it wants.
+ * that deliberately names an activity the store has never seen still reaches the refusal it wants.
  */
 function resolveAgainstStore(dir: string, ops: unknown): unknown {
   if (!Array.isArray(ops)) return ops;
@@ -49,8 +49,8 @@ function resolveAgainstStore(dir: string, ops: unknown): unknown {
     return ops;
   }
   const resolve = (value: unknown): unknown => {
-    if (typeof value !== "string" || value.startsWith("$") || graph.nodes.has(value)) return value;
-    for (const [id, node] of graph.nodes) if (slugify(node.name) === value) return id;
+    if (typeof value !== "string" || value.startsWith("$") || graph.activities.has(value)) return value;
+    for (const [id, activity] of graph.activities) if (slugify(activity.name) === value) return id;
     return value;
   };
   const resolveSpec = (spec: unknown): unknown => {
@@ -89,7 +89,7 @@ function resolveAgainstStore(dir: string, ops: unknown): unknown {
   return ops.map((op: unknown) => {
     if (op === null || typeof op !== "object") return op;
     const draft: Record<string, unknown> = { ...(op as Record<string, unknown>) };
-    for (const field of ["node", "from", "to", "by"]) {
+    for (const field of ["activity", "from", "to", "by"]) {
       if (field in draft) draft[field] = resolve(draft[field]);
     }
     if ("spec" in draft) draft["spec"] = resolveSpec(draft["spec"]);
@@ -121,7 +121,7 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
       const graph = foldLog(
         readFileSync(join(dir, ".kona", "mutations.jsonl"), "utf8"),
       ).graph;
-      for (const [id, node] of graph.nodes) if (slugify(node.name) === slug) return id;
+      for (const [id, activity] of graph.activities) if (slugify(activity.name) === slug) return id;
       // Unresolvable on purpose in the tests that probe the not-found path.
       return slug;
     },
@@ -140,7 +140,7 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
 
 export const ASK_DANA = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Ask Dana to play Thursday",
     type: "task",
     spec: {
@@ -151,7 +151,7 @@ export const ASK_DANA = [
     },
   },
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Wait for Dana",
     type: "wait",
     spec: {
@@ -166,7 +166,7 @@ export const ASK_DANA = [
 ];
 
 /**
- * Put a roster on the record, so a node addressed to one of these people is legal under
+ * Put a roster on the record, so an activity addressed to one of these people is legal under
  * invariant 3(b). Returns the new head version.
  *
  * TWO commits, and it has to be two: §6.7 says "a recipient existing only in the proposing
@@ -174,14 +174,14 @@ export const ASK_DANA = [
  * roster and emails it at once is refused — you cannot email somebody you have not yet
  * looked up.
  *
- * Deliberately its OWN node rather than whatever the test's plan already calls a roster: a
- * fixture that made the evidence and the node's `inputs` the same record would silently
+ * Deliberately its OWN activity rather than whatever the test's plan already calls a roster: a
+ * fixture that made the evidence and the activity's `inputs` the same record would silently
  * satisfy `inputs_resolved` too, and tests about being blocked would stop testing it.
  */
 export async function seedRoster(h: Harness, names: readonly string[]): Promise<number> {
   const plan = h.writeOps("seed-roster-plan.json", [
     {
-      op: "add_node",
+      op: "add_activity",
       name: "Roster on file",
       type: "task",
       spec: {
@@ -201,14 +201,14 @@ export async function seedRoster(h: Harness, names: readonly string[]): Promise<
   const record = h.writeOps("seed-roster-record.json", [
     {
       op: "record_output",
-      node: "roster-on-file",
+      activity: "roster-on-file",
       output_name: "members",
       value: [...names],
       evidence_ref: "roster.csv#v3",
     },
     // Finished, so it leaves the frontier: the roster HAS been read, and a seed that
     // lingered in `kona next` would show up in every readiness assertion downstream.
-    { op: "set_status", node: "roster-on-file", status: "done", evidence_ref: "roster.csv#v3" },
+    { op: "set_status", activity: "roster-on-file", status: "done", evidence_ref: "roster.csv#v3" },
   ]);
   expect(
     await run(

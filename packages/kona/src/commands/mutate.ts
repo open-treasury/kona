@@ -25,7 +25,7 @@ export interface MutateOptions {
 }
 
 /**
- * `--steps "read the failing test" "fix the parser"` -> a chain of `task` nodes, each
+ * `--steps "read the failing test" "fix the parser"` -> a chain of `task` activities, each
  * depending on the one before it.
  *
  * This is sugar and nothing more: it emits the same authored ops a hand-written file would,
@@ -42,7 +42,7 @@ export interface MutateOptions {
  */
 export function opsFromSteps(names: string[]): unknown[] {
   const ops: unknown[] = names.map((name) => ({
-    op: "add_node",
+    op: "add_activity",
     name,
     type: "task",
     // The name is the instruction. A one-line step does not have a second sentence in it,

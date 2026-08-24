@@ -5,14 +5,14 @@ import {
   headVersion,
   inEdges,
   isIrreversible,
-  isNodeTerminal,
+  isActivityTerminal,
   isTerminal,
-  nodeIds,
+  activityIds,
   outEdges,
   projectGraph,
   satisfiesBlockingEdge,
 } from "../src/index.ts";
-import { commit, record, seeded, task, nodeAt, slugOr, nid, slugOf } from "./fixtures.ts";
+import { commit, record, seeded, task, activityAt, slugOr, nid, slugOf } from "./fixtures.ts";
 
 const WIRED = commit(seeded([task("A"), task("B"), task("C")]), [
   { op: "add_edge", from: "a", to: "b" },
@@ -22,14 +22,14 @@ const WIRED = commit(seeded([task("A"), task("B"), task("C")]), [
 
 describe("status vocabulary", () => {
   test("terminal means done, failed or dropped — and sending is not terminal", () => {
-    // `sending` means the real world's answer is unknown, not that the node resolved.
+    // `sending` means the real world's answer is unknown, not that the activity resolved.
     expect(STATUSES.filter(isTerminal).toSorted()).toEqual(TERMINAL_STATUSES.toSorted());
     expect(isTerminal("in_flight")).toBe(false);
     expect(isTerminal("active")).toBe(false);
   });
 
   test("only `done` satisfies a blocking edge — readiness fails safe", () => {
-    // A dropped source never satisfies readiness; otherwise the second node on an untaken
+    // A dropped source never satisfies readiness; otherwise the second activity on an untaken
     // branch has no blocker, lands on the frontier, and gets dispatched — pivot send included.
     const satisfying = STATUSES.filter((state) =>
       satisfiesBlockingEdge({ status: { state } } as never),
@@ -44,10 +44,10 @@ describe("status vocabulary", () => {
     expect(isIrreversible("reversible")).toBe(false);
   });
 
-  test("isNodeTerminal reads the node's own state", () => {
-    const done = commit(WIRED, [{ op: "set_status", node: "a", status: "done", evidence_ref: "e" }]);
-    expect(isNodeTerminal(nodeAt(done, "a") as never)).toBe(true);
-    expect(isNodeTerminal(nodeAt(done, "b") as never)).toBe(false);
+  test("isActivityTerminal reads the activity's own state", () => {
+    const done = commit(WIRED, [{ op: "set_status", activity: "a", status: "done", evidence_ref: "e" }]);
+    expect(isActivityTerminal(activityAt(done, "a") as never)).toBe(true);
+    expect(isActivityTerminal(activityAt(done, "b") as never)).toBe(false);
   });
 });
 
@@ -60,7 +60,7 @@ describe("edge projections", () => {
     expect(inEdges(WIRED, slugOr(WIRED, "a"))).toEqual([]);
   });
 
-  test("out-edges are what this node unblocks", () => {
+  test("out-edges are what this activity unblocks", () => {
     expect(outEdges(WIRED, slugOr(WIRED, "a"))).toEqual([
       { from: nid(WIRED, "a"), to: nid(WIRED, "b") },
       { from: nid(WIRED, "a"), to: nid(WIRED, "c") },
@@ -68,15 +68,15 @@ describe("edge projections", () => {
     expect(outEdges(WIRED, slugOr(WIRED, "c"))).toEqual([]);
   });
 
-  test("nodeIds is the set of committed ids", () => {
-    expect([...nodeIds(WIRED)].map(slugOf)).toEqual(["a", "b", "c"]);
+  test("activityIds is the set of committed ids", () => {
+    expect([...activityIds(WIRED)].map(slugOf)).toEqual(["a", "b", "c"]);
   });
 });
 
 describe("the read contract", () => {
   test("projection is ordered and plain, so two stringifies match", () => {
     const projection = projectGraph(WIRED);
-    expect(projection.nodes.map((n) => slugOf(n.id))).toEqual(["a", "b", "c"]);
+    expect(projection.activities.map((n) => slugOf(n.id))).toEqual(["a", "b", "c"]);
     expect(JSON.stringify(projectGraph(WIRED))).toBe(JSON.stringify(projection));
   });
 

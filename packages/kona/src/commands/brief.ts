@@ -1,7 +1,7 @@
 /**
- * `kona brief <node>` — §6.9. What an executor needs, and nothing it must not disclose.
+ * `kona brief <activity>` — §6.9. What an executor needs, and nothing it must not disclose.
  *
- * Measured, not assumed: 0 of 8 fresh subagents could execute a node without these blocks,
+ * Measured, not assumed: 0 of 8 fresh subagents could execute an activity without these blocks,
  * and 10 of 10 could once they were required.
  */
 
@@ -12,7 +12,7 @@ import { openPursuit, reportDamage } from "../pursuit.ts";
 import type { Io } from "../io.ts";
 
 export interface BriefOptions {
-  node: string;
+  activity: string;
   json: boolean;
 }
 
@@ -22,7 +22,7 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
   if (reportDamage(io, opened.folded)) return EXIT_REFUSED;
 
   const config: PursuitConfig = pursuitConfig(opened.folded.records);
-  const result = buildBrief(opened.folded.graph, options.node, config);
+  const result = buildBrief(opened.folded.graph, options.activity, config);
   if (!result.ok) {
     io.err(`REFUSED ${result.reason} ${result.message}`);
     return EXIT_REFUSED;
@@ -31,8 +31,8 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
   // `core` owns which fields make the key and stays free of crypto, so the value is
   // filled in here. The executor passes it straight to `kona effect record`.
   const resolved = result.brief;
-  if (resolved.node.spec.effect !== undefined) {
-    resolved.effect_key = effectKey(resolved.node.id, resolved.node.provenance.created_by_version);
+  if (resolved.activity.spec.effect !== undefined) {
+    resolved.effect_key = effectKey(resolved.activity.id, resolved.activity.provenance.created_by_version);
   }
 
   if (options.json) {
@@ -40,10 +40,10 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
     return resolved.preconditions_satisfied.ok ? EXIT_OK : EXIT_REFUSED;
   }
 
-  io.out(`${resolved.node.type} ${resolved.node.id} — ${resolved.node.name}`);
+  io.out(`${resolved.activity.type} ${resolved.activity.id} — ${resolved.activity.name}`);
   io.out("");
-  io.out(`  instruction  ${resolved.node.spec.instruction}`);
-  // Absent on a pure node, and printed as nothing rather than as a blank field: there is no
+  io.out(`  instruction  ${resolved.activity.spec.instruction}`);
+  // Absent on a pure activity, and printed as nothing rather than as a blank field: there is no
   // counterparty to sign to, so an empty `as` line would invite an executor to invent one.
   if (resolved.identity !== null) {
     io.out(`  as           ${resolved.identity.display_name} <${resolved.identity.mailbox}>`);

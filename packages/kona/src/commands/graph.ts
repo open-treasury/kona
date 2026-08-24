@@ -74,9 +74,9 @@ export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
     }
     if (refusals.damaged > 0) io.out(`  ${refusals.damaged} unreadable line(s)`);
   } else {
-    io.out(`version ${projection.version} · ${projection.nodes.length} nodes · ${projection.edges.length} edges`);
-    for (const node of projection.nodes) {
-      io.out(`  ${node.status.state.padEnd(8)} ${node.type.padEnd(5)} ${node.id}  ${node.name}`);
+    io.out(`version ${projection.version} · ${projection.activities.length} activities · ${projection.edges.length} edges`);
+    for (const activity of projection.activities) {
+      io.out(`  ${activity.status.state.padEnd(8)} ${activity.type.padEnd(5)} ${activity.id}  ${activity.name}`);
     }
     for (const edge of projection.edges) {
       const on = edge.condition === undefined ? "" : ` [on:${edge.condition.on}]`;

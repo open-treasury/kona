@@ -10,12 +10,12 @@
  * It also draws rule 2's line. `graph_version` bumps on a status tick as readily as on a
  * fan-out — fixture v3 and v4 move statuses and outcomes only — so `topologyStable` is the
  * signal the layout memo keys off. Without it dagre re-runs every time an email is answered,
- * every node jumps, and the one moment worth animating is lost among the ones that are not
+ * every activity jumps, and the one moment worth animating is lost among the ones that are not
  * (burr #834).
  *
  * **There are no removals, and there is no code here for them.** The ops vocabulary has six
  * verbs, and `delete_node` and `rollback` are named among the forbidden ones; nothing is ever
- * taken out of a Kona graph. A node leaves play by becoming `dropped` or by being superseded,
+ * taken out of a Kona graph. An activity leaves play by becoming `dropped` or by being superseded,
  * and both are facts about its status and its provenance, not about the graph's shape. A
  * `removedNodes` field would be a field that is always empty and a branch that is never
  * taken — dead code standing in for a case the store forbids.
@@ -36,7 +36,7 @@ export function edgeKey(edge: Edge): EdgeKey {
 /**
  * The key as one string, for a `Set` or a React `key`.
  *
- * `>` and `#` are safe separators because neither can occur in either half: node ids are
+ * `>` and `#` are safe separators because neither can occur in either half: activity ids are
  * `[a-z0-9][a-z0-9-]*` and the seven edge conditions are lowercase words. The encoding is
  * therefore injective, which is what a key has to be — two different edges that stringified
  * alike would make one of them invisible to the diff.
@@ -46,7 +46,7 @@ export function edgeKeyString(key: EdgeKey): string {
 }
 
 /**
- * Diff two folded graphs. `before` is null on the first paint, where every node and edge is
+ * Diff two folded graphs. `before` is null on the first paint, where every activity and edge is
  * an addition — the same answer as diffing against the empty graph, which is what version 0
  * is, so `fromVersion` is 0 rather than some sentinel.
  *
@@ -61,23 +61,23 @@ export function diffGraphs(before: Graph | null, after: Graph): GraphDiff {
 
   // Iterating `after` in map order means every list below comes out in insertion order,
   // which is the order rule 7 pins visual order to. Sorting would unpin it.
-  for (const [id, node] of after.nodes) {
-    const was = before?.nodes.get(id);
+  for (const [id, activity] of after.activities) {
+    const was = before?.activities.get(id);
     if (was === undefined) {
       addedNodes.push(id);
       continue;
     }
-    if (was.status.state !== node.status.state) {
-      statusChanged.push({ id, from: was.status.state, to: node.status.state });
+    if (was.status.state !== activity.status.state) {
+      statusChanged.push({ id, from: was.status.state, to: activity.status.state });
     }
     // `outcomes` and not `outcome`: the array is append-only (§6.7) and a `tentative` or
     // `late` record lands in it without ever becoming the resolving one. Both are things
     // that happened, and the inspector has to be told so it can show them.
-    if (node.status.outcomes.length > was.status.outcomes.length) {
+    if (activity.status.outcomes.length > was.status.outcomes.length) {
       outcomeAdded.push(id);
     }
-    if (was.provenance.superseded_by !== node.provenance.superseded_by) {
-      superseded.push({ id, by: node.provenance.superseded_by });
+    if (was.provenance.superseded_by !== activity.provenance.superseded_by) {
+      superseded.push({ id, by: activity.provenance.superseded_by });
     }
   }
 
@@ -95,10 +95,10 @@ export function diffGraphs(before: Graph | null, after: Graph): GraphDiff {
     outcomeAdded,
     superseded,
     // A supersede counts as topology even though it adds nothing. The replacement has to be
-    // drawn beside the node it replaces, with the chain between them, and the superseded node
+    // drawn beside the activity it replaces, with the chain between them, and the superseded activity
     // stops being work — the picture changes, so the layout has to be recomputed. This is the
     // one case where "nothing was added" and "nothing moved" come apart, and filing a
-    // supersede under status ticks would leave the replacement laid out on top of the node it
+    // supersede under status ticks would leave the replacement laid out on top of the activity it
     // replaced.
     topologyStable:
       addedNodes.length === 0 && addedEdges.length === 0 && superseded.length === 0,

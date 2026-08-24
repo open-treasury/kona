@@ -60,10 +60,10 @@ describe("exit status is 8-bit (§6.8)", () => {
   });
 
   test.each([
-    [{ code: "INVARIANT_VIOLATION", reason: "TERMINAL_NODE_PROTECTED", message: "" }, EXIT_INVARIANT_VIOLATION],
+    [{ code: "INVARIANT_VIOLATION", reason: "TERMINAL_ACTIVITY_PROTECTED", message: "" }, EXIT_INVARIANT_VIOLATION],
     [{ code: "REFUSED", reason: "STALE_BASE_VERSION", message: "" }, EXIT_STALE_BASE_VERSION],
     [{ code: "REFUSED", reason: "MALFORMED_OPS", message: "" }, EXIT_REFUSED],
-    [{ code: "REFUSED", reason: "UNKNOWN_NODE", message: "" }, EXIT_REFUSED],
+    [{ code: "REFUSED", reason: "UNKNOWN_ACTIVITY", message: "" }, EXIT_REFUSED],
   ] as [Rejection, number][])("%o maps to %i", (rejection, expected) => {
     expect(exitCodeFor(rejection)).toBe(expected);
   });

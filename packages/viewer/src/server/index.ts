@@ -38,8 +38,8 @@ export interface ServeOptions {
    * Hot reloading and Bun's error overlay. **Off by default**, because the default caller is
    * `kona view` in front of an audience.
    *
-   * React Flow's node measuring trips the browser's benign "ResizeObserver loop completed with
-   * undelivered notifications" warning whenever several nodes mount at once — which is exactly
+   * React Flow's activity measuring trips the browser's benign "ResizeObserver loop completed with
+   * undelivered notifications" warning whenever several activities mount at once — which is exactly
    * the fan-out moment. The overlay reports that through `window.onerror` as a full-width
    * *Runtime Error*, so the one beat the viewer exists to show would be covered by a red box
    * saying the viewer had crashed. It had not. A production bundle has no overlay.

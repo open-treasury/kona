@@ -10,7 +10,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 cd "${WORK}"
 
-# Ids are hashes, so a batch cannot name a node from an EARLIER commit by guessing its id the
+# Ids are hashes, so a batch cannot name an activity from an EARLIER commit by guessing its id the
 # way a slug once let you. `$N` still covers references inside one batch; across batches the
 # id has to be read back out of the graph. This script keeps writing the readable name and
 # resolves it here, which is exactly what an agent does with `kona graph --json` — the only
@@ -23,10 +23,10 @@ import json, re, sys
 graph = json.load(open("graph.json"))
 def slug(label):
     s = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:48].rstrip("-")
-    return s or "node"
+    return s or "activity"
 
-by_slug = {slug(n["name"]): n["id"] for n in graph.get("nodes", [])}
-ids = {n["id"] for n in graph.get("nodes", [])}
+by_slug = {slug(n["name"]): n["id"] for n in graph.get("activities", [])}
+ids = {n["id"] for n in graph.get("activities", [])}
 
 def fix(value):
     if not isinstance(value, str) or value.startswith("$") or value in ids:
@@ -36,12 +36,12 @@ def fix(value):
         return by_slug[head] + dot + tail
     return by_slug.get(value, value)
 
-def walk(node):
-    if isinstance(node, dict):
-        return {k: (fix(v) if k in ("node", "from", "to", "by", "on_timeout", "compensates", "ref", "after") else walk(v)) for k, v in node.items()}
-    if isinstance(node, list):
-        return [walk(v) for v in node]
-    return node
+def walk(activity):
+    if isinstance(activity, dict):
+        return {k: (fix(v) if k in ("activity", "from", "to", "by", "on_timeout", "compensates", "ref", "after") else walk(v)) for k, v in activity.items()}
+    if isinstance(activity, list):
+        return [walk(v) for v in activity]
+    return activity
 
 json.dump(walk(json.load(open(sys.argv[1]))), open("ops.resolved.json", "w"))
 PY
@@ -61,8 +61,8 @@ commit() {
 nodeid() { ${KONA} graph --json | python3 -c "'''resolve one label-slug to its id'''
 import json,re,sys
 g=json.load(sys.stdin)
-s=lambda l:(re.sub(r'[^a-z0-9]+','-',l.lower()).strip('-')[:48].rstrip('-') or 'node')
-print(next((n['id'] for n in g['nodes'] if s(n['name'])==sys.argv[1]), sys.argv[1]))" "$1"; }
+s=lambda l:(re.sub(r'[^a-z0-9]+','-',l.lower()).strip('-')[:48].rstrip('-') or 'activity')
+print(next((n['id'] for n in g['activities'] if s(n['name'])==sys.argv[1]), sys.argv[1]))" "$1"; }
 
 reserve() {
   ${KONA} effect reserve "$(nodeid "$1")" --payload-hash "$2" --why "$3" --json \
@@ -81,7 +81,7 @@ cat > config.json <<'EOF'
   "effect_budget": 12
 }
 EOF
-# `--prefix` is required: every node id opens with it, and it is fixed for the life of the
+# `--prefix` is required: every activity id opens with it, and it is fixed for the life of the
 # pursuit. `th` for thursday, so the fixture's ids read as this fixture's ids.
 ${KONA} init --actor-id ilya --config config.json --prefix th >/dev/null
 
@@ -90,15 +90,15 @@ ${KONA} init --actor-id ilya --config config.json --prefix th >/dev/null
 # This pursuit used to decide to read the roster and email Dana in the same breath.
 ops <<'EOF'
 [
- {"op":"add_node","name":"Confirm roster availability","type":"task","scope":"setup",
+ {"op":"add_activity","name":"Confirm roster availability","type":"task","scope":"setup",
   "spec":{"instruction":"Read the roster and list who has not yet answered.",
           "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
- {"op":"add_node","name":"Escalate: no goalie found","type":"task","scope":"setup",
+ {"op":"add_activity","name":"Escalate: no goalie found","type":"task","scope":"setup",
   "spec":{"instruction":"Tell Ilya no goalie was found and the game needs a decision.",
           "outputs":[{"name":"escalated","type":"boolean"}],"effect_class":"pure"}},
- {"op":"record_output","node":"$0","output_name":"availability",
+ {"op":"record_output","activity":"$0","output_name":"availability",
   "value":["dana","sam","priya","pat"],"evidence_ref":"roster.csv#v3"},
- {"op":"set_status","node":"$0","status":"done","evidence_ref":"roster.csv#v3"}
+ {"op":"set_status","activity":"$0","status":"done","evidence_ref":"roster.csv#v3"}
 ]
 EOF
 commit 0 "Read the roster before contacting anyone on it." MISSING_STEP
@@ -106,35 +106,35 @@ commit 0 "Read the roster before contacting anyone on it." MISSING_STEP
 # v2 — the approved plan: everyone the roster named, asked at once, merging on a predicate.
 ops <<'EOF'
 [
- {"op":"add_node","name":"Ask Dana to play in goal","type":"task","scope":"goalies",
+ {"op":"add_activity","name":"Ask Dana to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
           "inputs":[{"ref":"confirm-roster-availability.availability"}],
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
- {"op":"add_node","name":"Wait for Dana","type":"wait","scope":"goalies",
+ {"op":"add_activity","name":"Wait for Dana","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Dana's reply.","effect_class":"pure",
           "deadline":{"after":"$0","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_node","name":"Ask Sam to play in goal","type":"task","scope":"goalies",
+ {"op":"add_activity","name":"Ask Sam to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Sam asking if he can play in goal Thursday.",
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#sam"}}},
- {"op":"add_node","name":"Wait for Sam","type":"wait","scope":"goalies",
+ {"op":"add_activity","name":"Wait for Sam","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Sam's reply.","effect_class":"pure",
           "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_node","name":"Ask Priya to play in goal","type":"task","scope":"goalies",
+ {"op":"add_activity","name":"Ask Priya to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Priya asking if she can play in goal Thursday.",
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#priya"}}},
- {"op":"add_node","name":"Wait for Priya","type":"wait","scope":"goalies",
+ {"op":"add_activity","name":"Wait for Priya","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Priya's reply.","effect_class":"pure",
           "deadline":{"after":"$4","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_node","name":"Goalie confirmed","type":"wait","scope":"setup",
+ {"op":"add_activity","name":"Goalie confirmed","type":"wait","scope":"setup",
   "spec":{"instruction":"At least one goalie has confirmed.","effect_class":"pure",
           "deadline":{"at":"2026-08-21T17:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"predicate","conditions":[{"kind":"predicate","on":"satisfied",
@@ -151,7 +151,7 @@ EOF
 commit 1 "The roster named four; ask all three goalies in parallel rather than serially." NEW_CONSTRAINT
 
 # v3..v7 — the sends go out. Dana's and Sam's complete; Priya's stops after the reservation
-# and stays open for four versions, which is CRASH WINDOW 2: a `sending` node whose slot is
+# and stays open for four versions, which is CRASH WINDOW 2: a `sending` activity whose slot is
 # fsynced, with nothing on disk able to say whether the bytes moved.
 DANA_KEY="$(reserve ask-dana-to-play-in-goal sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a "Dana is the only goalie the roster names")"
 record ask-dana-to-play-in-goal "${DANA_KEY}" sent "<m-101@mail>" "the mail server accepted it"
@@ -162,23 +162,23 @@ PRIYA_KEY="$(reserve ask-priya-to-play-in-goal sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c
 # v8 — Dana declines. Her arm is dropped; the merge survives on the live arms.
 ops <<'EOF'
 [
- {"op":"record_outcome","node":"wait-for-dana","verdict":"declined","evidence_ref":"<m-201@mail>",
+ {"op":"record_outcome","activity":"wait-for-dana","verdict":"declined","evidence_ref":"<m-201@mail>",
   "attrs":{"role":"goalie","reason":"away that week"}},
- {"op":"set_status","node":"wait-for-dana","status":"done","evidence_ref":"<m-201@mail>"}
+ {"op":"set_status","activity":"wait-for-dana","status":"done","evidence_ref":"<m-201@mail>"}
 ]
 EOF
 commit 7 "Dana is away that week. Her arm cannot satisfy the quorum." COUNTERPARTY_DECLINED
 
-# v9 — Sam refers Marcus, who is not on the roster. The graph grows a node no v1 shape describes.
+# v9 — Sam refers Marcus, who is not on the roster. The graph grows an activity no v1 shape describes.
 ops <<'EOF'
 [
- {"op":"record_outcome","node":"wait-for-sam","verdict":"declined","evidence_ref":"<m-202@mail>",
+ {"op":"record_outcome","activity":"wait-for-sam","verdict":"declined","evidence_ref":"<m-202@mail>",
   "attrs":{"role":"goalie","referral":"marcus"}},
- {"op":"set_status","node":"wait-for-sam","status":"done","evidence_ref":"<m-202@mail>"},
- {"op":"add_node","name":"Check Marcus is eligible","type":"task","scope":"marcus",
+ {"op":"set_status","activity":"wait-for-sam","status":"done","evidence_ref":"<m-202@mail>"},
+ {"op":"add_activity","name":"Check Marcus is eligible","type":"task","scope":"marcus",
   "spec":{"instruction":"Marcus is not on the roster. Confirm he is eligible before contacting him.",
           "outputs":[{"name":"eligible","type":"boolean"}],"effect_class":"pure"}},
- {"op":"add_node","name":"Wait for eligibility ruling","type":"wait","scope":"marcus",
+ {"op":"add_activity","name":"Wait for eligibility ruling","type":"wait","scope":"marcus",
   "spec":{"instruction":"A human must rule on an unrostered player.","effect_class":"pure",
           "deadline":{"at":"2026-08-21T12:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"human","conditions":[
@@ -189,13 +189,13 @@ ops <<'EOF'
 EOF
 commit 8 "Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human." NEW_CONSTRAINT
 
-# v10 — the roster step is superseded by a better one, and the old node is kept, not deleted.
+# v10 — the roster step is superseded by a better one, and the old activity is kept, not deleted.
 ops <<'EOF'
 [
- {"op":"add_node","name":"Confirm roster availability and eligibility","type":"task","scope":"setup",
+ {"op":"add_activity","name":"Confirm roster availability and eligibility","type":"task","scope":"setup",
   "spec":{"instruction":"Read the roster, list non-responders, and flag anyone unrostered.",
           "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
- {"op":"supersede_node","node":"confirm-roster-availability","by":"$0"}
+ {"op":"supersede_activity","activity":"confirm-roster-availability","by":"$0"}
 ]
 EOF
 commit 9 "The roster step missed eligibility, which is what let an unrostered referral through." MISSING_STEP
@@ -205,18 +205,18 @@ commit 9 "The roster step missed eligibility, which is what let an unrostered re
 # the slot it issued.
 record ask-priya-to-play-in-goal "${PRIYA_KEY}" failed "<bounce-550@mail>" "the address is dead: 550 5.1.1 user unknown"
 
-# v12 — the send failed, so the wait behind it is pointless: superseding a still-live node
+# v12 — the send failed, so the wait behind it is pointless: superseding a still-live activity
 # drops it, and the store does that housekeeping itself.
 ops <<'EOF'
 [
- {"op":"record_outcome","node":"wait-for-priya","verdict":"bounced","evidence_ref":"<bounce-550@mail>",
+ {"op":"record_outcome","activity":"wait-for-priya","verdict":"bounced","evidence_ref":"<bounce-550@mail>",
   "attrs":{"role":"goalie","smtp":"550 5.1.1 user unknown"}},
- {"op":"supersede_node","node":"wait-for-priya"},
- {"op":"add_node","name":"Ask Pat to play in goal","type":"task","scope":"goalies",
+ {"op":"supersede_activity","activity":"wait-for-priya"},
+ {"op":"add_activity","name":"Ask Pat to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Pat asking if he can play in goal Thursday.",
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#pat"}}},
- {"op":"add_node","name":"Wait for Pat","type":"wait","scope":"goalies",
+ {"op":"add_activity","name":"Wait for Pat","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Pat's reply. Pat is often silent; the deadline is the plan.",
           "effect_class":"pure",
           "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
@@ -229,7 +229,7 @@ EOF
 commit 11 "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too." CONTRADICTION
 
 # v13 — and the fixture ENDS on an open reservation, deliberately. A handoff artefact whose
-# every node is settled teaches nothing about the state that actually costs you sleep: Pat's
+# every activity is settled teaches nothing about the state that actually costs you sleep: Pat's
 # slot is fsynced, the bytes may or may not have moved, and the honest answer is a human.
 reserve ask-pat-to-play-in-goal \
   "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f0" \

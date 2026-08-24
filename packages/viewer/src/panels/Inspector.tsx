@@ -1,5 +1,5 @@
 /**
- * The node detail. Opened by selection, and by nothing else — the canvas has no other verb.
+ * The activity detail. Opened by selection, and by nothing else — the canvas has no other verb.
  *
  * §6.10 rule 9: **message bodies behind an explicit reveal.** A pursuit log carries real
  * counterparty names, real addresses and real reply text, and this window sits on a projector
@@ -11,7 +11,7 @@
 import { X } from "lucide-react";
 import type { Graph } from "@kona/core";
 import { inEdges, outEdges, resolutionOf } from "@kona/core";
-import type { NodeView } from "../model/types.ts";
+import type { ActivityView } from "../model/types.ts";
 import { formatIso, pretty } from "../format.ts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.tsx";
 import { ScrollArea } from "../ui/scroll-area.tsx";
@@ -19,7 +19,7 @@ import { Separator } from "../ui/separator.tsx";
 
 export interface InspectorProps {
   graph: Graph;
-  view: NodeView;
+  view: ActivityView;
   onClose: () => void;
 }
 
@@ -56,16 +56,16 @@ function Reveal({
 const KV = "grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-0.5 px-3.5 py-2.5 font-mono text-[11px]";
 
 export function Inspector({ graph, view, onClose }: InspectorProps): React.ReactElement {
-  const node = view.node;
-  const incoming = inEdges(graph, node.id);
-  const outgoing = outEdges(graph, node.id);
-  const fired = resolutionOf(node);
+  const activity = view.activity;
+  const incoming = inEdges(graph, activity.id);
+  const outgoing = outEdges(graph, activity.id);
+  const fired = resolutionOf(activity);
   const wait = view.wait;
 
   return (
     <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-background">
       <div className="flex items-center gap-2 border-b border-border px-3 py-3 text-ui font-medium text-muted-foreground uppercase">
-        <span className="truncate">{node.id}</span>
+        <span className="truncate">{activity.id}</span>
         <span className="flex-1" />
         <button
           type="button"
@@ -82,28 +82,28 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
           {/*
             The header shows the id too, but `truncate`d — and ids run to 48 characters, so
             a real one is routinely clipped mid-word in a 380px rail. This row is the full,
-            wrapping, selectable copy: it is the id you type into `kona brief <node-id>`,
-            and it is the node's correlation address, so a half of it is no use.
+            wrapping, selectable copy: it is the id you type into `kona brief <activity-id>`,
+            and it is the activity's correlation address, so a half of it is no use.
           */}
-          <Row label="id" value={<span className="select-all">{node.id}</span>} />
-          <Row label="name" value={node.name} />
-          <Row label="type" value={node.type} />
-          <Row label="status" value={node.status.state} />
+          <Row label="id" value={<span className="select-all">{activity.id}</span>} />
+          <Row label="name" value={activity.name} />
+          <Row label="type" value={activity.type} />
+          <Row label="status" value={activity.status.state} />
           <Row label="readiness" value={view.readiness} />
           <Row label="group" value={view.group} />
-          <Row label="effect class" value={node.spec.effect_class} />
-          {node.spec.effect !== undefined && (
-            <Row label="recipient" value={node.spec.effect.recipient_ref} />
+          <Row label="effect class" value={activity.spec.effect_class} />
+          {activity.spec.effect !== undefined && (
+            <Row label="recipient" value={activity.spec.effect.recipient_ref} />
           )}
           <Row
             label="created / observed"
             value={`v${String(view.createdAtVersion)} → v${String(view.observedAtVersion)}`}
           />
-          {node.provenance.supersedes !== null && (
-            <Row label="supersedes" value={node.provenance.supersedes} />
+          {activity.provenance.supersedes !== null && (
+            <Row label="supersedes" value={activity.provenance.supersedes} />
           )}
-          {node.provenance.superseded_by !== null && (
-            <Row label="superseded by" value={node.provenance.superseded_by} />
+          {activity.provenance.superseded_by !== null && (
+            <Row label="superseded by" value={activity.provenance.superseded_by} />
           )}
           {fired !== null && <Row label="fired" value={fired} />}
           {wait !== null && (
@@ -158,11 +158,11 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
 
         <Separator className="mb-3" />
 
-        <Reveal title="instruction">{node.spec.instruction}</Reveal>
+        <Reveal title="instruction">{activity.spec.instruction}</Reveal>
 
-        {node.status.outcomes.length > 0 && (
-          <Reveal title={`outcomes (${String(node.status.outcomes.length)}) — append-only`}>
-            {node.status.outcomes
+        {activity.status.outcomes.length > 0 && (
+          <Reveal title={`outcomes (${String(activity.status.outcomes.length)}) — append-only`}>
+            {activity.status.outcomes
               .map(
                 (outcome) =>
                   `v${String(outcome.at_version)}  ${outcome.verdict}  ${outcome.evidence_ref}` +
@@ -172,13 +172,13 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
           </Reveal>
         )}
 
-        {node.status.output !== null && (
-          <Reveal title="output">{pretty(node.status.output)}</Reveal>
+        {activity.status.output !== null && (
+          <Reveal title="output">{pretty(activity.status.output)}</Reveal>
         )}
 
-        {node.status.effect_log.length > 0 && (
-          <Reveal title={`effect log (${String(node.status.effect_log.length)})`}>
-            {node.status.effect_log
+        {activity.status.effect_log.length > 0 && (
+          <Reveal title={`effect log (${String(activity.status.effect_log.length)})`}>
+            {activity.status.effect_log
               .map(
                 (record) =>
                   `${record.effect_key}\n  attempted ${formatIso(record.attempted_at)}` +
@@ -189,13 +189,13 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
           </Reveal>
         )}
 
-        {node.status.conditions.length > 0 && (
-          <Reveal title={`conditions (${String(node.status.conditions.length)})`}>
-            {pretty(node.status.conditions)}
+        {activity.status.conditions.length > 0 && (
+          <Reveal title={`conditions (${String(activity.status.conditions.length)})`}>
+            {pretty(activity.status.conditions)}
           </Reveal>
         )}
 
-        <Reveal title="raw node">{pretty(node)}</Reveal>
+        <Reveal title="raw activity">{pretty(activity)}</Reveal>
       </ScrollArea>
     </section>
   );

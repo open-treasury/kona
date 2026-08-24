@@ -2,9 +2,9 @@
  * `kona next` and `kona brief` through the real verbs.
  *
  * Both are read verbs, and both are what the plugin loop actually consumes — `next` is its
- * only source of work and `brief` is the whole interface to a node. Their exit codes carry
+ * only source of work and `brief` is the whole interface to an activity. Their exit codes carry
  * meaning: `brief` exits non-zero when preconditions are unmet, so a shell cannot dispatch
- * a node the CLI has just told it is not ready.
+ * an activity the CLI has just told it is not ready.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -28,7 +28,7 @@ const CONFIG = {
 
 const PLAN = [
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Confirm roster",
     type: "task",
     spec: {
@@ -38,7 +38,7 @@ const PLAN = [
     },
   },
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Ask Dana",
     type: "task",
     spec: {
@@ -52,7 +52,7 @@ const PLAN = [
   // The wait behind the send, and it is not decoration: §6.5's correlation token is the
   // WAIT's, so an ask with nothing waiting on it correctly gets no reply address at all.
   {
-    op: "add_node",
+    op: "add_activity",
     name: "Wait for Dana",
     type: "wait",
     spec: {
@@ -95,9 +95,9 @@ beforeEach(async () => {
 });
 afterEach(() => h.cleanup());
 
-async function briefJson(node: string): Promise<{ code: number; brief: Brief }> {
+async function briefJson(activity: string): Promise<{ code: number; brief: Brief }> {
   h.reset();
-  const code = await run(["brief", h.id(node), "--json"], h.io);
+  const code = await run(["brief", h.id(activity), "--json"], h.io);
   return { code, brief: JSON.parse(h.out[0] ?? "{}") as Brief };
 }
 
@@ -119,10 +119,10 @@ describe("kona next", () => {
     expect(h.out.join("\n")).not.toContain(h.id("ask-dana"));
   });
 
-  test("marks a node that will move bytes, so the loop can gate on it", async () => {
+  test("marks an activity that will move bytes, so the loop can gate on it", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "record_output", node: h.id("confirm-roster"), output_name: "availability", value: ["dana"], evidence_ref: "e" },
-      { op: "set_status", node: h.id("confirm-roster"), status: "done", evidence_ref: "e" },
+      { op: "record_output", activity: h.id("confirm-roster"), output_name: "availability", value: ["dana"], evidence_ref: "e" },
+      { op: "set_status", activity: h.id("confirm-roster"), status: "done", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "read", "--reason-code", "OTHER"], h.io),
@@ -134,7 +134,7 @@ describe("kona next", () => {
 
   test("says so plainly when nothing is ready", async () => {
     const ops = h.writeOps("stop.json", [
-      { op: "set_status", node: h.id("confirm-roster"), status: "dropped", evidence_ref: "e" },
+      { op: "set_status", activity: h.id("confirm-roster"), status: "dropped", evidence_ref: "e" },
     ]);
     expect(
       await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
@@ -144,12 +144,12 @@ describe("kona next", () => {
     expect(h.out[0]).toBe("version 4 · nothing ready");
   });
 
-  test("--json carries the whole node, not just an id", async () => {
+  test("--json carries the whole activity, not just an id", async () => {
     h.reset();
     expect(await run(["next", "--json"], h.io)).toBe(0);
-    const payload = JSON.parse(h.out[0] ?? "{}") as { version: number; nodes: { id: string }[] };
+    const payload = JSON.parse(h.out[0] ?? "{}") as { version: number; activities: { id: string }[] };
     expect(payload.version).toBe(3);
-    expect(payload.nodes.map((n) => n.id)).toEqual([h.id("confirm-roster")]);
+    expect(payload.activities.map((n) => n.id)).toEqual([h.id("confirm-roster")]);
   });
 
   test("refuses outside a pursuit", async () => {
@@ -190,7 +190,7 @@ describe("kona brief", () => {
     expect(brief.effect_key).toMatch(/^ek_[0-9a-f]{16}$/);
   });
 
-  test("a node that sends nothing carries no key and no reply address", async () => {
+  test("an activity that sends nothing carries no key and no reply address", async () => {
     const { brief } = await briefJson(h.id("confirm-roster"));
     expect(brief.effect_key).toBeNull();
     expect(brief.correlation).toBeNull();
@@ -237,13 +237,13 @@ describe("kona brief", () => {
     expect(text).toContain("rationale");
   });
 
-  test("refuses a node that does not exist", async () => {
+  test("refuses an activity that does not exist", async () => {
     h.reset();
     expect(await run(["brief", h.id("ghost")], h.io)).toBe(1);
-    expect(h.err[0]).toContain("UNKNOWN_NODE");
+    expect(h.err[0]).toContain("UNKNOWN_ACTIVITY");
   });
 
-  test("needs a node id", async () => {
+  test("needs an activity id", async () => {
     h.reset();
     expect(await run(["brief"], h.io)).toBe(1);
     expect(h.err[0]).toContain("MISSING_NODE");
@@ -257,7 +257,7 @@ describe("kona brief", () => {
     expect(h.err[0]).toContain("NO_IDENTITY");
   });
 
-  test("but briefs a PURE node without one, and prints no `as` line to invent", async () => {
+  test("but briefs a PURE activity without one, and prints no `as` line to invent", async () => {
     h.cleanup();
     await initWith(null);
     h.reset();

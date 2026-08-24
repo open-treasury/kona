@@ -2,7 +2,7 @@
  * The wall clock, in exactly one place.
  *
  * §6.10 rule 4 wants a live deadline countdown, which means something has to re-render on a
- * timer. Keeping that one thing here — rather than a `Date.now()` inside a node component —
+ * timer. Keeping that one thing here — rather than a `Date.now()` inside an activity component —
  * is what lets every model function stay pure and take `now` as an argument, and it is why
  * `test/waitState.test.ts` can pin a moment and assert an exact remaining time.
  */

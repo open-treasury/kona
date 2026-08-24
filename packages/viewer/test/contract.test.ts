@@ -15,10 +15,10 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { MutationRecord, Node } from "@kona/core";
+import type { MutationRecord, Activity } from "@kona/core";
 import {
   MATCH_KINDS,
-  NODE_TYPES,
+  ACTIVITY_TYPES,
   REASON_CODES,
   STATUSES,
   foldLog,
@@ -42,14 +42,14 @@ function withoutLoaderReport(value: object): Record<string, unknown> {
 }
 
 function nodesOf(projection: Record<string, unknown>): Record<string, unknown>[] {
-  const nodes = projection["nodes"];
-  if (!Array.isArray(nodes)) throw new Error("projection carries no `nodes` array");
-  return nodes as Record<string, unknown>[];
+  const activities = projection["activities"];
+  if (!Array.isArray(activities)) throw new Error("projection carries no `activities` array");
+  return activities as Record<string, unknown>[];
 }
 
 function firstNodeOf(projection: Record<string, unknown>): Record<string, unknown> {
   const first = nodesOf(projection)[0];
-  if (first === undefined) throw new Error("projection carries no nodes");
+  if (first === undefined) throw new Error("projection carries no activities");
   return first;
 }
 
@@ -79,7 +79,7 @@ describe("A2 — folding the log reproduces `kona graph --json`", () => {
 
   test("key order matches too — §6.1 says two folds stringify identically", () => {
     // Values equal but keys reordered would pass `toEqual` and still break the one claim the
-    // determinism check rests on, so order is asserted at the top level and inside a node.
+    // determinism check rests on, so order is asserted at the top level and inside an activity.
     const mine = foldedProjection();
     const disk = withoutLoaderReport(graphJson());
 
@@ -98,7 +98,7 @@ describe("A2 — folding the log reproduces `kona graph --json`", () => {
 
 describe("A2 — determinism and read-only time travel", () => {
   test("folding to head twice, and folding to head by ceiling, all stringify identically", () => {
-    // Node order is Map insertion order and edge order is append order (core/graph.ts), so
+    // Activity order is Map insertion order and edge order is append order (core/graph.ts), so
     // this is a property of the containers rather than of a sort applied afterwards. The
     // third form exercises the `upToVersion` path against the default one.
     const text = logText();
@@ -113,9 +113,9 @@ describe("A2 — determinism and read-only time travel", () => {
     expect(once).toBe(JSON.stringify(withoutLoaderReport(graphJson())));
   });
 
-  test("every prefix folds to its own version and never loses a node", () => {
+  test("every prefix folds to its own version and never loses an activity", () => {
     // Rule 6: time travel is read-only. A prefix is a shorter history, not an undone one, so
-    // the node count can only ever grow as v advances — a fold that dropped nodes would be a
+    // the activity count can only ever grow as v advances — a fold that dropped activities would be a
     // revert, which is the one thing the scrubber must never look like.
     const text = logText();
     const head = headVersion();
@@ -126,17 +126,17 @@ describe("A2 — determinism and read-only time travel", () => {
       expect(at.graph.version).toBe(v);
       expect(at.records.length).toBe(v + 1);
       expect(at.records.at(-1)?.v).toBe(v);
-      expect(at.graph.nodes.size).toBeGreaterThanOrEqual(previous);
-      previous = at.graph.nodes.size;
+      expect(at.graph.activities.size).toBeGreaterThanOrEqual(previous);
+      previous = at.graph.activities.size;
     }
 
-    expect(previous).toBe(graphJson().nodes.length);
+    expect(previous).toBe(graphJson().activities.length);
   });
 });
 
 describe("the fixture is the pursuit context.md describes", () => {
   const records: readonly MutationRecord[] = folded().records;
-  const nodes: Node[] = [...folded().graph.nodes.values()];
+  const activities: Activity[] = [...folded().graph.activities.values()];
 
   test("fourteen records, v0..v13, contiguous", () => {
     // Contiguity is the property, not the count: `fold` requires versions to increment by
@@ -155,30 +155,30 @@ describe("the fixture is the pursuit context.md describes", () => {
     }
   });
 
-  test("head carries 14 nodes and 11 edges", () => {
-    expect(nodes.length).toBe(14);
+  test("head carries 14 activities and 11 edges", () => {
+    expect(activities.length).toBe(14);
     expect(folded().graph.edges.length).toBe(11);
   });
 
   test("all five statuses are present at head", () => {
     // Compared against core's frozen vocabulary rather than a list retyped here, so a status
     // added upstream fails this test instead of slipping past it.
-    const present = [...new Set(nodes.map((node) => node.status.state))].toSorted();
+    const present = [...new Set(activities.map((activity) => activity.status.state))].toSorted();
     expect(present).toEqual([...STATUSES].toSorted());
   });
 
-  test("both node types and all three match kinds are exercised", () => {
-    const types = [...new Set(nodes.map((node) => node.type))].toSorted();
-    expect(types).toEqual([...NODE_TYPES].toSorted());
+  test("both activity types and all three match kinds are exercised", () => {
+    const types = [...new Set(activities.map((activity) => activity.type))].toSorted();
+    expect(types).toEqual([...ACTIVITY_TYPES].toSorted());
 
-    const kinds = nodes
-      .map((node) => node.spec.match?.kind)
+    const kinds = activities
+      .map((activity) => activity.spec.match?.kind)
       .filter((kind) => kind !== undefined);
     expect([...new Set(kinds)].toSorted()).toEqual([...MATCH_KINDS].toSorted());
   });
 
   test("three groups: setup, goalies, marcus", () => {
-    const groups = [...new Set(nodes.map((node) => node.provenance.group ?? "(ungrouped)"))];
+    const groups = [...new Set(activities.map((activity) => activity.provenance.group ?? "(ungrouped)"))];
     expect(groups.toSorted()).toEqual(["goalies", "marcus", "setup"]);
   });
 });

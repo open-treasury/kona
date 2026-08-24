@@ -2,7 +2,7 @@
  * Radix Collapsible, in the shadcn shape — §6.10 rule 9's "explicit reveal".
  *
  * Everything that could be a person's words is behind one of these: the instruction, the
- * outcomes with their evidence refs, the effect log's message ids, the raw node. A `<details>`
+ * outcomes with their evidence refs, the effect log's message ids, the raw activity. A `<details>`
  * element would do the same job with less code, and this was one until Radix arrived; what the
  * primitive buys is a trigger that is a real button with `aria-expanded`, and a content region
  * that reports its own height, so a reveal can animate instead of snapping the panel.
