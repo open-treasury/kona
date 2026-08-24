@@ -27,7 +27,7 @@ for arm in baseline kona; do
     -a "${agent}" \
     -m "${MODEL}" \
     $(env_file_flag) \
-    -k 1 \
+    -k "${K:-1}" \
     -n "${N_CONCURRENT}" \
     --agent-timeout-multiplier "${MULT:-1.0}" \
     -o "${JOBS_DIR}" \

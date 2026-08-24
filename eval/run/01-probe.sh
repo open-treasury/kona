@@ -34,7 +34,7 @@ for arm in ${ARMS:-baseline kona}; do
     -a "${agent}" \
     -m "${MODEL}" \
     $(env_file_flag) \
-    -k 1 \
+    -k "${K:-1}" \
     -n 2 \
     --agent-timeout-multiplier "${MULT}" \
     -o "${JOBS_DIR}" \
