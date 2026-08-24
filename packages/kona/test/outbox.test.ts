@@ -21,7 +21,7 @@ let h: Harness;
 const PIVOT = [
   {
     op: "add_node",
-    label: "Ask Dana",
+    name: "Ask Dana",
     type: "task",
     spec: {
       instruction: "Email Dana.",
@@ -32,7 +32,7 @@ const PIVOT = [
   },
   {
     op: "add_node",
-    label: "Confirm roster",
+    name: "Confirm roster",
     type: "task",
     spec: { instruction: "Read the roster.", effect_class: "pure" },
   },
@@ -443,7 +443,7 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
         ...PIVOT,
         {
           op: "add_node",
-          label: "Ask Sam",
+          name: "Ask Sam",
           type: "task",
           spec: {
             instruction: "Email Sam.",

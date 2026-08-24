@@ -71,11 +71,11 @@ function gate(): Graph {
 }
 
 function predicateWait(
-  label: string,
+  name: string,
   predicate: unknown = ONE_CONFIRMED,
   onTimeout = "$0",
 ): AuthoredOp {
-  return wait(label, {
+  return wait(name, {
     on_timeout: onTimeout,
     match: {
       kind: "predicate",

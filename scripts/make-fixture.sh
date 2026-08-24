@@ -25,7 +25,7 @@ def slug(label):
     s = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:48].rstrip("-")
     return s or "node"
 
-by_slug = {slug(n["label"]): n["id"] for n in graph.get("nodes", [])}
+by_slug = {slug(n["name"]): n["id"] for n in graph.get("nodes", [])}
 ids = {n["id"] for n in graph.get("nodes", [])}
 
 def fix(value):
@@ -62,7 +62,7 @@ nodeid() { ${KONA} graph --json | python3 -c "'''resolve one label-slug to its i
 import json,re,sys
 g=json.load(sys.stdin)
 s=lambda l:(re.sub(r'[^a-z0-9]+','-',l.lower()).strip('-')[:48].rstrip('-') or 'node')
-print(next((n['id'] for n in g['nodes'] if s(n['label'])==sys.argv[1]), sys.argv[1]))" "$1"; }
+print(next((n['id'] for n in g['nodes'] if s(n['name'])==sys.argv[1]), sys.argv[1]))" "$1"; }
 
 reserve() {
   ${KONA} effect reserve "$(nodeid "$1")" --payload-hash "$2" --why "$3" --json \
@@ -90,10 +90,10 @@ ${KONA} init --actor-id ilya --config config.json --prefix th >/dev/null
 # This pursuit used to decide to read the roster and email Dana in the same breath.
 ops <<'EOF'
 [
- {"op":"add_node","label":"Confirm roster availability","type":"task","scope":"setup",
+ {"op":"add_node","name":"Confirm roster availability","type":"task","scope":"setup",
   "spec":{"instruction":"Read the roster and list who has not yet answered.",
           "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
- {"op":"add_node","label":"Escalate: no goalie found","type":"task","scope":"setup",
+ {"op":"add_node","name":"Escalate: no goalie found","type":"task","scope":"setup",
   "spec":{"instruction":"Tell Ilya no goalie was found and the game needs a decision.",
           "outputs":[{"name":"escalated","type":"boolean"}],"effect_class":"pure"}},
  {"op":"record_output","node":"$0","output_name":"availability",
@@ -106,35 +106,35 @@ commit 0 "Read the roster before contacting anyone on it." MISSING_STEP
 # v2 — the approved plan: everyone the roster named, asked at once, merging on a predicate.
 ops <<'EOF'
 [
- {"op":"add_node","label":"Ask Dana to play in goal","type":"task","scope":"goalies",
+ {"op":"add_node","name":"Ask Dana to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
           "inputs":[{"ref":"confirm-roster-availability.availability"}],
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
- {"op":"add_node","label":"Wait for Dana","type":"wait","scope":"goalies",
+ {"op":"add_node","name":"Wait for Dana","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Dana's reply.","effect_class":"pure",
           "deadline":{"after":"$0","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_node","label":"Ask Sam to play in goal","type":"task","scope":"goalies",
+ {"op":"add_node","name":"Ask Sam to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Sam asking if he can play in goal Thursday.",
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#sam"}}},
- {"op":"add_node","label":"Wait for Sam","type":"wait","scope":"goalies",
+ {"op":"add_node","name":"Wait for Sam","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Sam's reply.","effect_class":"pure",
           "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_node","label":"Ask Priya to play in goal","type":"task","scope":"goalies",
+ {"op":"add_node","name":"Ask Priya to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Priya asking if she can play in goal Thursday.",
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#priya"}}},
- {"op":"add_node","label":"Wait for Priya","type":"wait","scope":"goalies",
+ {"op":"add_node","name":"Wait for Priya","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Priya's reply.","effect_class":"pure",
           "deadline":{"after":"$4","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"event","conditions":[
             {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_node","label":"Goalie confirmed","type":"wait","scope":"setup",
+ {"op":"add_node","name":"Goalie confirmed","type":"wait","scope":"setup",
   "spec":{"instruction":"At least one goalie has confirmed.","effect_class":"pure",
           "deadline":{"at":"2026-08-21T17:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"predicate","conditions":[{"kind":"predicate","on":"satisfied",
@@ -175,10 +175,10 @@ ops <<'EOF'
  {"op":"record_outcome","node":"wait-for-sam","verdict":"declined","evidence_ref":"<m-202@mail>",
   "attrs":{"role":"goalie","referral":"marcus"}},
  {"op":"set_status","node":"wait-for-sam","status":"done","evidence_ref":"<m-202@mail>"},
- {"op":"add_node","label":"Check Marcus is eligible","type":"task","scope":"marcus",
+ {"op":"add_node","name":"Check Marcus is eligible","type":"task","scope":"marcus",
   "spec":{"instruction":"Marcus is not on the roster. Confirm he is eligible before contacting him.",
           "outputs":[{"name":"eligible","type":"boolean"}],"effect_class":"pure"}},
- {"op":"add_node","label":"Wait for eligibility ruling","type":"wait","scope":"marcus",
+ {"op":"add_node","name":"Wait for eligibility ruling","type":"wait","scope":"marcus",
   "spec":{"instruction":"A human must rule on an unrostered player.","effect_class":"pure",
           "deadline":{"at":"2026-08-21T12:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
           "match":{"kind":"human","conditions":[
@@ -192,7 +192,7 @@ commit 8 "Sam cannot play but referred Marcus, who is not on the roster; eligibi
 # v10 — the roster step is superseded by a better one, and the old node is kept, not deleted.
 ops <<'EOF'
 [
- {"op":"add_node","label":"Confirm roster availability and eligibility","type":"task","scope":"setup",
+ {"op":"add_node","name":"Confirm roster availability and eligibility","type":"task","scope":"setup",
   "spec":{"instruction":"Read the roster, list non-responders, and flag anyone unrostered.",
           "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
  {"op":"supersede_node","node":"confirm-roster-availability","by":"$0"}
@@ -212,11 +212,11 @@ ops <<'EOF'
  {"op":"record_outcome","node":"wait-for-priya","verdict":"bounced","evidence_ref":"<bounce-550@mail>",
   "attrs":{"role":"goalie","smtp":"550 5.1.1 user unknown"}},
  {"op":"supersede_node","node":"wait-for-priya"},
- {"op":"add_node","label":"Ask Pat to play in goal","type":"task","scope":"goalies",
+ {"op":"add_node","name":"Ask Pat to play in goal","type":"task","scope":"goalies",
   "spec":{"instruction":"Email Pat asking if he can play in goal Thursday.",
           "effect_class":"pivot",
           "effect":{"channel":"email","recipient_ref":"roster.contacts#pat"}}},
- {"op":"add_node","label":"Wait for Pat","type":"wait","scope":"goalies",
+ {"op":"add_node","name":"Wait for Pat","type":"wait","scope":"goalies",
   "spec":{"instruction":"Await Pat's reply. Pat is often silent; the deadline is the plan.",
           "effect_class":"pure",
           "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",

@@ -5,6 +5,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { SCHEMA_VERSION } from "@kona/core";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DamagedLine, GraphProjection } from "@kona/core";
@@ -76,7 +77,7 @@ describe("kona init", () => {
     expect(await run(["init", "--json", "--prefix", "t"], h.io)).toBe(0);
     const genesis = JSON.parse(logLines()[0] ?? "");
     expect(genesis.v).toBe(0);
-    expect(genesis.schema_version).toBe(3);
+    expect(genesis.schema_version).toBe(SCHEMA_VERSION);
     expect(genesis.ops).toEqual([]);
     expect(genesis.rationale.why).toBe("pursuit initialised");
     expect(genesis.observed_at).toBe(T0);
@@ -217,7 +218,7 @@ describe("kona mutate — the only write path", () => {
     expect(h.err[0]).toContain("UNREADABLE_OPS");
 
     h.reset();
-    const wrong = h.writeOps("wrong.json", [{ op: "add_node", label: "x" }]);
+    const wrong = h.writeOps("wrong.json", [{ op: "add_node", name: "x" }]);
     expect(await run(["mutate", "--ops", wrong, "--base-version", "2", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("MALFORMED_OPS");
     expect(logLines()).toHaveLength(3);

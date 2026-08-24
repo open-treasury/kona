@@ -7,7 +7,7 @@ const ADD_A = record(1, [
   {
     op: "add_node",
     id: "ask-dana",
-    label: "Ask Dana",
+    name: "Ask Dana",
     type: "task",
     spec: {
       instruction: "email dana",
@@ -21,7 +21,7 @@ const ADD_B = record(2, [
   {
     op: "add_node",
     id: "chase-dana",
-    label: "Chase Dana",
+    name: "Chase Dana",
     type: "task",
     spec: { instruction: "chase", inputs: [], outputs: [], effect_class: "pure" },
   },

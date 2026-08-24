@@ -30,8 +30,8 @@ const IDENTITY: Identity = {
 };
 const CONFIG: PursuitConfig = { identity: IDENTITY, effect_budget: 12 };
 
-function pivot(label: string, extra: Record<string, unknown> = {}): AuthoredOp {
-  return task(label, {
+function pivot(name: string, extra: Record<string, unknown> = {}): AuthoredOp {
+  return task(name, {
     effect_class: "pivot",
     effect: { channel: "email", recipient_ref: "roster#dana" },
     ...extra,
@@ -383,10 +383,10 @@ describe("what the brief carries", () => {
   test("the immediate neighbourhood, with edge conditions and upstream outputs", () => {
     const brief = briefOf(graph, "ask-dana");
     expect(brief.subgraph.upstream).toEqual([
-      { id: nid(graph, "roster"), label: "Roster", state: "active", condition: "satisfied", output: null },
+      { id: nid(graph, "roster"), name: "Roster", state: "active", condition: "satisfied", output: null },
     ]);
     expect(briefOf(graph, "roster").subgraph.downstream).toEqual([
-      { id: nid(graph, "ask-dana"), label: "Ask Dana", condition: "satisfied" },
+      { id: nid(graph, "ask-dana"), name: "Ask Dana", condition: "satisfied" },
     ]);
   });
 

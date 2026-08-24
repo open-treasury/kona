@@ -128,7 +128,7 @@ export function normalizeBatch(
       case "add_node": {
         const spec = normalizeSpec(op.spec, scope, opIndex);
         if (!spec.ok) return spec;
-        const id = mintNodeId(prefix, op.label, version, opIndex, scope.taken);
+        const id = mintNodeId(prefix, op.name, version, opIndex, scope.taken);
         scope.taken.add(id);
         scope.minted.set(`$${opIndex}`, id);
         committed.push({ ...op, id, spec: spec.value });

@@ -26,7 +26,7 @@ import { type WaitStatus, armedWaits, overdueWaits, waitStatus } from "./deadlin
  */
 export interface UnknownSend {
   node_id: string;
-  label: string;
+  name: string;
   effect_key: string;
   payload_hash: string;
   attempted_at: string;
@@ -40,7 +40,7 @@ export interface ResumeReport {
   frontier: string[];
   waits: {
     node_id: string;
-    label: string;
+    name: string;
     deadline: string | null;
     basis: string;
     overdue: boolean;
@@ -91,7 +91,7 @@ function unknownSends(graph: Graph): UnknownSend[] {
     return [
       {
         node_id: node.id,
-        label: node.label,
+        name: node.name,
         effect_key: open.effect_key,
         payload_hash: open.payload_hash,
         attempted_at: open.attempted_at,
@@ -156,7 +156,7 @@ export function planResume(
     .map((node) => waitStatus(records, node, now))
     .map(({ node, deadline, overdue: isOverdue }: WaitStatus) => ({
       node_id: node.id,
-      label: node.label,
+      name: node.name,
       deadline: deadline.at,
       basis: deadline.basis,
       overdue: isOverdue,

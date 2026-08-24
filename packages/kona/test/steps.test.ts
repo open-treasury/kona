@@ -78,7 +78,7 @@ describe("--steps", () => {
     expect(await steps("Just the one")).toBe(0);
     const committed = records().at(-1)?.ops ?? [];
     expect(committed).toHaveLength(1);
-    expect(committed[0]).toMatchObject({ op: "add_node", label: "Just the one" });
+    expect(committed[0]).toMatchObject({ op: "add_node", name: "Just the one" });
   });
 
   test("the rationale is still required — sugar does not buy an exemption", async () => {
@@ -142,7 +142,7 @@ describe("opsFromSteps", () => {
     const [node] = opsFromSteps(["Read the failing test"]);
     expect(node).toMatchObject({
       op: "add_node",
-      label: "Read the failing test",
+      name: "Read the failing test",
       type: "task",
       spec: { instruction: "Read the failing test", effect_class: "pure" },
     });

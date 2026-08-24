@@ -76,7 +76,7 @@ export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
   } else {
     io.out(`version ${projection.version} · ${projection.nodes.length} nodes · ${projection.edges.length} edges`);
     for (const node of projection.nodes) {
-      io.out(`  ${node.status.state.padEnd(8)} ${node.type.padEnd(5)} ${node.id}  ${node.label}`);
+      io.out(`  ${node.status.state.padEnd(8)} ${node.type.padEnd(5)} ${node.id}  ${node.name}`);
     }
     for (const edge of projection.edges) {
       const on = edge.condition === undefined ? "" : ` [on:${edge.condition.on}]`;

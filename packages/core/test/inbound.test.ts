@@ -63,7 +63,7 @@ describe("which addresses are worth polling", () => {
     expect(waitAddresses(graph, MAILBOX)).toEqual([
       {
         node_id: id,
-        label: "Await Dana",
+        name: "Await Dana",
         // The reply address is built from the node id, so it moves with it.
         address: `ilya+kona-${id}@example.com`,
         armed: true,
@@ -80,7 +80,7 @@ describe("which addresses are worth polling", () => {
     expect(waitAddresses(resolved, MAILBOX)).toEqual([
       {
         node_id: id,
-        label: "Await Dana",
+        name: "Await Dana",
         address: `ilya+kona-${id}@example.com`,
         armed: false,
       },

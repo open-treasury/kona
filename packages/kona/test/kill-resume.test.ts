@@ -39,13 +39,13 @@ const CONFIG = {
 const PLAN = [
   {
     op: "add_node",
-    label: "Escalate",
+    name: "Escalate",
     type: "task",
     spec: { instruction: "Tell Ilya nobody replied.", effect_class: "pure" },
   },
   {
     op: "add_node",
-    label: "Ask Dana",
+    name: "Ask Dana",
     type: "task",
     spec: {
       instruction: "Email Dana.",
@@ -56,7 +56,7 @@ const PLAN = [
   },
   {
     op: "add_node",
-    label: "Wait for Dana",
+    name: "Wait for Dana",
     type: "wait",
     spec: {
       instruction: "Await Dana's reply.",

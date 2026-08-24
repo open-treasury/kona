@@ -6,13 +6,13 @@ import { SCHEMA_VERSION, emptyGraph, slugify, validate } from "../src/index.ts";
 export const ORCHESTRATOR: Actor = { kind: "orchestrator", id: "run-1" };
 export const SUBAGENT: Actor = { kind: "subagent", id: "exec-3" };
 
-export function task(label: string, extra: Record<string, unknown> = {}): AuthoredOp {
+export function task(name: string, extra: Record<string, unknown> = {}): AuthoredOp {
   return {
     op: "add_node",
-    label,
+    name,
     type: "task",
     spec: {
-      instruction: `do: ${label}`,
+      instruction: `do: ${name}`,
       inputs: [],
       outputs: [{ name: "reply", type: "string" }],
       effect_class: "pure",
@@ -21,13 +21,13 @@ export function task(label: string, extra: Record<string, unknown> = {}): Author
   } as unknown as AuthoredOp;
 }
 
-export function wait(label: string, extra: Record<string, unknown> = {}): AuthoredOp {
+export function wait(name: string, extra: Record<string, unknown> = {}): AuthoredOp {
   return {
     op: "add_node",
-    label,
+    name,
     type: "wait",
     spec: {
-      instruction: `await: ${label}`,
+      instruction: `await: ${name}`,
       inputs: [],
       outputs: [],
       effect_class: "pure",
@@ -48,7 +48,7 @@ export function wait(label: string, extra: Record<string, unknown> = {}): Author
  * vocabulary they were written in: `nodeAt(graph, "a")`, not `graph.nodes.get("t-9x4k")`.
  */
 export function nid(graph: Graph, slug: string): string {
-  for (const [id, node] of graph.nodes) if (slugify(node.label) === slug) return id;
+  for (const [id, node] of graph.nodes) if (slugify(node.name) === slug) return id;
   throw new Error(`no node in the graph whose label slugs to "${slug}"`);
 }
 
@@ -59,13 +59,13 @@ export function nid(graph: Graph, slug: string): string {
  * to reach the code under test rather than die in the fixture.
  */
 export function slugOr(graph: Graph, slug: string): string {
-  for (const [id, node] of graph.nodes) if (slugify(node.label) === slug) return id;
+  for (const [id, node] of graph.nodes) if (slugify(node.name) === slug) return id;
   return slug;
 }
 
 /** Drop-in for `graph.nodes.get(slug)`, including its `undefined` for an absent node. */
 export function nodeAt(graph: Graph, slug: string): Node | undefined {
-  for (const [, node] of graph.nodes) if (slugify(node.label) === slug) return node;
+  for (const [, node] of graph.nodes) if (slugify(node.name) === slug) return node;
   return undefined;
 }
 
@@ -86,7 +86,7 @@ export function resolveSlugs(graph: Graph, ops: unknown): unknown {
   if (!Array.isArray(ops)) return ops;
   const resolve = (value: unknown): unknown => {
     if (typeof value !== "string" || value.startsWith("$") || graph.nodes.has(value)) return value;
-    for (const [id, node] of graph.nodes) if (slugify(node.label) === value) return id;
+    for (const [id, node] of graph.nodes) if (slugify(node.name) === value) return id;
     return value;
   };
   // A node's spec carries ids too — the timeout arm, what it compensates, the wait an
@@ -185,7 +185,7 @@ export function slugOps(op: unknown): unknown {
 }
 
 function remember(graph: Graph): Graph {
-  for (const [id, node] of graph.nodes) MINTED.set(id, slugify(node.label));
+  for (const [id, node] of graph.nodes) MINTED.set(id, slugify(node.name));
   return graph;
 }
 

@@ -29,7 +29,7 @@ const CONFIG = {
 const PLAN = [
   {
     op: "add_node",
-    label: "Confirm roster",
+    name: "Confirm roster",
     type: "task",
     spec: {
       instruction: "Read the roster.",
@@ -39,7 +39,7 @@ const PLAN = [
   },
   {
     op: "add_node",
-    label: "Ask Dana",
+    name: "Ask Dana",
     type: "task",
     spec: {
       instruction: "Email Dana asking if she can play Thursday.",
@@ -53,7 +53,7 @@ const PLAN = [
   // WAIT's, so an ask with nothing waiting on it correctly gets no reply address at all.
   {
     op: "add_node",
-    label: "Wait for Dana",
+    name: "Wait for Dana",
     type: "wait",
     spec: {
       instruction: "Await Dana's reply.",

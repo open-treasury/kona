@@ -21,8 +21,8 @@ import { commit, rostered, task, nodeAt } from "./fixtures.ts";
 
 const KEY = "ek_b4668bc35579b3eb";
 
-function pivot(label: string): AuthoredOp {
-  return task(label, {
+function pivot(name: string): AuthoredOp {
+  return task(name, {
     effect_class: "pivot",
     effect: { channel: "email", recipient_ref: "roster#dana" },
   });

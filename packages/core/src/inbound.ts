@@ -52,7 +52,7 @@ export interface InboundMessage {
 /** A wait that is waiting on mail, and the address its replies will arrive at. */
 export interface WaitAddress {
   node_id: string;
-  label: string;
+  name: string;
   /** The FULLY EXPANDED literal to poll (§6.9). */
   address: string;
   /** Armed waits need an answer; resolved ones can still take a late one (§6.5). */
@@ -120,7 +120,7 @@ export function waitAddresses(graph: Graph, mailbox: string): WaitAddress[] {
     return [
       {
         node_id: node.id,
-        label: node.label,
+        name: node.name,
         address: derived.correlation.reply_to,
         armed: armed.has(node.id),
       },

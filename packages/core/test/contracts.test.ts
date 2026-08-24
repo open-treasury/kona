@@ -146,7 +146,7 @@ describe("the primitive schemas", () => {
     const parsed = parseBatch([
       {
         op: "add_node",
-        label: "Read the roster",
+        name: "Read the roster",
         type: "task",
         spec: { instruction: "read it", effect_class: "pure" },
       },

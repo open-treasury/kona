@@ -30,7 +30,7 @@ export async function runNext(io: Io, options: NextOptions): Promise<number> {
     io.out(`version ${graph.version} · ${frontier.length} ready`);
     for (const node of frontier) {
       const effect = node.spec.effect_class === "pure" ? "" : `  [${node.spec.effect_class}]`;
-      io.out(`  ${node.type.padEnd(5)} ${node.id}  ${node.label}${effect}`);
+      io.out(`  ${node.type.padEnd(5)} ${node.id}  ${node.name}${effect}`);
     }
   }
 

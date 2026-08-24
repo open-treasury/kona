@@ -43,7 +43,7 @@ one. Write a JSON **array** of them.
 // ── add_node ── the only op that creates anything. Returns $N, its index in the array.
 {
   "op": "add_node",
-  "label": "Ask Dana to play Thursday",   // REQUIRED. The id is minted from this.
+  "name": "Ask Dana to play Thursday",   // REQUIRED. The id is minted from this.
   "type": "task",                         // REQUIRED. task | wait
   "scope": "goalies",                     // optional. The fan-out arm this belongs to.
   "spec": {
@@ -131,7 +131,7 @@ rejected:
 
 ```jsonc
 {
-  "op": "add_node", "label": "Wait for Dana", "type": "wait",
+  "op": "add_node", "name": "Wait for Dana", "type": "wait",
   "spec": {
     "instruction": "Await Dana's reply.",
     "effect_class": "pure",

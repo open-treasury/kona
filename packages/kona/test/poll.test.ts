@@ -28,13 +28,13 @@ const CONFIG = {
 const PLAN = [
   {
     op: "add_node",
-    label: "Escalate",
+    name: "Escalate",
     type: "task",
     spec: { instruction: "Tell Ilya.", effect_class: "pure" },
   },
   {
     op: "add_node",
-    label: "Await Dana",
+    name: "Await Dana",
     type: "wait",
     spec: {
       instruction: "Await Dana's reply.",
@@ -102,7 +102,7 @@ describe("with no --inbound, it says what to fetch", () => {
     expect(payload["poll"]).toEqual([
       {
         node_id: h.id("await-dana"),
-        label: "Await Dana",
+        name: "Await Dana",
         address: `ilya+kona-${h.id("await-dana")}@example.com`,
         armed: true,
       },

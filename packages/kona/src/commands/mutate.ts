@@ -40,17 +40,17 @@ export interface MutateOptions {
  * The chain is the default because "steps" are read as a sequence. Anything else — a fan-out,
  * a join, an effect, outputs worth recording — is what `--ops` is for.
  */
-export function opsFromSteps(labels: string[]): unknown[] {
-  const ops: unknown[] = labels.map((label) => ({
+export function opsFromSteps(names: string[]): unknown[] {
+  const ops: unknown[] = names.map((name) => ({
     op: "add_node",
-    label,
+    name,
     type: "task",
-    // The label is the instruction. A one-line step does not have a second sentence in it,
+    // The name is the instruction. A one-line step does not have a second sentence in it,
     // and inventing one would put words in the author's mouth.
-    spec: { instruction: label, effect_class: "pure" },
+    spec: { instruction: name, effect_class: "pure" },
   }));
   // `from A to B` means B depends on A (§6.4), so this reads in the order it was typed.
-  for (let index = 1; index < labels.length; index += 1) {
+  for (let index = 1; index < names.length; index += 1) {
     ops.push({ op: "add_edge", from: `$${index - 1}`, to: `$${index}` });
   }
   return ops;

@@ -47,11 +47,11 @@ other, do not chain them: leave them both on the frontier and let them be ready 
 ```bash
 cat > /tmp/plan.json <<'EOF'
 [
-  {"op":"add_node","label":"Read the ERP tables","type":"task",
+  {"op":"add_node","name":"Read the ERP tables","type":"task",
    "spec":{"instruction":"Dump the work orders and the SKU lines.","effect_class":"pure"}},
-  {"op":"add_node","label":"Read the MES queue","type":"task",
+  {"op":"add_node","name":"Read the MES queue","type":"task",
    "spec":{"instruction":"Dump the dispatch queue and the WIP rows.","effect_class":"pure"}},
-  {"op":"add_node","label":"Build the schedule","type":"task",
+  {"op":"add_node","name":"Build the schedule","type":"task",
    "spec":{"instruction":"Place every released order inside its window.","effect_class":"pure"}},
   {"op":"add_edge","from":"$0","to":"$2"},
   {"op":"add_edge","from":"$1","to":"$2"}
@@ -82,10 +82,10 @@ with dependencies. Every node is `"type":"task"` and
 ```bash
 cat > /tmp/v1.json <<'EOF'
 [
-  {"op":"add_node","label":"Read the failing test","type":"task",
+  {"op":"add_node","name":"Read the failing test","type":"task",
    "spec":{"instruction":"Run the suite and record which assertions fail.",
            "outputs":[{"name":"failures","type":"string[]"}],"effect_class":"pure"}},
-  {"op":"add_node","label":"Fix the parser","type":"task",
+  {"op":"add_node","name":"Fix the parser","type":"task",
    "spec":{"instruction":"Make the failing assertions pass without changing the tests.",
            "outputs":[{"name":"patch","type":"string"}],"effect_class":"pure"}},
   {"op":"add_edge","from":"$0","to":"$1"}

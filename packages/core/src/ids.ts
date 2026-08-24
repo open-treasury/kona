@@ -55,8 +55,8 @@ export function isValidPrefix(prefix: string): boolean {
  * No longer used for node ids. It is kept because it is the right way to turn a directory
  * name into a candidate prefix, and because the plugin still slugs labels for display.
  */
-export function slugify(label: string): string {
-  const slug = label
+export function slugify(name: string): string {
+  const slug = name
     .toLowerCase()
     // `+` collapses each run in one pass, so no separate de-duplication step is needed —
     // and after it there is at most one leading and one trailing separator to trim.
@@ -105,13 +105,13 @@ function hash36(seed: string, length: number): string {
  */
 export function mintNodeId(
   prefix: string,
-  label: string,
+  name: string,
   version: number,
   opIndex: number,
   taken: ReadonlySet<string>,
 ): string {
   for (let nonce = 0; ; nonce += 1) {
-    const candidate = `${prefix}-${hash36(`${label}|${version}|${opIndex}|${nonce}`, HASH_LENGTH)}`;
+    const candidate = `${prefix}-${hash36(`${name}|${version}|${opIndex}|${nonce}`, HASH_LENGTH)}`;
     if (!taken.has(candidate)) return candidate;
   }
 }

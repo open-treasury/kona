@@ -99,7 +99,7 @@ function causeFor(graph: Graph, edge: Edge): BlockedCause {
     };
   }
 
-  const label = source.label;
+  const label = source.name;
   const fired = resolutionOf(source);
   const base = { from: edge.from, fromLabel: label, wants, fired };
 
@@ -126,9 +126,9 @@ function mismatch(source: Node, fired: string | null, wants: string | null): str
   const verb = source.type === "wait" ? "answered" : "resolved";
   const needs = wants === null ? "a resolution" : wants;
   if (fired === null) {
-    return `${source.label} finished without a resolution, this edge needs ${needs}`;
+    return `${source.name} finished without a resolution, this edge needs ${needs}`;
   }
-  return `${source.label} ${verb} ${fired}, this edge needs ${needs}`;
+  return `${source.name} ${verb} ${fired}, this edge needs ${needs}`;
 }
 
 /**

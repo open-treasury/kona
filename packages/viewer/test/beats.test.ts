@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { V, folded, headVersion, idOfLabel } from "./fixture.ts";
+import { V, folded, headVersion, idOfName } from "./fixture.ts";
 
 /**
  * The ops at one version, as `<op>:<node-or-label>` — enough to identify a beat.
@@ -23,7 +23,7 @@ function opsAt(version: number): string[] {
   const record = folded().records.find((candidate) => candidate.v === version);
   if (record === undefined) throw new Error(`the fixture has no v${version}`);
   return record.ops.map((op) => {
-    const target = "node" in op ? op.node : "label" in op ? op.label : "";
+    const target = "node" in op ? op.node : "name" in op ? op.name : "";
     return `${op.op}:${target}`;
   });
 }
@@ -49,7 +49,7 @@ describe("the fixture's beats are where V says they are", () => {
       // Ids are hashes, so the node cannot be spelled from `who`. The label still can be,
       // and the label is what this test is actually about — that each send touches the node
       // for that person, twice, in order.
-      const node = idOfLabel(`Ask ${who.charAt(0).toUpperCase()}${who.slice(1)} to play in goal`);
+      const node = idOfName(`Ask ${who.charAt(0).toUpperCase()}${who.slice(1)} to play in goal`);
       expect(`${who}:${opsAt(reserved).join()}`).toBe(`${who}:set_status:${node}`);
       expect(`${who}:${opsAt(sent).join()}`).toBe(`${who}:set_status:${node}`);
       expect(sent).toBe(reserved + 1);

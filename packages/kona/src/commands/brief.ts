@@ -40,7 +40,7 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
     return resolved.preconditions_satisfied.ok ? EXIT_OK : EXIT_REFUSED;
   }
 
-  io.out(`${resolved.node.type} ${resolved.node.id} — ${resolved.node.label}`);
+  io.out(`${resolved.node.type} ${resolved.node.id} — ${resolved.node.name}`);
   io.out("");
   io.out(`  instruction  ${resolved.node.spec.instruction}`);
   // Absent on a pure node, and printed as nothing rather than as a blank field: there is no

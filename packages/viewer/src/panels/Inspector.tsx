@@ -86,7 +86,7 @@ export function Inspector({ graph, view, onClose }: InspectorProps): React.React
             and it is the node's correlation address, so a half of it is no use.
           */}
           <Row label="id" value={<span className="select-all">{node.id}</span>} />
-          <Row label="label" value={node.label} />
+          <Row label="name" value={node.name} />
           <Row label="type" value={node.type} />
           <Row label="status" value={node.status.state} />
           <Row label="readiness" value={view.readiness} />

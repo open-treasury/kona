@@ -70,7 +70,7 @@ function cloneGraph(graph: Graph): Graph {
 
 function makeNode(
   id: string,
-  label: string,
+  name: string,
   type: Node["type"],
   spec: NodeSpec,
   scope: string | undefined,
@@ -79,7 +79,7 @@ function makeNode(
   return {
     id,
     type,
-    label,
+    name,
     spec,
     status: {
       state: "active",
@@ -127,7 +127,7 @@ function applyOne(
       }
       graph.nodes.set(
         op.id,
-        makeNode(op.id, op.label, op.type, op.spec, op.scope, version),
+        makeNode(op.id, op.name, op.type, op.spec, op.scope, version),
       );
       return ok(null);
     }

@@ -50,7 +50,7 @@ function resolveAgainstStore(dir: string, ops: unknown): unknown {
   }
   const resolve = (value: unknown): unknown => {
     if (typeof value !== "string" || value.startsWith("$") || graph.nodes.has(value)) return value;
-    for (const [id, node] of graph.nodes) if (slugify(node.label) === value) return id;
+    for (const [id, node] of graph.nodes) if (slugify(node.name) === value) return id;
     return value;
   };
   const resolveSpec = (spec: unknown): unknown => {
@@ -121,7 +121,7 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
       const graph = foldLog(
         readFileSync(join(dir, ".kona", "mutations.jsonl"), "utf8"),
       ).graph;
-      for (const [id, node] of graph.nodes) if (slugify(node.label) === slug) return id;
+      for (const [id, node] of graph.nodes) if (slugify(node.name) === slug) return id;
       // Unresolvable on purpose in the tests that probe the not-found path.
       return slug;
     },
@@ -141,7 +141,7 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
 export const ASK_DANA = [
   {
     op: "add_node",
-    label: "Ask Dana to play Thursday",
+    name: "Ask Dana to play Thursday",
     type: "task",
     spec: {
       instruction: "Email Dana asking if she can play in goal Thursday.",
@@ -152,7 +152,7 @@ export const ASK_DANA = [
   },
   {
     op: "add_node",
-    label: "Wait for Dana",
+    name: "Wait for Dana",
     type: "wait",
     spec: {
       instruction: "Await Dana's reply.",
@@ -182,7 +182,7 @@ export async function seedRoster(h: Harness, names: readonly string[]): Promise<
   const plan = h.writeOps("seed-roster-plan.json", [
     {
       op: "add_node",
-      label: "Roster on file",
+      name: "Roster on file",
       type: "task",
       spec: {
         instruction: "The roster as it stands, read from the club sheet.",

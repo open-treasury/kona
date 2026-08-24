@@ -295,7 +295,7 @@ function addNodeShape<R extends z.ZodType>(ref: R) {
     op: z.literal("add_node"),
     /** Becomes `provenance.group`; the fan-out arm this node belongs to. */
     scope: z.string().min(1).optional(),
-    label: z.string().min(1),
+    name: z.string().min(1),
     type: z.enum(NODE_TYPES),
     spec: nodeSpecSchema(ref),
   };
@@ -423,4 +423,4 @@ export type MutationRecord = z.infer<typeof MutationRecordSchema>;
  * silently accepts two spellings of one state has two spellings to keep true forever.
  * Prototype-stage call — nothing durable is running on v1.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;

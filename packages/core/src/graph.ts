@@ -95,7 +95,7 @@ export interface Provenance {
 export interface Node {
   id: string;
   type: NodeType;
-  label: string;
+  name: string;
   spec: NodeSpec;
   status: NodeStatus;
   provenance: Provenance;

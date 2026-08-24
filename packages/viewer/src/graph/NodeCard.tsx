@@ -226,7 +226,7 @@ function NodeCard({ data, selected }: NodeProps): React.ReactElement {
                 on the flex row, and `flex-1` is what stops the trailing slot taking width the
                 label needed. Without the pair, a long countdown wins an argument it should
                 never have been in. */}
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{node.name}</span>
           </TooltipTrigger>
           <TooltipContent>{node.spec.instruction}</TooltipContent>
         </Tooltip>

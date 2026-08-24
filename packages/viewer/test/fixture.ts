@@ -92,14 +92,14 @@ export const V = {
 export const NOW = Date.parse("2026-08-22T01:00:00.000Z");
 
 /**
- * The id the fixture minted for a node, found by its label.
+ * The id the fixture minted for a node, found by its name.
  *
  * Ids are hashes, so a test cannot spell one from the person's name. The label is the stable
  * handle, and it is what the tests using this are actually asserting about.
  */
-export function idOfLabel(label: string): string {
+export function idOfName(name: string): string {
   for (const node of folded().graph.nodes.values()) {
-    if (node.label === label) return node.id;
+    if (node.name === name) return node.id;
   }
-  throw new Error(`the fixture has no node labelled "${label}"`);
+  throw new Error(`the fixture has no node named "${name}"`);
 }

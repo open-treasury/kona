@@ -99,7 +99,7 @@ export const DISCLOSURE: Disclosable = {
 
 export interface UpstreamNeighbour {
   id: string;
-  label: string;
+  name: string;
   state: string;
   condition?: string;
   /** What it produced, so the executor can use it without re-reading the graph. */
@@ -108,7 +108,7 @@ export interface UpstreamNeighbour {
 
 export interface DownstreamNeighbour {
   id: string;
-  label: string;
+  name: string;
   condition?: string;
 }
 
@@ -277,7 +277,7 @@ export function buildBrief(
           const source = graph.nodes.get(edge.from);
           const neighbour: UpstreamNeighbour = {
             id: edge.from,
-            label: source?.label ?? "(missing)",
+            name: source?.name ?? "(missing)",
             state: source?.status.state ?? "unknown",
             output: source?.status.output ?? null,
           };
@@ -287,7 +287,7 @@ export function buildBrief(
         downstream: outEdges(graph, node.id).map((edge) => {
           const neighbour: DownstreamNeighbour = {
             id: edge.to,
-            label: graph.nodes.get(edge.to)?.label ?? "(missing)",
+            name: graph.nodes.get(edge.to)?.name ?? "(missing)",
           };
           if (edge.condition !== undefined) neighbour.condition = edge.condition.on;
           return neighbour;

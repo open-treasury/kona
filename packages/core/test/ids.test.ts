@@ -59,8 +59,8 @@ describe("isValidNodeId", () => {
 describe("mintNodeId", () => {
   test("every id in a pursuit opens with the same prefix", () => {
     const taken = new Set<string>();
-    const ids = ["Ask Dana", "Read the ERP tables", "Build the schedule"].map((label, index) =>
-      mintNodeId("acme", label, 1, index, taken),
+    const ids = ["Ask Dana", "Read the ERP tables", "Build the schedule"].map((name, index) =>
+      mintNodeId("acme", name, 1, index, taken),
     );
     for (const id of ids) expect(id.startsWith("acme-")).toBe(true);
   });

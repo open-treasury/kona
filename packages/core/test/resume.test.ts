@@ -194,7 +194,7 @@ describe("the resume plan", () => {
     expect(plan.report.counts).toEqual({ active: 2 });
     expect(plan.report.frontier.map(slugOf)).toEqual(["escalate", "gate"]);
     expect(plan.report.waits).toEqual([
-      { node_id: nid(graph, "gate"), label: "Gate", deadline: LATER, basis: "fixed instant", overdue: false },
+      { node_id: nid(graph, "gate"), name: "Gate", deadline: LATER, basis: "fixed instant", overdue: false },
     ]);
   });
 
@@ -298,7 +298,7 @@ describe("resume NEVER repairs an open reservation", () => {
     expect(plan.report.unknown_sends).toEqual([
       {
         node_id: nid(reserved, "ask-dana"),
-        label: "Ask Dana",
+        name: "Ask Dana",
         effect_key: "ek_1",
         payload_hash: "sha256:aaa",
         attempted_at: "",

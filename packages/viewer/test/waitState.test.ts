@@ -319,7 +319,7 @@ describe("waitStateOf", () => {
           {
             op: "add_node",
             id: QUINN_WAIT,
-            label: "Wait for Quinn",
+            name: "Wait for Quinn",
             type: "wait",
             spec: {
               instruction: "Wait for Quinn's reply about playing in goal.",
@@ -339,7 +339,7 @@ describe("waitStateOf", () => {
           {
             op: "add_node",
             id: QUINN_ASK,
-            label: "Ask Quinn to play in goal",
+            name: "Ask Quinn to play in goal",
             type: "task",
             spec: { instruction: "Ask Quinn to play in goal on Thursday.", effect_class: "pure" },
           },

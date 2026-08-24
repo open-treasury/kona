@@ -64,7 +64,7 @@ describe("refusals name the node and the op", () => {
   test("a duplicate node id", () => {
     // A committed op carries its own id, so this one collides with the node already there.
     const r = refuses(PAIR, [
-      { op: "add_node", id: nid(PAIR, "a"), label: "A", type: "task", spec: { instruction: "x", inputs: [], outputs: [], effect_class: "pure" } },
+      { op: "add_node", id: nid(PAIR, "a"), name: "A", type: "task", spec: { instruction: "x", inputs: [], outputs: [], effect_class: "pure" } },
     ]);
     expect(r.message).toContain("already exists");
   });

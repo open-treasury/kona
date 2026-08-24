@@ -418,7 +418,7 @@ describe("hardening — mutants the behavioural suite did not kill", () => {
       {
         op: "add_node",
         id: "late",
-        label: "Late",
+        name: "Late",
         type: "task",
         spec: {
           instruction: "late",
@@ -534,7 +534,7 @@ describe("hardening — edge identity and the evidence stamp", () => {
       {
         op: "add_node",
         id: "late",
-        label: "Late",
+        name: "Late",
         type: "task",
         spec: { instruction: "late", inputs: [], outputs: [], effect_class: "pure" },
       },

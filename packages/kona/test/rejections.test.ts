@@ -19,7 +19,7 @@ let h: Harness;
 const NODE = [
   {
     op: "add_node",
-    label: "Ask Dana",
+    name: "Ask Dana",
     type: "task",
     spec: { instruction: "Email Dana.", effect_class: "pure" },
   },
