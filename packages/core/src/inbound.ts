@@ -27,9 +27,9 @@
  * which is the failure the port's own `CURSOR_LOST` exists to shout about.
  */
 
-import type { Graph, Activity } from "./graph.ts";
+import { isNodeLive, type Graph, type ActivityNode } from "./graph.ts";
 import type { WaitCondition } from "./schema.ts";
-import type { EdgeCondition } from "./vocab.ts";
+import type { GuardValue } from "./vocab.ts";
 import { armedWaits } from "./deadline.ts";
 import { deriveCorrelation } from "./correlation.ts";
 
@@ -66,7 +66,7 @@ export interface InboundMatch {
   subject: string | undefined;
   received_at: string | undefined;
   /** The or-group entry that matched, so the orchestrator knows which branch is in play. */
-  on: EdgeCondition;
+  on: GuardValue;
   /**
    * The wait had already resolved. §6.5: recorded as `verdict:"late"`, and it **never
    * reopens** the wait.
@@ -83,25 +83,25 @@ export interface InboundMatch {
  * local type, and mutation testing measured the cost: eleven unkillable mutants across two
  * four-line helpers, all of them guards against a shape the parser cannot admit.
  */
-function conditionsOf(activity: Activity): readonly WaitCondition[] {
-  return activity.spec.match?.conditions ?? [];
+function conditionsOf(activity: ActivityNode): readonly WaitCondition[] {
+  return activity.type === "accept_event" ? activity.spec.match.conditions : [];
 }
 
-function matchKindOf(activity: Activity): string | null {
-  return activity.spec.match?.kind ?? null;
+function matchKindOf(activity: ActivityNode): string | null {
+  return activity.type === "accept_event" ? activity.spec.match.kind : null;
 }
 
 /** Every message id this wait has already acted on. The dedupe set, for free. */
-function alreadyRecorded(activity: Activity): Set<string> {
-  return new Set(activity.status.outcomes.map((entry) => entry.evidence_ref));
+function alreadyRecorded(activity: ActivityNode): Set<string> {
+  return new Set((activity.status?.outcomes ?? []).map((entry) => entry.evidence_ref));
 }
 
 /**
  * A wait is resolved when a resolving verdict has been recorded against it. Its address
  * stays pollable so a straggler can still be recorded — but only as `late`.
  */
-function isResolved(activity: Activity): boolean {
-  return activity.status.outcome !== null;
+function isResolved(activity: ActivityNode): boolean {
+  return activity.status?.outcome != null;
 }
 
 /**
@@ -110,9 +110,9 @@ function isResolved(activity: Activity): boolean {
  */
 export function waitAddresses(graph: Graph, mailbox: string): WaitAddress[] {
   const armed = new Set(armedWaits(graph).map((activity) => activity.id));
-  return [...graph.activities.values()].flatMap((activity) => {
-    if (activity.type !== "wait" || matchKindOf(activity) !== "event") return [];
-    if (activity.provenance.superseded_by !== null) return [];
+  return [...graph.nodes.values()].flatMap((activity) => {
+    if (activity.type !== "accept_event" || matchKindOf(activity) !== "event") return [];
+    if (!isNodeLive(activity)) return [];
     // A resolved wait is still worth polling — §6.5 requires a late reply to be RECORDED.
     if (!armed.has(activity.id) && !isResolved(activity)) return [];
     const derived = deriveCorrelation(mailbox, activity.id);
@@ -130,8 +130,8 @@ export function waitAddresses(graph: Graph, mailbox: string): WaitAddress[] {
 
 function addressedTo(message: InboundMessage, address: string): boolean {
   const lowered = address.toLowerCase();
-  return [...message.to, ...(message.reply_to ?? [])].some(
-    (candidate) => candidate.toLowerCase().includes(lowered),
+  return [...message.to, ...(message.reply_to ?? [])].some((candidate) =>
+    candidate.toLowerCase().includes(lowered),
   );
 }
 
@@ -162,11 +162,12 @@ export interface MatchOptions {
  * and the next poll picks up whatever is left.
  */
 export function matchWait(
-  activity: Activity,
+  activity: ActivityNode,
   messages: readonly InboundMessage[],
   address: string,
   options: MatchOptions,
 ): InboundMatch | null {
+  if (activity.type !== "accept_event") return null;
   const seen = alreadyRecorded(activity);
   const conditions = conditionsOf(activity);
   const late = isResolved(activity);
@@ -210,8 +211,8 @@ export function matchInbound(
   const matches: InboundMatch[] = [];
 
   for (const target of waitAddresses(graph, mailbox)) {
-    const activity = graph.activities.get(target.activity_id);
-    if (activity === undefined) continue;
+    const activity = graph.nodes.get(target.activity_id);
+    if (activity?.type !== "accept_event") continue;
     const available = messages.filter((message) => !claimed.has(message.message_id));
     const match = matchWait(activity, available, target.address, { ownMailbox: mailbox });
     if (match === null) continue;

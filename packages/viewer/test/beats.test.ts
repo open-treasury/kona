@@ -14,7 +14,7 @@ import { describe, expect, test } from "bun:test";
 import { V, folded, headVersion, idOfName } from "./fixture.ts";
 
 /**
- * The ops at one version, as `<op>:<activity-or-label>` — enough to identify a beat.
+ * The ops at one version, as `<op>:<activity-or-name>` — enough to identify a beat.
  *
  * Off the FOLDED records rather than off raw JSON, so a fixture that stopped parsing would
  * fail here too rather than being described by a hand-rolled reader that still worked.
@@ -23,7 +23,7 @@ function opsAt(version: number): string[] {
   const record = folded().records.find((candidate) => candidate.v === version);
   if (record === undefined) throw new Error(`the fixture has no v${version}`);
   return record.ops.map((op) => {
-    const target = "activity" in op ? op.activity : "name" in op ? op.name : "";
+    const target = "node" in op ? op.node : "name" in op ? op.name : "";
     return `${op.op}:${target}`;
   });
 }
@@ -37,7 +37,7 @@ describe("the fixture's beats are where V says they are", () => {
     expect(opsAt(V.roster)).toContain("record_output:th-ahf6");
     // The whole reason it is its own commit: invariant 3(b) resolves recipients against
     // PRE-COMMIT head, so a batch that reads the roster and emails Dana is refused.
-    expect(opsAt(V.plan)).toContain("add_activity:Ask Dana to play in goal");
+    expect(opsAt(V.plan)).toContain("add_node:Ask Dana to play in goal");
     expect(V.roster).toBeLessThan(V.plan);
   });
 
@@ -46,12 +46,20 @@ describe("the fixture's beats are where V says they are", () => {
       ["dana", V.danaReserved, V.danaSent],
       ["sam", V.samReserved, V.samSent],
     ] as const) {
-      // Ids are hashes, so the activity cannot be spelled from `who`. The label still can be,
-      // and the label is what this test is actually about — that each send touches the activity
+      // Ids are hashes, so the activity cannot be spelled from `who`. The name still can be,
+      // and the name is what this test is actually about — that each send touches the activity
       // for that person, twice, in order.
-      const activity = idOfName(`Ask ${who.charAt(0).toUpperCase()}${who.slice(1)} to play in goal`);
-      expect(`${who}:${opsAt(reserved).join()}`).toBe(`${who}:set_status:${activity}`);
-      expect(`${who}:${opsAt(sent).join()}`).toBe(`${who}:set_status:${activity}`);
+      const activity = idOfName(
+        `Ask ${who.charAt(0).toUpperCase()}${who.slice(1)} to play in goal`,
+      );
+      // `toContain`, not `toBe` on the joined list: since §6.2.1 the store also appends its
+      // readiness derivation to any commit that changes what is dispatchable, so a reserve
+      // commit legitimately carries ops about OTHER nodes. What this test is about is
+      // untouched — that each send touches this person's node twice, in order, in two
+      // separate commits — and pinning the whole op list would make it fail for a reason it
+      // is not testing.
+      expect(opsAt(reserved)).toContain(`set_status:${activity}`);
+      expect(opsAt(sent)).toContain(`set_status:${activity}`);
       expect(sent).toBe(reserved + 1);
     }
   });
@@ -64,9 +72,9 @@ describe("the fixture's beats are where V says they are", () => {
 
   test("the three plan changes are where their names say", () => {
     expect(opsAt(V.danaDeclines)).toContain("record_outcome:th-es9m");
-    expect(opsAt(V.samRefers)).toContain("add_activity:Check Marcus is eligible");
-    expect(opsAt(V.rosterSuperseded)).toContain("supersede_activity:th-ahf6");
-    expect(opsAt(V.patPlanned)).toContain("add_activity:Ask Pat to play in goal");
+    expect(opsAt(V.samRefers)).toContain("add_node:Check Marcus is eligible");
+    expect(opsAt(V.rosterSuperseded)).toContain("supersede_node:th-ahf6");
+    expect(opsAt(V.patPlanned)).toContain("add_node:Ask Pat to play in goal");
   });
 
   test("the fixture ends on Pat's OPEN reservation, and that is the head", () => {

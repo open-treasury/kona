@@ -2,9 +2,8 @@
  * What the lines mean.
  *
  * Everything else on this canvas describes itself: a card carries its own status word, its own
- * countdown, its own blocked reason. The lines are the exception — six visual codes, none of
- * them nameable by looking, and a reader who does not already know that a dashed amber arc is
- * `on_timeout` has no way to find out. That is the one place the graph asks for prior knowledge,
+ * countdown, its own blocked reason. The lines are the exception: their visual codes are not
+ * nameable by looking. That is the one place the graph asks for prior knowledge,
  * so it is the one place worth spending a panel on.
  *
  * **Collapsed by default**, for the same reason the timeline is: this window's job is to show
@@ -46,14 +45,6 @@ const ROWS: readonly Row[] = [
     dash: "3 4",
     term: "never satisfiable",
     gloss: "the step it needs ended without succeeding, so it can never become ready",
-  },
-  {
-    stroke: "var(--color-ochre-bold)",
-    width: 1.25,
-    dash: "5 4",
-    opacity: 0.45,
-    term: "on timeout",
-    gloss: "where a blown deadline goes. §6.4 gives every wait one, so nothing hangs silently",
   },
   {
     stroke: "var(--color-carbon-40)",

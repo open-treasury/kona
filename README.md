@@ -2,13 +2,10 @@
 
 **A living workflow graph — Beads with state machines.**
 
-![The Kona viewer: a live plan at v31](docs/img/viewer.png)
+![The Kona viewer: a live activity-model pursuit](docs/img/viewer.jpg)
 
-*A real run, mid-flight. The four grey-checked steps at the bottom are the skeleton it was
-handed; everything above them the agent authored itself. One activity is spinning — `Generate ERP
-writeback SQL file` is claimed and being worked right now, which is why it is not offered to
-anything else. `Apply writebacks through gateway` says `3 of 3 dependencies unmet`: it knows
-what it is waiting for.*
+_A real run through the activity model: actions and accept-events flow through decisions,
+parallel regions, merges, joins, and explicit final nodes._
 
 An agent's plan normally lives in its context window: you cannot see it, it cannot constrain
 what the agent does next, and it dies with the session. Kona puts it in a file — a graph the
@@ -16,27 +13,27 @@ model authors, works against, and rewrites as reality answers, carrying the reas
 change.
 
 **You can see it.** A live graph, not a chat scroll. Steps are claimed before they are worked,
-so a plan that goes quiet tells you *which step* it is quiet inside — and every mutation
+so a plan that goes quiet tells you _which step_ it is quiet inside — and every mutation
 carries a `--why` the store refuses to commit without.
 
-**The agent is grounded by it.** `kona next` is the only source of work, and it is computed
-from the log rather than remembered. A finished step is terminal: the store refuses to reopen
+**The agent is grounded by it.** `kona next` is the only source of work. Commit-time derivation
+records readiness in the log, and `next` returns only ready actions. A finished step is terminal: the store refuses to reopen
 it, so work is not silently redone. This is enforcement, not advice — three invariants live in
 the store, not in a prompt.
 
 **And it survives.** Kill the session; a fresh one reads the file and continues. There is no
-snapshot to rebuild, because the graph *is* a fold over the log.
+snapshot to rebuild, because the graph _is_ a fold over the log.
 
 ## Why this is not already solved
 
 Every property above exists somewhere. The three-way intersection does not, and for a
 structural reason:
 
-| | |
-|---|---|
-| **The mutator is a machine** | Adaptive BPM solved runtime workflow change in 2008, with rationale fields and all. It died because the mutator was an expert human with a BPMN editor. LLMs removed that bottleneck two years ago |
-| **The timeline is irreversible** | AFlow, ADAS and DSPy optimise topology *between* runs, scored against a benchmark they re-execute. You cannot email thirty people five times and take the mean |
-| **Waits outlive the process** | Temporal, LittleHorse, Golem, Hatchet and Trigger.dev all pin in-flight work to the version it started on. **Every replay-based engine buys crash-resume by forbidding mutation.** That unanimity is the evidence this is unsolved rather than merely unbuilt |
+|                                  |                                                                                                                                                                                                                                                               |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **The mutator is a machine**     | Adaptive BPM solved runtime workflow change in 2008, with rationale fields and all. It died because the mutator was an expert human with a BPMN editor. LLMs removed that bottleneck two years ago                                                            |
+| **The timeline is irreversible** | AFlow, ADAS and DSPy optimise topology _between_ runs, scored against a benchmark they re-execute. You cannot email thirty people five times and take the mean                                                                                                |
+| **Waits outlive the process**    | Temporal, LittleHorse, Golem, Hatchet and Trigger.dev all pin in-flight work to the version it started on. **Every replay-based engine buys crash-resume by forbidding mutation.** That unanimity is the evidence this is unsolved rather than merely unbuilt |
 
 ## How it's measured
 
@@ -47,12 +44,12 @@ engineer. `eval/` runs the same model on it twice, with Kona and without, and re
 two arms side by side: constraints passed, wall-clock, cost, and how much of the plan the
 agent actually maintained. Rig, pre-registration and go/no-go bar: [`docs/eval.md`](docs/eval.md).
 
-Watch the arm that has Kona and the mechanism is visible. Given a five-activity skeleton and
+Watch the arm that has Kona and the mechanism is visible. Given a five-node skeleton and
 nothing else, the agent:
 
-- **authored its own plan** — 15 activities and 22 edges added in a single commit
-- **claimed each step before working it**, so a plan that goes quiet says *which* step
-- **caught its own mistake** — committed a `supersede_activity` carrying reason code
+- **authored its own plan** — 15 nodes and 22 edges added in a single commit
+- **claimed each step before working it**, so a plan that goes quiet says _which_ step
+- **caught its own mistake** — committed a `supersede_node` carrying reason code
   `CONTRADICTION` when it found it had read a constraint wrong, with the correction in one
   sentence. Unprompted, inside a benchmark container
 
@@ -61,7 +58,7 @@ The arm without it finishes with a directory of `debug7.py` files that state no 
 **We are not reporting a score.** One task and one attempt per arm cannot separate the tool
 from run-to-run variance — we have watched the same configuration swing by eight checks — and
 the suite scores this task all-or-nothing, so both arms read `0.0` regardless. The rig exists
-so the comparison *can* be made properly. The interesting version is all 70 tasks with
+so the comparison _can_ be made properly. The interesting version is all 70 tasks with
 repeats per arm; that is hours of wall-clock and real money per sweep, so it is **TBD**.
 
 ## What's inside
@@ -81,7 +78,7 @@ so exactly one package writes bytes.
 
 **Nine verbs, and no tenth.** `init` · `mutate` (the only write path: validate → lock → CAS →
 append → fsync) · `graph` (the only read contract — a **fold** over the log, never a snapshot)
-· `next` (the ready frontier, computed never stored) · `brief` · `effect reserve|record` (the
+· `next` (ready actions, each with its enclosing `fork`, plus an explicit `complete` flag) · `brief` · `effect reserve|record` (the
 outbox) · `resume` · `poll` · `view`.
 
 **Three invariants, enforced in the store rather than advised in a prompt:** terminal and
@@ -144,7 +141,7 @@ pre-registration the run is measured against.
 ## Tech stack
 
 **TypeScript 7** (the native Go compiler) on **Bun** — one runtime for the CLI, the tests and
-the bundler, and `bun build --compile` gives a single static binary with no Activity in the image.
+the bundler, and `bun build --compile` gives a single static binary with no Node in the image.
 **Zod** at the CLI boundary, so malformed shape is rejected before any graph logic runs.
 **React 19 + @xyflow/react + dagre + Tailwind 4** for the viewer, served by Bun over localhost
 with zero outbound calls. Storage is **one append-only JSONL file** — no database, no daemon,

@@ -28,18 +28,26 @@ export interface TimelineProps {
   headVersion: number;
   /** The version whose change is held highlighted on the canvas, or null for none. */
   pinnedVersion: number | null;
+  /** The latest version present on the canvas while scrubbing history. */
+  visibleVersion: number;
   onPin: (version: number | null) => void;
+}
+
+export function canPinVersion(version: number, visibleVersion: number): boolean {
+  return version <= visibleVersion;
 }
 
 function Entry({
   entry,
   isHead,
   pinned,
+  canPin,
   onPin,
 }: {
   entry: TimelineEntry;
   isHead: boolean;
   pinned: boolean;
+  canPin: boolean;
   onPin: () => void;
 }): React.ReactElement {
   const gloss = reasonGloss(entry.reasonCode);
@@ -86,13 +94,16 @@ function Entry({
             type="button"
             onClick={onPin}
             aria-pressed={pinned}
+            disabled={!canPin}
             title={
-              pinned
-                ? "stop highlighting this version"
-                : `highlight what v${String(entry.version)} changed`
+              !canPin
+                ? `v${String(entry.version)} is later than the viewed version`
+                : pinned
+                  ? "stop highlighting this version"
+                  : `highlight what v${String(entry.version)} changed`
             }
             className={cn(
-              "shrink-0 cursor-pointer rounded-sm px-1 tabular-nums",
+              "shrink-0 cursor-pointer rounded-sm px-1 tabular-nums disabled:cursor-not-allowed disabled:opacity-35",
               "hover:bg-carbon-8 focus-visible:outline-2 focus-visible:outline-primary",
               pinned && "bg-primary text-primary-foreground",
             )}
@@ -148,8 +159,7 @@ function Entry({
               {/* A verb, not a glyph. `+ 2 ops` names a quantity and leaves the reader to
                   infer that the row does something; `View 2 ops` says what pressing it does,
                   which is the whole job of the only control on the panel. */}
-              {open ? "Hide" : "View"} {entry.ops.length}{" "}
-              {entry.ops.length === 1 ? "op" : "ops"}
+              {open ? "Hide" : "View"} {entry.ops.length} {entry.ops.length === 1 ? "op" : "ops"}
               {extras ? " · rationale detail" : ""}
             </button>
 
@@ -162,7 +172,7 @@ function Entry({
                   >
                     <span className="w-24 shrink-0 text-carbon-40">{op.kind}</span>
                     <span className="truncate">
-                      {op.activity}
+                      {op.node}
                       {op.detail === "" ? "" : ` · ${op.detail}`}
                     </span>
                   </li>
@@ -214,6 +224,7 @@ export function Timeline({
   entries,
   headVersion,
   pinnedVersion,
+  visibleVersion,
   onPin,
 }: TimelineProps): React.ReactElement {
   // No panel header. The thing that opened this said `timeline`, and its tooltip carries the
@@ -231,7 +242,9 @@ export function Timeline({
               entry={entry}
               isHead={entry.version === headVersion}
               pinned={entry.version === pinnedVersion}
+              canPin={canPinVersion(entry.version, visibleVersion)}
               onPin={() => {
+                if (!canPinVersion(entry.version, visibleVersion)) return;
                 onPin(entry.version === pinnedVersion ? null : entry.version);
               }}
             />

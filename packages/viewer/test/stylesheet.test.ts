@@ -79,10 +79,22 @@ describe("the compiled stylesheet is not stale", () => {
     // Single-word utilities that need no arbitrary value, so presence is unambiguous. Some
     // are used today and some are not; the test does not care which, only that the two
     // answers agree.
-    for (const utility of ["static", "grow", "transition", "isolate", "contents", "collapse", "invisible", "italic", "truncate"]) {
+    for (const utility of [
+      "static",
+      "grow",
+      "transition",
+      "isolate",
+      "contents",
+      "collapse",
+      "invisible",
+      "italic",
+      "truncate",
+    ]) {
       const inBundle = styles.includes(`\n  .${utility} {`);
       const inSource = new RegExp(`\\b${utility}\\b`).test(source);
-      expect(`${utility}: bundle=${String(inBundle)}`).toBe(`${utility}: bundle=${String(inSource)}`);
+      expect(`${utility}: bundle=${String(inBundle)}`).toBe(
+        `${utility}: bundle=${String(inSource)}`,
+      );
     }
   });
 });

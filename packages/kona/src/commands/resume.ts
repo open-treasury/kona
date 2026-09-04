@@ -2,7 +2,7 @@
  * `kona resume` — §6.7's reconcile-then-repair, and the §8 line that says a fresh terminal
  * prints correct status in under 60 seconds with no session state.
  *
- * Order matters: **report first, repair second, and never repair a `sending`.** The world's
+ * Order matters: **report first, repair second, and never repair an `active`.** The world's
  * answer to an open reservation is genuinely unknown, and the only safe move is to hand it
  * to a human — §6.5 makes reconciliation against the mailbox the source of truth, and that
  * arrives with the mailbox provider.

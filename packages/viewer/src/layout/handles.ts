@@ -31,3 +31,49 @@ export function edgeHandles(size: { width: number; height: number }): NodeHandle
     { type: "source", position: Position.Right, x: size.width, y, width: 1, height: 1 },
   ];
 }
+
+/**
+ * A bar's handles, distributed ALONG its length rather than stacked at its midpoint.
+ *
+ * A fork is a synchronisation mark: the point of drawing it as a bar rather than a dot is that
+ * you can see the arms leave it at different heights, in the order dagre ranked them. With one
+ * centred handle every arm leaves the same pixel and the bar reads as a decorated dot — the
+ * shape is there and the information it exists to carry is not.
+ *
+ * The count is the arm count and the bar's length is a function of the same number
+ * (`sizeOf`), so the spacing is even by construction rather than by tuning.
+ */
+export function barHandles(
+  size: { width: number; height: number },
+  ins: number,
+  outs: number,
+): NodeHandle[] {
+  const along = (count: number) =>
+    // Midpoints of `count` equal bands, so the first and last sit inside the bar rather than
+    // on its ends — an arrow landing exactly on a corner reads as missing it.
+    Array.from(
+      { length: Math.max(count, 1) },
+      (_, index) => ((index + 0.5) / Math.max(count, 1)) * size.height,
+    );
+
+  return [
+    ...along(ins).map((y, index) => ({
+      type: "target" as const,
+      position: Position.Left,
+      id: `in-${String(index)}`,
+      x: 0,
+      y,
+      width: 1,
+      height: 1,
+    })),
+    ...along(outs).map((y, index) => ({
+      type: "source" as const,
+      position: Position.Right,
+      id: `out-${String(index)}`,
+      x: size.width,
+      y,
+      width: 1,
+      height: 1,
+    })),
+  ];
+}

@@ -20,7 +20,18 @@ import {
   pursuitConfig,
   waitAddresses,
 } from "../src/index.ts";
-import { commit, record, rostered, seeded, slugOr, task, wait, nid, slugOf } from "./fixtures.ts";
+import {
+  commit,
+  record,
+  rostered,
+  seeded,
+  slugOr,
+  action,
+  acceptEvent,
+  nid,
+  slugOf,
+  workedAt,
+} from "./fixtures.ts";
 
 const IDENTITY: Identity = {
   mailbox: "ilya@example.com",
@@ -31,7 +42,7 @@ const IDENTITY: Identity = {
 const CONFIG: PursuitConfig = { identity: IDENTITY, effect_budget: 12 };
 
 function pivot(name: string, extra: Record<string, unknown> = {}): AuthoredOp {
-  return task(name, {
+  return action(name, {
     effect_class: "pivot",
     effect: { channel: "email", recipient_ref: "roster#dana" },
     ...extra,
@@ -45,9 +56,71 @@ function briefOf(graph: Graph, id: string, config: PursuitConfig = CONFIG) {
 }
 
 function checkNamed(graph: Graph, id: string, name: string, config: PursuitConfig = CONFIG) {
-  const check = briefOf(graph, id, config).preconditions_satisfied.checks.find((c) => c.name === name);
+  const check = briefOf(graph, id, config).preconditions_satisfied.checks.find(
+    (c) => c.name === name,
+  );
   if (check === undefined) throw new Error(`no check '${name}'`);
   return check;
+}
+
+/**
+ * The send actually going out — the step that sits between the two halves of the round trip
+ * below.
+ *
+ * A acceptEvent is armed only in `ready`, and readiness is DERIVED at commit, so a acceptEvent sits
+ * `inactive` until the activity in front of it completes. Under the old vocabulary an
+ * unclaimed acceptEvent was `active` from the moment it was authored, so a poll saw it before its
+ * send had gone anywhere. A brief is handed out BEFORE the send and a poll happens AFTER it,
+ * so the round trip has to cross the send rather than assert both ends against one frozen
+ * graph.
+ */
+function afterTheSend(graph: Graph): Graph {
+  const key = "ek_1";
+  return commit(
+    commit(graph, [
+      {
+        op: "set_status",
+        node: "ask-dana",
+        status: "active",
+        evidence_ref: encodeReserveEvidence(key, "h"),
+      },
+    ] as AuthoredOp[]),
+    [
+      {
+        op: "set_status",
+        node: "ask-dana",
+        status: "completed",
+        evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>"),
+      },
+    ] as AuthoredOp[],
+  );
+}
+
+/**
+ * A graph whose activity `a` sits in `state`.
+ *
+ * Two of the seven states are the STORE's to write and are refused from an author (§6.2.1),
+ * so they have to be reached the way a pursuit reaches them. `ready` is derived at commit for
+ * a node nothing blocks, which is why it takes no op at all. `withdrawn` is written by the
+ * cascade when the arm a node sat on dies — reaching it by superseding instead would have
+ * been one line, and would also have set `superseded_by`, which fails `node_live` for a
+ * second reason and would leave that row saying nothing about the state.
+ */
+function inState(state: string): Graph {
+  if (state === "ready") return seeded([action("A")]);
+  if (state === "withdrawn") {
+    const gated = commit(seeded([action("A"), acceptEvent("Gate")]), [
+      { op: "add_edge", from: "gate", to: "a", guard: { on: "accept" } },
+    ] as AuthoredOp[]);
+    // The gate resolved `ignore`, so `a`'s only in-edge can never fire.
+    return commit(gated, [
+      { op: "record_outcome", node: "gate", verdict: "ignore", evidence_ref: "e" },
+      { op: "set_status", node: "gate", status: "completed", evidence_ref: "e" },
+    ] as AuthoredOp[]);
+  }
+  return commit(seeded([action("A")]), [
+    { op: "set_status", node: "a", status: state, evidence_ref: "e" } as AuthoredOp,
+  ]);
 }
 
 describe("correlation derives from the activity id (§6.5)", () => {
@@ -70,8 +143,8 @@ describe("correlation derives from the activity id (§6.5)", () => {
   });
 
   test("N tags on ONE inbox, which is what makes a fan-out free", () => {
-    const arms = ["ask-dana", "ask-sam", "ask-priya"].map(
-      (id) => deriveCorrelation("ilya@example.com", id),
+    const arms = ["ask-dana", "ask-sam", "ask-priya"].map((id) =>
+      deriveCorrelation("ilya@example.com", id),
     );
     const addresses = arms.map((a) => (a.ok ? a.correlation.reply_to : ""));
     expect(new Set(addresses).size).toBe(3);
@@ -87,7 +160,7 @@ describe("correlation derives from the activity id (§6.5)", () => {
 
   test("a second @ is refused, not tagged into a broken address", () => {
     // `a@b+kona-n@example.com` is syntactically invalid; providers drop it without a
-    // bounce, so the wait behind it would sit armed until its deadline.
+    // bounce, so the acceptEvent behind it would sit armed until its deadline.
     expect(deriveCorrelation("a@b@example.com", "n").ok).toBe(false);
   });
 
@@ -115,13 +188,13 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
    * and look for `ilya+kona-wait-for-dana@…`. Both halves had passing unit tests — each was
    * self-consistent — and every reply in a real run would have arrived correlated to nothing.
    *
-   * §6.5 shows the token twice with the same literal, on the effect activity and on the wait: one
-   * conversation, one token. The wait is the end that has to own it, because `record_outcome`
-   * targets the wait and because a send can be superseded while the wait behind it survives —
+   * §6.5 shows the token twice with the same literal, on the effect activity and on the acceptEvent: one
+   * conversation, one token. The acceptEvent is the end that has to own it, because `record_outcome`
+   * targets the acceptEvent and because a send can be superseded while the acceptEvent behind it survives —
    * and "a token that changes across executions goes stale in someone's inbox".
    */
   const wired = (extra: AuthoredOp[] = [], edges: AuthoredOp[] = []): Graph =>
-    commit(rostered(["dana"], [pivot("Ask Dana"), wait("Wait for Dana"), ...extra]), [
+    commit(rostered(["dana"], [pivot("Ask Dana"), acceptEvent("Wait for Dana"), ...extra]), [
       { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
       ...edges,
     ] as AuthoredOp[]);
@@ -129,16 +202,16 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
   test("the address brief hands out is the one poll will look for", () => {
     const graph = wired();
     const handed = briefOf(graph, "ask-dana").correlation?.reply_to ?? "";
-    const polled = waitAddresses(graph, IDENTITY.mailbox).map((a) => a.address);
+    const polled = waitAddresses(afterTheSend(graph), IDENTITY.mailbox).map((a) => a.address);
     // The whole claim, in one line: what the executor puts in `Reply-To` is what the poller
     // will be watching for.
     expect(polled).toContain(handed);
   });
 
-  test("and a reply to it matches the wait, end to end", () => {
+  test("and a reply to it matches the acceptEvent, end to end", () => {
     const graph = wired();
     const replyTo = briefOf(graph, "ask-dana").correlation?.reply_to ?? "";
-    const matches = matchInbound(graph, IDENTITY.mailbox, [
+    const matches = matchInbound(afterTheSend(graph), IDENTITY.mailbox, [
       { message_id: "<m-1@mail>", from: "dana@example.com", to: [replyTo] },
     ]);
     expect(matches.map((match) => slugOf(match.activity_id))).toEqual(["wait-for-dana"]);
@@ -146,7 +219,7 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
 
   test("nothing waiting means no reply address, and that is not a failure", () => {
     // A fire-and-forget send — a follow-up nobody is expected to answer. An address that
-    // routes to no wait would be worse than none: a reply would arrive and match nothing.
+    // routes to no acceptEvent would be worse than none: a reply would arrive and match nothing.
     const graph = rostered(["dana"], [pivot("Ask Dana")]);
     const brief = briefOf(graph, "ask-dana");
     expect(brief.correlation).toBeNull();
@@ -158,7 +231,10 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
   });
 
   test("two waits on one send FAILS CLOSED — guessing routes an answer to the wrong arm", () => {
-    const graph = wired([wait("Wait again")], [{ op: "add_edge", from: "ask-dana", to: "wait-again" }]);
+    const graph = wired(
+      [acceptEvent("Wait again")],
+      [{ op: "add_edge", from: "ask-dana", to: "wait-again" }],
+    );
     const check = checkNamed(graph, "ask-dana", "correlation_expanded");
     expect(check.ok).toBe(false);
     // Two waits on one send: the detail names both, by id, because that is what the
@@ -169,33 +245,39 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
     expect(briefOf(graph, "ask-dana").preconditions_satisfied.ok).toBe(false);
   });
 
-  test("a superseded wait does not claim the address its replacement should own", () => {
-    const graph = wired([wait("Wait again")], [
-      { op: "add_edge", from: "ask-dana", to: "wait-again" },
-      { op: "supersede_activity", activity: "wait-for-dana", by: "wait-again" },
-    ]);
+  test("a superseded acceptEvent does not claim the address its replacement should own", () => {
+    const graph = wired(
+      [acceptEvent("Wait again")],
+      [
+        { op: "add_edge", from: "ask-dana", to: "wait-again" },
+        { op: "supersede_node", node: "wait-for-dana", by: "wait-again" },
+      ],
+    );
     expect(briefOf(graph, "ask-dana").correlation?.reply_to).toBe(
       `ilya+kona-${nid(graph, "wait-again")}@example.com`,
     );
   });
 
-  test("only an EVENT wait takes mail — a predicate wait has no inbox", () => {
+  test("only an EVENT acceptEvent takes mail — a predicate acceptEvent has no inbox", () => {
     const graph = commit(
-      rostered(["dana"], [
-        pivot("Ask Dana"),
-        wait("Quorum", {
-          match: {
-            kind: "predicate",
-            conditions: [
-              {
-                kind: "predicate",
-                on: "satisfied",
-                predicate: { count: { verdict: "confirmed" }, op: ">=", n: 1 },
-              },
-            ],
-          },
-        }),
-      ]),
+      rostered(
+        ["dana"],
+        [
+          pivot("Ask Dana"),
+          acceptEvent("Quorum", {
+            match: {
+              kind: "predicate",
+              conditions: [
+                {
+                  kind: "predicate",
+                  on: "satisfied",
+                  predicate: { count: { verdict: "confirmed" }, op: ">=", n: 1 },
+                },
+              ],
+            },
+          }),
+        ],
+      ),
       [{ op: "add_edge", from: "ask-dana", to: "quorum" }] as AuthoredOp[],
     );
     expect(briefOf(graph, "ask-dana").correlation).toBeNull();
@@ -203,19 +285,41 @@ describe("the reply address is the WAIT's, not the sender's (§6.5)", () => {
 });
 
 describe("brief refuses rather than guessing (§6.9)", () => {
+  test("refuses an accept_event without throwing", () => {
+    const graph = seeded([acceptEvent("Wait for Dana")]);
+    const result = buildBrief(graph, nid(graph, "wait-for-dana"), CONFIG);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("NOT_BRIEFABLE");
+  });
+
+  test("refuses a control node without throwing", () => {
+    const graph = seeded([
+      { op: "add_node", name: "Start", type: "initial", spec: {} },
+      action("Work"),
+      { op: "add_node", name: "Done", type: "final", spec: {} },
+      { op: "add_edge", from: "$0", to: "$1" },
+      { op: "add_edge", from: "$1", to: "$2" },
+    ] as AuthoredOp[]);
+    const result = buildBrief(graph, nid(graph, "start"), CONFIG);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("NOT_BRIEFABLE");
+  });
   test("an activity that does not exist", () => {
-    const result = buildBrief(seeded([task("A")]), "ghost", CONFIG);
+    const result = buildBrief(seeded([action("A")]), "ghost", CONFIG);
     expect(result.ok).toBe(false);
     expect(!result.ok && result.reason).toBe("UNKNOWN_ACTIVITY");
   });
 
-  test("a SENDING activity with no identity — an executor cannot speak for someone unnamed", () => {
-    const graph = rostered(["dana"], [
-      task("Ask Dana", {
-        effect_class: "pivot",
-        effect: { channel: "email", recipient_ref: "roster#dana" },
-      }),
-    ]);
+  test("an ACTIVE activity with no identity — an executor cannot speak for someone unnamed", () => {
+    const graph = rostered(
+      ["dana"],
+      [
+        action("Ask Dana", {
+          effect_class: "pivot",
+          effect: { channel: "email", recipient_ref: "roster#dana" },
+        }),
+      ],
+    );
     const result = buildBrief(graph, nid(graph, "ask-dana"), {});
     expect(result.ok).toBe(false);
     expect(!result.ok && result.reason).toBe("NO_IDENTITY");
@@ -227,7 +331,7 @@ describe("brief refuses rather than guessing (§6.9)", () => {
     // Refusing this made effect-free pursuits unusable without inventing a mailbox nobody
     // reads, and §6.2 makes `effect_class: "pure"` first-class rather than degenerate. The
     // correlation check already says the true thing in words.
-    const pure = seeded([task("A")]);
+    const pure = seeded([action("A")]);
     const result = buildBrief(pure, nid(pure, "a"), {});
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
@@ -242,43 +346,66 @@ describe("brief refuses rather than guessing (§6.9)", () => {
 
 describe("preconditions FAIL CLOSED", () => {
   test("a fully ready pure activity satisfies everything", () => {
-    expect(briefOf(seeded([task("A")]), "a").preconditions_satisfied.ok).toBe(true);
+    expect(briefOf(seeded([action("A")]), "a").preconditions_satisfied.ok).toBe(true);
   });
 
   test("a blocked activity fails on its dependency, naming what it waits on", () => {
-    const graph = commit(seeded([task("A"), task("B")]), [{ op: "add_edge", from: "a", to: "b" }]);
+    const graph = commit(seeded([action("A"), action("B")]), [
+      { op: "add_edge", from: "a", to: "b" },
+    ]);
     const check = checkNamed(graph, "b", "dependencies_satisfied");
     expect(check.ok).toBe(false);
     expect(check.detail).toContain(`'${nid(graph, "a")}'`);
   });
 
-  test.each([
-    ["in_flight", false],
-    ["done", false],
+  // `active` now means CLAIMED — somebody is already working this — so it is the state that is
+  // NOT dispatchable, and `ready` is the frontier an executor may be handed. The two rows are
+  // the same two the old vocabulary had, with their answers the other way round. `dropped`
+  // likewise became two states, and both are unworkable, so both are listed.
+  const DISPATCHABLE: readonly (readonly [string, boolean])[] = [
+    ["active", false],
+    ["completed", false],
     ["failed", false],
-    ["dropped", false],
-    ["active", true],
-  ])("an activity in state '%s' is dispatchable: %s", (state, expected) => {
-    const graph = commit(seeded([task("A")]), [
-      { op: "set_status", activity: "a", status: state, evidence_ref: "e" } as AuthoredOp,
-    ]);
-    expect(checkNamed(graph, "a", "node_live").ok).toBe(expected);
+    ["withdrawn", false],
+    ["terminated", false],
+    ["ready", true],
+  ];
+
+  test.each(DISPATCHABLE)("an activity in state '%s' is dispatchable: %s", (state, expected) => {
+    expect(checkNamed(inState(state), "a", "node_live").ok).toBe(expected);
   });
 
-  test("a superseded activity is not dispatchable even while active", () => {
-    const graph = commit(seeded([task("A")]), [task("A prime"), { op: "supersede_activity", activity: "a", by: "$0" }]);
+  test("a superseded activity is not dispatchable even while ready", () => {
+    const graph = commit(seeded([action("A")]), [
+      action("A prime"),
+      { op: "supersede_node", node: "a", by: "$0" },
+    ]);
     expect(checkNamed(graph, "a", "node_live").ok).toBe(false);
   });
 
   test("an input whose producer has not produced yet is UNRESOLVED, not absent", () => {
     // This is the failure the brief probe found: every `inputs[].ref` dangled because no
     // activity declared an `output`, and 0 of 8 subagents could execute.
-    const graph = commit(seeded([task("Roster")]), [
-      task("Ask", { inputs: [{ ref: "roster.reply" }] }),
+    const graph = commit(seeded([action("Roster")]), [
+      action("Ask", { inputs: [{ ref: "roster.reply" }] }),
     ]);
     const check = checkNamed(graph, "ask", "inputs_resolved");
     expect(check.ok).toBe(false);
     expect(check.detail).toContain("not produced yet");
+  });
+
+  test("an input that names a control node fails closed without throwing", () => {
+    const graph = seeded([
+      { op: "add_node", name: "Start", type: "initial", spec: {} },
+      action("Ask"),
+      { op: "add_node", name: "Done", type: "final", spec: {} },
+      { op: "add_edge", from: "$0", to: "$1" },
+      { op: "add_edge", from: "$1", to: "$2" },
+    ] as AuthoredOp[]);
+    workedAt(graph, "ask").spec.inputs = [{ ref: `${nid(graph, "start")}.reply` }];
+    const check = checkNamed(graph, "ask", "inputs_resolved");
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain("control node and declares no outputs");
   });
 
   test.each([
@@ -287,14 +414,22 @@ describe("preconditions FAIL CLOSED", () => {
     ["a ref that is not <activity>.<output>", "roster", "not <activity>.<output>"],
     ["a ref starting with a dot", ".reply", "not <activity>.<output>"],
   ])("%s is unresolved", (_name, ref, expected) => {
-    const graph = commit(seeded([task("Roster")]), [task("Ask", { inputs: [{ ref }] })]);
+    const graph = commit(seeded([action("Roster")]), [action("Ask", { inputs: [{ ref }] })]);
     expect(checkNamed(graph, "ask", "inputs_resolved").detail).toContain(expected);
   });
 
   test("a produced input resolves", () => {
     const graph = commit(
-      commit(seeded([task("Roster")]), [task("Ask", { inputs: [{ ref: "roster.reply" }] })]),
-      [{ op: "record_output", activity: "roster", output_name: "reply", value: "dana,sam", evidence_ref: "e" }],
+      commit(seeded([action("Roster")]), [action("Ask", { inputs: [{ ref: "roster.reply" }] })]),
+      [
+        {
+          op: "record_output",
+          node: "roster",
+          output_name: "reply",
+          value: "dana,sam",
+          evidence_ref: "e",
+        },
+      ],
     );
     expect(checkNamed(graph, "ask", "inputs_resolved").ok).toBe(true);
     expect(briefOf(graph, "ask").subgraph.upstream).toEqual([]);
@@ -304,9 +439,21 @@ describe("preconditions FAIL CLOSED", () => {
     const key = "ek_1";
     const sent = commit(
       commit(rostered(["dana"], [pivot("Ask Dana")]), [
-        { op: "set_status", activity: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "active",
+          evidence_ref: encodeReserveEvidence(key, "h"),
+        },
       ]),
-      [{ op: "set_status", activity: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
+      [
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "completed",
+          evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>"),
+        },
+      ],
     );
     expect(checkNamed(sent, "ask-dana", "effect_slot_unfired").ok).toBe(false);
   });
@@ -316,38 +463,73 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
   test("an unconfigured budget blocks an effect activity", () => {
     // An unknown cap is not an unlimited one. This is the only thing standing between a
     // mutator and two hundred emails, now that max_reattempts is gone.
-    const check = checkNamed(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana", "budget_remaining", {
-      identity: IDENTITY,
-    });
+    const check = checkNamed(
+      rostered(["dana"], [pivot("Ask Dana")]),
+      "ask-dana",
+      "budget_remaining",
+      {
+        identity: IDENTITY,
+      },
+    );
     expect(check.ok).toBe(false);
     expect(check.detail).toContain("unknown cap is not an unlimited one");
   });
 
   test("but never blocks an activity that sends nothing", () => {
-    expect(checkNamed(seeded([task("A")]), "a", "budget_remaining", { identity: IDENTITY }).ok).toBe(true);
+    expect(
+      checkNamed(seeded([action("A")]), "a", "budget_remaining", { identity: IDENTITY }).ok,
+    ).toBe(true);
   });
 
   test("counts sends across the whole pursuit, not just this activity", () => {
     const key = "ek_1";
     const graph = commit(
       commit(rostered(["dana", "sam"], [pivot("Ask Dana"), pivot("Ask Sam")]), [
-        { op: "set_status", activity: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "active",
+          evidence_ref: encodeReserveEvidence(key, "h"),
+        },
       ]),
-      [{ op: "set_status", activity: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
+      [
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "completed",
+          evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>"),
+        },
+      ],
     );
-    expect(checkNamed(graph, "ask-sam", "budget_remaining", { identity: IDENTITY, effect_budget: 2 }).detail)
-      .toBe("1 of 2 irreversible sends used");
+    expect(
+      checkNamed(graph, "ask-sam", "budget_remaining", { identity: IDENTITY, effect_budget: 2 })
+        .detail,
+    ).toBe("1 of 2 irreversible sends used");
   });
 
   test("a spent budget blocks the next send", () => {
     const key = "ek_1";
     const graph = commit(
       commit(rostered(["dana", "sam"], [pivot("Ask Dana"), pivot("Ask Sam")]), [
-        { op: "set_status", activity: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "active",
+          evidence_ref: encodeReserveEvidence(key, "h"),
+        },
       ]),
-      [{ op: "set_status", activity: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
+      [
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "completed",
+          evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>"),
+        },
+      ],
     );
-    expect(checkNamed(graph, "ask-sam", "budget_remaining", { identity: IDENTITY, effect_budget: 1 }).ok).toBe(false);
+    expect(
+      checkNamed(graph, "ask-sam", "budget_remaining", { identity: IDENTITY, effect_budget: 1 }).ok,
+    ).toBe(false);
   });
 
   test("a budget of zero forbids the first send", () => {
@@ -362,16 +544,18 @@ describe("the budget check fails closed on an UNKNOWN cap", () => {
 
 describe("what the brief carries", () => {
   const graph = commit(
-    rostered(["dana"], [task("Roster"), pivot("Ask Dana"), wait("Wait for Dana")]),
+    rostered(["dana"], [action("Roster"), pivot("Ask Dana"), acceptEvent("Wait for Dana")]),
     [
-      { op: "add_edge", from: "roster", to: "ask-dana", condition: { on: "satisfied" } },
+      { op: "add_edge", from: "roster", to: "ask-dana", guard: { on: "satisfied" } },
       { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
     ],
   );
 
   test("the correlation is FULLY EXPANDED — a template variable correlates nothing", () => {
     const brief = briefOf(graph, "ask-dana");
-    expect(brief.correlation?.reply_to).toBe(`ilya+kona-${nid(graph, "wait-for-dana")}@example.com`);
+    expect(brief.correlation?.reply_to).toBe(
+      `ilya+kona-${nid(graph, "wait-for-dana")}@example.com`,
+    );
     expect(brief.correlation?.reply_to).not.toContain("{");
     expect(brief.correlation?.reply_to).not.toContain("$");
   });
@@ -383,10 +567,16 @@ describe("what the brief carries", () => {
   test("the immediate neighbourhood, with edge conditions and upstream outputs", () => {
     const brief = briefOf(graph, "ask-dana");
     expect(brief.subgraph.upstream).toEqual([
-      { id: nid(graph, "roster"), name: "Roster", state: "active", condition: "satisfied", output: null },
+      {
+        id: nid(graph, "roster"),
+        name: "Roster",
+        state: "ready",
+        guard: { on: "satisfied" },
+        output: null,
+      },
     ]);
     expect(briefOf(graph, "roster").subgraph.downstream).toEqual([
-      { id: nid(graph, "ask-dana"), name: "Ask Dana", condition: "satisfied" },
+      { id: nid(graph, "ask-dana"), name: "Ask Dana", guard: { on: "satisfied" } },
     ]);
   });
 
@@ -441,7 +631,6 @@ describe("the disclosure contract is exact", () => {
   test("what may not, in full", () => {
     expect(DISCLOSURE.withheld).toEqual([
       "deadline",
-      "on_timeout",
       "graph_structure",
       "rationale",
       "effect_key",
@@ -472,18 +661,18 @@ describe("the checks PASS as well as fail, which is the half that was untested",
    * ten — so "it refuses the bad thing" is only half a test.
    */
   const satisfied = commit(
-    rostered(["dana"], [task("Roster"), pivot("Ask Dana"), wait("Wait for Dana")]),
+    rostered(["dana"], [action("Roster"), pivot("Ask Dana"), acceptEvent("Wait for Dana")]),
     [
       { op: "add_edge", from: "roster", to: "ask-dana" },
       { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
       {
         op: "record_output",
-        activity: "roster",
+        node: "roster",
         output_name: "reply",
         value: "dana",
         evidence_ref: "roster.csv#v3",
       },
-      { op: "set_status", activity: "roster", status: "done", evidence_ref: "roster.csv#v3" },
+      { op: "set_status", node: "roster", status: "completed", evidence_ref: "roster.csv#v3" },
     ] as AuthoredOp[],
   );
 
@@ -504,7 +693,9 @@ describe("the checks PASS as well as fail, which is the half that was untested",
     const brief = briefOf(satisfied, "ask-dana");
     expect(brief.preconditions_satisfied.checks.filter((check) => !check.ok)).toEqual([]);
     expect(brief.preconditions_satisfied.ok).toBe(true);
-    expect(brief.correlation?.reply_to).toBe(`ilya+kona-${nid(satisfied, "wait-for-dana")}@example.com`);
+    expect(brief.correlation?.reply_to).toBe(
+      `ilya+kona-${nid(satisfied, "wait-for-dana")}@example.com`,
+    );
   });
 
   test("the budget check goes red exactly at the cap, not after it", () => {
@@ -526,23 +717,35 @@ describe("the checks PASS as well as fail, which is the half that was untested",
 
 describe("each check says what it looked at, not just whether it passed", () => {
   test.each([
-    ["node_live", "state 'active'"],
+    ["node_live", "state 'ready'"],
     ["dependencies_satisfied", "every blocking in-edge has a terminal-success source"],
     ["inputs_resolved", "every input resolves to a recorded output"],
     ["effect_slot_unfired", "no send recorded"],
     ["correlation_expanded", "activity sends nothing, so it needs no reply address"],
     ["budget_remaining", "activity sends nothing"],
   ])("%s on a clean pure activity reads '%s'", (name, detail) => {
-    expect(checkNamed(seeded([task("A")]), "a", name).detail).toBe(detail);
+    expect(checkNamed(seeded([action("A")]), "a", name).detail).toBe(detail);
   });
 
   test("a sent activity says so plainly", () => {
     const key = "ek_1";
     const sent = commit(
       commit(rostered(["dana"], [pivot("Ask Dana")]), [
-        { op: "set_status", activity: "ask-dana", status: "in_flight", evidence_ref: encodeReserveEvidence(key, "h") },
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "active",
+          evidence_ref: encodeReserveEvidence(key, "h"),
+        },
       ]),
-      [{ op: "set_status", activity: "ask-dana", status: "done", evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>") }],
+      [
+        {
+          op: "set_status",
+          node: "ask-dana",
+          status: "completed",
+          evidence_ref: encodeRecordEvidence(key, "sent", "<m-1>"),
+        },
+      ],
     );
     expect(checkNamed(sent, "ask-dana", "effect_slot_unfired").detail).toBe(
       "this activity has already moved bytes",
@@ -550,7 +753,7 @@ describe("each check says what it looked at, not just whether it passed", () => 
   });
 
   test("an effect activity names the address replies will correlate to, and whose it is", () => {
-    const graph = commit(rostered(["dana"], [pivot("Ask Dana"), wait("Wait for Dana")]), [
+    const graph = commit(rostered(["dana"], [pivot("Ask Dana"), acceptEvent("Wait for Dana")]), [
       { op: "add_edge", from: "ask-dana", to: "wait-for-dana" },
     ]);
     const waitId = nid(graph, "wait-for-dana");
@@ -559,14 +762,17 @@ describe("each check says what it looked at, not just whether it passed", () => 
     );
   });
 
-  test("a superseded activity is described as superseded, not merely inactive", () => {
-    const graph = commit(seeded([task("A")]), [task("A prime"), { op: "supersede_activity", activity: "a", by: "$0" }]);
+  test("a superseded activity is described as superseded, not merely by its state", () => {
+    const graph = commit(seeded([action("A")]), [
+      action("A prime"),
+      { op: "supersede_node", node: "a", by: "$0" },
+    ]);
     expect(checkNamed(graph, "a", "node_live").detail).toContain("superseded");
   });
 
   test("TWO unresolved inputs are listed separately, not run together", () => {
-    const graph = commit(seeded([task("Roster")]), [
-      task("Ask", { inputs: [{ ref: "ghost.a" }, { ref: "roster.b" }] }),
+    const graph = commit(seeded([action("Roster")]), [
+      action("Ask", { inputs: [{ ref: "ghost.a" }, { ref: "roster.b" }] }),
     ]);
     const detail = checkNamed(graph, "ask", "inputs_resolved").detail;
     expect(detail).toContain("; ");
@@ -577,17 +783,24 @@ describe("each check says what it looked at, not just whether it passed", () => 
     // `some`, not `every`: a producer with two declared outputs must satisfy a ref to
     // either one. Reading it as `every` would reject every multi-output activity.
     const base = commit(
-      seeded([task("Roster", { outputs: [{ name: "a", type: "string" }, { name: "b", type: "string" }] })]),
-      [task("Ask", { inputs: [{ ref: "roster.b" }] })],
+      seeded([
+        action("Roster", {
+          outputs: [
+            { name: "a", type: "string" },
+            { name: "b", type: "string" },
+          ],
+        }),
+      ]),
+      [action("Ask", { inputs: [{ ref: "roster.b" }] })],
     );
     const graph = commit(base, [
-      { op: "record_output", activity: "roster", output_name: "b", value: 1, evidence_ref: "e" },
+      { op: "record_output", node: "roster", output_name: "b", value: 1, evidence_ref: "e" },
     ]);
     expect(checkNamed(graph, "ask", "inputs_resolved").ok).toBe(true);
   });
 
   test("blocked-on details list each blocker", () => {
-    const graph = commit(seeded([task("A"), task("B"), task("C")]), [
+    const graph = commit(seeded([action("A"), action("B"), action("C")]), [
       { op: "add_edge", from: "a", to: "c" },
       { op: "add_edge", from: "b", to: "c" },
     ]);

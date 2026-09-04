@@ -8,19 +8,24 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { Graph, Activity } from "@kona/core";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Graph, ActivityNode } from "@kona/core";
+import { foldLog } from "@kona/core";
 import type { Layout, NodeBox } from "../src/layout/dagre.ts";
 import {
   ACTIVITY_SIZE,
   createLayoutCache,
   layoutGraph,
+  sizeOf,
   topologySignature,
 } from "../src/layout/dagre.ts";
 import { END_MARKER_ID, START_MARKER_ID, flowTerminals } from "../src/model/edges.ts";
+import { barHandles } from "../src/layout/handles.ts";
 import { V, folded, headVersion } from "./fixture.ts";
 
-function nodeOf(graph: Graph, id: string): Activity {
-  const activity = graph.activities.get(id);
+function nodeOf(graph: Graph, id: string): ActivityNode {
+  const activity = graph.nodes.get(id);
   if (activity === undefined) throw new Error(`the fixture has no activity ${id}`);
   return activity;
 }
@@ -32,7 +37,7 @@ function boxOf(layout: Layout, id: string): NodeBox {
 }
 
 function states(version: number): string[] {
-  return [...folded(version).graph.activities.values()].map((n) => `${n.id}=${n.status.state}`);
+  return [...folded(version).graph.nodes.values()].map((n) => `${n.id}=${n.status?.state}`);
 }
 
 /**
@@ -43,7 +48,8 @@ function states(version: number): string[] {
 function nodeWithEdgesBothWays(graph: Graph): string {
   const targets = new Set(graph.edges.map((edge) => edge.to));
   const id = graph.edges.find((edge) => targets.has(edge.from))?.from;
-  if (id === undefined) throw new Error("the fixture has no activity with an in-edge and an out-edge");
+  if (id === undefined)
+    throw new Error("the fixture has no activity with an in-edge and an out-edge");
   return id;
 }
 
@@ -96,10 +102,12 @@ describe("topologySignature", () => {
     const before = topologySignature(graph);
 
     const activity = nodeOf(graph, "th-gk0l");
-    activity.status.state = "dropped";
+    if (activity.status === undefined)
+      throw new Error("th-gk0l should be work, not a control node");
+    activity.status.state = "withdrawn";
     activity.status.output = { transcript_ref: "msg-999" };
     activity.status.observed_at_version = 99;
-    activity.status.effect_log.push({
+    activity.status?.effect_log.push({
       effect_key: "resend",
       payload_hash: "deadbeef",
       attempted_at: "2026-08-22T02:00:00.000Z",
@@ -107,7 +115,7 @@ describe("topologySignature", () => {
       outcome: null,
       message_id: null,
     });
-    nodeOf(graph, "th-ymld").status.outcomes.push({
+    (nodeOf(graph, "th-ymld").status?.outcomes ?? []).push({
       verdict: "confirmed",
       evidence_ref: "msg-998",
       at_version: 99,
@@ -130,15 +138,19 @@ describe("topologySignature", () => {
     const before = topologySignature(graph);
     // `th-9xi1 -> th-ymld` fires on `accept`; the three goalie
     // waits fire on `satisfied`. Flipping one is a different graph, same activity set.
-    const edge = graph.edges.find((e) => e.condition?.on === "accept");
-    if (edge?.condition === undefined) throw new Error("the fixture lost its `accept` edge");
-    edge.condition.on = "satisfied";
+    const edge = graph.edges.find(
+      (e) => typeof e.guard === "object" && "on" in e.guard && e.guard.on === "accept",
+    );
+    if (edge?.guard === undefined || edge.guard === "else" || !("on" in edge.guard)) {
+      throw new Error("the fixture lost its `accept` edge");
+    }
+    edge.guard.on = "satisfied";
     expect(topologySignature(graph)).not.toBe(before);
   });
 
   test("insertion order is part of the shape (rule 7 pins visual order to it)", () => {
     const graph = folded().graph;
-    const reversed: Graph = { ...graph, activities: new Map([...graph.activities].toReversed()) };
+    const reversed: Graph = { ...graph, nodes: new Map([...graph.nodes].toReversed()) };
     expect(topologySignature(reversed)).not.toBe(topologySignature(graph));
   });
 });
@@ -148,16 +160,16 @@ describe("layoutGraph", () => {
     const graph = folded().graph;
     const layout = layoutGraph(graph);
 
-    expect(graph.activities.size).toBe(14);
-    expect(layout.boxes.size).toBe(graph.activities.size);
-    for (const activity of graph.activities.values()) {
+    expect(graph.nodes.size).toBe(14);
+    expect(layout.boxes.size).toBe(graph.nodes.size);
+    for (const activity of graph.nodes.values()) {
       const box = boxOf(layout, activity.id);
       expect(box.width).toBe(ACTIVITY_SIZE[activity.type].width);
       expect(box.height).toBe(ACTIVITY_SIZE[activity.type].height);
       expect(Number.isFinite(box.x)).toBe(true);
       expect(Number.isFinite(box.y)).toBe(true);
     }
-    expect([...layout.boxes.keys()]).toEqual([...graph.activities.keys()]);
+    expect([...layout.boxes.keys()]).toEqual([...graph.nodes.keys()]);
     expect(layout.width).toBeGreaterThan(0);
     expect(layout.height).toBeGreaterThan(0);
     expect(layout.signature).toBe(topologySignature(graph));
@@ -217,10 +229,10 @@ describe("layoutGraph", () => {
     const stranded = nodeWithEdgesBothWays(folded().graph);
 
     const dangling = folded().graph;
-    dangling.activities.delete(stranded); // the activity goes, its edges stay — that is the hazard
+    dangling.nodes.delete(stranded); // the activity goes, its edges stay — that is the hazard
 
     const pruned = folded().graph;
-    pruned.activities.delete(stranded);
+    pruned.nodes.delete(stranded);
     pruned.edges = pruned.edges.filter((e) => e.from !== stranded && e.to !== stranded);
 
     // Guard the premise: something has to actually dangle, on both sides, or the two layouts
@@ -232,7 +244,7 @@ describe("layoutGraph", () => {
     const withDangling = layoutGraph(dangling);
     const withoutThem = layoutGraph(pruned);
 
-    expect(withDangling.boxes.size).toBe(folded().graph.activities.size - 1);
+    expect(withDangling.boxes.size).toBe(folded().graph.nodes.size - 1);
     // The count alone would not catch it — a phantom is never asked for a box. What gives it
     // away is that the survivors move, so the expected picture is the one the pruned graph
     // lays out, compared whole rather than at a coordinate anyone typed in.
@@ -269,7 +281,7 @@ describe("createLayoutCache", () => {
 
     expect(after).not.toBe(before);
     expect(after.signature).not.toBe(before.signature);
-    expect(after.boxes.size).toBe(folded(V.samRefers).graph.activities.size);
+    expect(after.boxes.size).toBe(folded(V.samRefers).graph.nodes.size);
   });
 
   test("walking the whole log lays out once per shape change and no more", () => {
@@ -293,7 +305,7 @@ describe("the notation markers", () => {
     expect(layout.boxes.has(END_MARKER_ID)).toBe(false);
     expect(layout.markers.has(START_MARKER_ID)).toBe(true);
     expect(layout.markers.has(END_MARKER_ID)).toBe(true);
-    expect(layout.boxes.size).toBe(folded().graph.activities.size);
+    expect(layout.boxes.size).toBe(folded().graph.nodes.size);
   });
 
   test("the start sits left of every card it points at, and the end right of every one", () => {
@@ -325,5 +337,62 @@ describe("the notation markers", () => {
     const layout = layoutGraph(folded(0).graph);
     expect(layout.boxes.size).toBe(0);
     expect(layout.markers.size).toBe(0);
+  });
+});
+
+describe("a bar is as long as it has arms", () => {
+  test("a fork with three arms is longer than the minimum, and a two-arm join is not", () => {
+    // Not a measurement: arm count is a property of the GRAPH, known before dagre runs and
+    // identical on every machine. The rule this module states — "nothing is measured, ever" —
+    // is about never letting geometry depend on RENDER, which is what reintroduces the race
+    // that loses every edge. This does not.
+    const graph = foldLog(
+      readFileSync(
+        join(import.meta.dir, "..", "..", "..", "fixtures", "goalie.mutations.jsonl"),
+        "utf8",
+      ),
+    ).graph;
+    const nodes = [...graph.nodes.values()];
+    // `bar` and `sync`, not `fork`/`join`: `join` is `node:path`'s, imported at the top of this
+    // file, and shadowing it here reads as a TDZ error thirty lines from the cause.
+    const bar = nodes.find((node) => node.type === "fork");
+    const sync = nodes.find((node) => node.type === "join");
+    if (bar === undefined || sync === undefined) throw new Error("the fixture has no fork/join");
+
+    const arms = graph.edges.filter((edge) => edge.from === bar.id).length;
+    expect(arms).toBeGreaterThan(2);
+    expect(sizeOf(graph, bar).height).toBeGreaterThan(sizeOf(graph, sync).height);
+  });
+
+  test("and a bar is never shorter than the floor, or it reads as a tick", () => {
+    const graph = foldLog(
+      readFileSync(
+        join(import.meta.dir, "..", "..", "..", "fixtures", "goalie.mutations.jsonl"),
+        "utf8",
+      ),
+    ).graph;
+    for (const node of graph.nodes.values()) {
+      if (node.type === "fork" || node.type === "join") {
+        expect(sizeOf(graph, node).height).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+});
+
+describe("a bar's handles are spread along it", () => {
+  test("three arms leave at three different heights, inside the bar", () => {
+    // With one centred handle every arm leaves the same pixel and the bar reads as a decorated
+    // dot: the shape is there and the information it exists to carry is not.
+    const size = { width: 8, height: 66 };
+    const handles = barHandles(size, 1, 3);
+    const sources = handles.filter((handle) => handle.type === "source");
+    expect(sources).toHaveLength(3);
+
+    const ys = sources.map((handle) => handle.y);
+    expect(new Set(ys).size).toBe(3);
+    for (const y of ys) {
+      expect(y).toBeGreaterThan(0);
+      expect(y).toBeLessThan(size.height);
+    }
   });
 });

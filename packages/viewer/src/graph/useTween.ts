@@ -44,9 +44,7 @@ function easeOutCubic(t: number): number {
 }
 
 function prefersReducedMotion(): boolean {
-  return (
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
+  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**
@@ -57,10 +55,7 @@ function prefersReducedMotion(): boolean {
  * tween is safe — the running frame's positions are what the next tween starts from, so a
  * burst of appends produces one continuous motion rather than a stutter back to the old rank.
  */
-export function useTweenedPositions(
-  target: Positions,
-  durationMs: number = DEFAULT_MS,
-): Positions {
+export function useTweenedPositions(target: Positions, durationMs: number = DEFAULT_MS): Positions {
   const [positions, setPositions] = useState<Positions>(target);
   const renderedRef = useRef<Positions>(target);
   const frameRef = useRef<number | null>(null);

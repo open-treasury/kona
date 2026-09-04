@@ -75,10 +75,11 @@ export function pretty(value: unknown): string {
 /**
  * A status as a reader's word rather than the wire value.
  *
- * `in_flight` is the only status whose identifier is not already English, and the viewer
- * puts statuses inside sentences — "which is still in_flight" reads as a leaked enum. One
- * place does the translation so the two call sites cannot drift apart.
+ * `active` is the one status the viewer does not print as it is spelled. Statuses land inside
+ * sentences here, and "which is still active" reads as *merely alive* rather than §6.2.1's
+ * *somebody is inside it right now*. One place does the translation so the two call sites
+ * cannot drift apart.
  */
 export function statusInWords(state: string): string {
-  return state === "in_flight" ? "in flight" : state;
+  return state === "active" ? "in flight" : state;
 }

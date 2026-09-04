@@ -1,16 +1,10 @@
 /**
- * Everything the canvas draws a line for — which is more than `graph.edges` holds.
+ * Everything the canvas draws a line for.
  *
  * §6.2 gives an edge one kind and no identity: `{from, to, condition?}`, meaning "to requires
  * from". That is the *dependency* graph, and it is what `isReady` walks. But it is not the
- * whole state machine, and a viewer that draws only those leaves activities looking stranded when
- * they are nothing of the sort. Two more relations are structural, live in the activity rather
- * than in the edge list, and were invisible:
- *
- *   **`spec.on_timeout`** — where a blown deadline routes. §6.4 requires one on every wait
- *   precisely so a pursuit can never hang silently, which makes it the most load-bearing arc
- *   in the graph and the one a reader most needs to see. In the poker pursuit eleven waits all
- *   route to one escalation, and that activity was drawn floating on its own.
+ * whole state machine. Timeout routing is now native topology: an `accept_event` feeds a decision
+ * whose `timeout` guard selects the escape arm, so no synthetic timeout edge is needed.
  *
  *   **`provenance.superseded_by`** — the replacement chain. Nothing is ever deleted (§6.3), so
  *   a retired activity keeps its place on the canvas; without the link it reads as an orphan
@@ -27,10 +21,13 @@
  * whole canvas to reach an activity the layout never knew it was attached to.
  */
 
-import type { Edge, EdgeCondition, Graph, Activity } from "@kona/core";
-import { isEdgeSatisfied, isTerminal } from "@kona/core";
+import type { Graph } from "@kona/core";
+import { isEdgeDead, isEdgeSatisfied } from "@kona/core";
+import type { CollapsedEdgeState } from "./collapse.ts";
+import { collapsedEdgeKey } from "./collapse.ts";
+import { guardKey, guardLabel } from "./guard.ts";
 
-export type EdgeKind = "requires" | "timeout" | "supersedes";
+export type EdgeKind = "requires" | "supersedes";
 
 export interface ViewEdge {
   /** Unique across all three kinds — the kind is part of it, because the same pair can be
@@ -40,7 +37,7 @@ export interface ViewEdge {
   to: string;
   kind: EdgeKind;
   /** Only a `requires` edge carries one. */
-  condition: EdgeCondition | null;
+  guard: string | null;
   /**
    * What to print on the line, or null to print nothing. See `labelOf`: a condition earns a
    * label only when the source can fire something else.
@@ -52,10 +49,10 @@ export interface ViewEdge {
   dead: boolean;
 }
 
-function edgeId(kind: EdgeKind, from: string, to: string, on: EdgeCondition | null): string {
-  // Activity ids are `[a-z0-9][a-z0-9-]*` (§6.2) and the kinds and conditions are lowercase words,
+function edgeId(kind: EdgeKind, from: string, to: string, guard: string | null): string {
+  // ActivityNode ids are `[a-z0-9][a-z0-9-]*` (§6.2) and the kinds and conditions are lowercase words,
   // so `>` and `#` cannot occur inside any part and the encoding stays injective.
-  return on === null ? `${kind}:${from}>${to}` : `${kind}:${from}>${to}#${on}`;
+  return guard === null ? `${kind}:${from}>${to}` : `${kind}:${from}>${to}#${guard}`;
 }
 
 /**
@@ -63,12 +60,6 @@ function edgeId(kind: EdgeKind, from: string, to: string, on: EdgeCondition | nu
  * Drawing that the same as a live dependency is how a reader believes a fan-out still has four
  * arms when two of them are already closed.
  */
-function isDead(graph: Graph, edge: Edge): boolean {
-  const source = graph.activities.get(edge.from);
-  if (source === undefined) return true;
-  return isTerminal(source.status.state) && !isEdgeSatisfied(graph, edge);
-}
-
 /**
  * `satisfied` is the DEFAULT outcome — "the source succeeded" — and it is what an
  * unconditional edge already means. Every other condition names one outcome out of several.
@@ -87,10 +78,10 @@ const DEFAULT_CONDITION = "satisfied";
  * `satisfied` is worth printing, because it is being contrasted with something.
  */
 function forkingSources(graph: Graph): ReadonlySet<string> {
-  const seen = new Map<string, Set<EdgeCondition | null>>();
+  const seen = new Map<string, Set<string>>();
   for (const edge of graph.edges) {
-    const conditions = seen.get(edge.from) ?? new Set<EdgeCondition | null>();
-    conditions.add(edge.condition?.on ?? null);
+    const conditions = seen.get(edge.from) ?? new Set<string>();
+    conditions.add(guardKey(edge));
     seen.set(edge.from, conditions);
   }
 
@@ -119,62 +110,44 @@ function forkingSources(graph: Graph): ReadonlySet<string> {
  * edge is in — and so a `timeout` CONDITION on a solid dependency stays distinguishable from
  * the dashed `timeout` ARC, a different relation wearing the same word.
  */
-function labelOf(on: EdgeCondition | null, forks: boolean): string | null {
-  if (on === null) return null;
-  if (on === DEFAULT_CONDITION && !forks) return null;
-  return `on ${on}`;
+function labelOf(guard: string | null, forks: boolean): string | null {
+  if (guard === null) return null;
+  if (guard === DEFAULT_CONDITION && !forks) return null;
+  return guard === "else fallback" || guard.startsWith("count ") ? guard : `on ${guard}`;
 }
 
-function timeoutTargetOf(activity: Activity): string | null {
-  if (activity.type !== "wait") return null;
-  return activity.spec.on_timeout ?? null;
-}
-
-export function viewEdges(graph: Graph): ViewEdge[] {
+export function viewEdges(
+  graph: Graph,
+  preservedState: ReadonlyMap<string, CollapsedEdgeState> = new Map(),
+): ViewEdge[] {
   const out: ViewEdge[] = [];
   const forking = forkingSources(graph);
 
   // Dependencies first, in append order — §6.1 makes that the one stable order in the system.
   for (const edge of graph.edges) {
-    const on = edge.condition?.on ?? null;
+    const guard = guardLabel(edge);
+    const state = preservedState.get(collapsedEdgeKey(edge));
     out.push({
-      id: edgeId("requires", edge.from, edge.to, on),
+      id: edgeId("requires", edge.from, edge.to, guard),
       from: edge.from,
       to: edge.to,
       kind: "requires",
-      condition: on,
-      label: labelOf(on, forking.has(edge.from)),
-      satisfied: isEdgeSatisfied(graph, edge),
-      dead: isDead(graph, edge),
+      guard,
+      label: labelOf(guard, forking.has(edge.from)),
+      satisfied: state?.satisfied ?? isEdgeSatisfied(graph, edge),
+      dead: state?.dead ?? isEdgeDead(graph, edge),
     });
   }
 
-  for (const activity of graph.activities.values()) {
-    const target = timeoutTargetOf(activity);
-    // A target that is not in the graph is not a broken pursuit: `add_activity` permits a forward
-    // reference, and read-only time travel to a version before the escalation was created
-    // produces exactly this. Skip it rather than mint a phantom.
-    if (target !== null && target !== activity.id && graph.activities.has(target)) {
-      out.push({
-        id: edgeId("timeout", activity.id, target, null),
-        from: activity.id,
-        to: target,
-        kind: "timeout",
-        condition: null,
-        label: null,
-        satisfied: false,
-        dead: false,
-      });
-    }
-
+  for (const activity of graph.nodes.values()) {
     const replacement = activity.provenance.superseded_by;
-    if (replacement !== null && graph.activities.has(replacement)) {
+    if (replacement !== null && replacement !== activity.id && graph.nodes.has(replacement)) {
       out.push({
         id: edgeId("supersedes", activity.id, replacement, null),
         from: activity.id,
         to: replacement,
         kind: "supersedes",
-        condition: null,
+        guard: null,
         label: null,
         satisfied: false,
         dead: false,
@@ -185,10 +158,18 @@ export function viewEdges(graph: Graph): ViewEdge[] {
   return out;
 }
 
+/** Does this graph carry its own initial/final notation, making the synthetic pair redundant? */
+function hasRealTerminators(graph: Graph): boolean {
+  for (const node of graph.nodes.values()) {
+    if (node.type === "initial" || node.type === "final" || node.type === "flow_final") return true;
+  }
+  return false;
+}
+
 /**
  * The activity diagram's initial and final activities, as ids.
  *
- * They are NOTATION, not pursuit activities: nothing in the log corresponds to them, they carry no
+ * They are NOTATION, not pursuit nodes: nothing in the log corresponds to them, they carry no
  * status, they cannot be selected, and they are kept out of `Layout.boxes` so that no count of
  * "how many activities does this pursuit have" can accidentally include them. A real id must match
  * `[a-z0-9][a-z0-9-]*` (§6.2), so a leading underscore cannot collide with one.
@@ -206,12 +187,8 @@ export const END_MARKER_ID = "__end";
  * is the entire claim, not an edge case. `end` therefore means "nothing depends on this **at
  * this version**", and the marker says exactly that rather than "finished".
  *
- * Computed over FLOW, which is dependencies plus timeout routes and NOT the supersede chain:
- *
- *   - a timeout arc is flow. Without it the escalation — the target of every wait in the
- *     pursuit — reads as a *start*, because nothing depends on it, which is the opposite of
- *     what it is.
- *   - a supersede link is lineage, not flow. Counting it would make a retired activity look like a
+ * Computed over flow, excluding the supersede chain. A supersede link is lineage, not flow;
+ * counting it would make a retired activity look like a
  *     step on the way somewhere.
  *
  * A superseded activity is neither. It has been replaced, and calling the thing you stopped doing
@@ -223,6 +200,16 @@ export interface Terminals {
 }
 
 export function flowTerminals(graph: Graph): Terminals {
+  // A pursuit that has REAL terminators does not get synthetic ones. The markers exist to
+  // stand in for notation the graph lacks — an initial node and a final node — and drawing
+  // them beside the real thing puts two filled discs at the left edge and two rings at the
+  // right, which reads as two pursuits rather than as one drawn twice.
+  //
+  // They are kept, rather than deleted, because a v1-shaped pursuit still has no terminators
+  // of its own and still needs the notation. This is the seam between the two vocabularies,
+  // and it closes on its own as pursuits are re-authored.
+  if (hasRealTerminators(graph)) return { starts: new Set(), ends: new Set() };
+
   const hasIn = new Set<string>();
   const hasOut = new Set<string>();
 
@@ -234,7 +221,7 @@ export function flowTerminals(graph: Graph): Terminals {
 
   const starts = new Set<string>();
   const ends = new Set<string>();
-  for (const activity of graph.activities.values()) {
+  for (const activity of graph.nodes.values()) {
     if (activity.provenance.superseded_by !== null) continue;
     if (!hasIn.has(activity.id)) starts.add(activity.id);
     if (!hasOut.has(activity.id)) ends.add(activity.id);

@@ -24,6 +24,7 @@ import type { Actor, CommittedOp, Graph, MutationRecord, Trigger } from "@kona/c
 import { SCHEMA_VERSION, applyOps, emptyGraph } from "@kona/core";
 import { statusInWords } from "../format.ts";
 import { diffGraphs } from "./diff.ts";
+import { guardLabel } from "./guard.ts";
 import type { TimelineEntry, TimelineOp } from "./types.ts";
 
 /**
@@ -71,22 +72,22 @@ function renderAttrs(attrs: Record<string, unknown> | undefined): string[] {
  * every arrow simply points the wrong way.
  */
 function subjectOf(op: CommittedOp): string {
-  if (op.op === "add_activity") return op.id;
+  if (op.op === "add_node") return op.id;
   if (op.op === "add_edge") return op.to;
-  return op.activity;
+  return op.node;
 }
 
 /** The human half of the row. Phrasing, not judgment — nothing here decides anything. */
 function detailOf(op: CommittedOp): string {
   switch (op.op) {
-    case "add_activity":
+    case "add_node":
       // The type is in because the two behave differently and a reader wants to know which
-      // arrived: a `wait` is a step that will sit there until the world answers.
+      // arrived: an `accept_event` sits until the world answers.
       return `added ${op.type}`;
     case "add_edge":
-      return op.condition === undefined
+      return op.guard === undefined
         ? `requires ${op.from}`
-        : `requires ${op.from} on ${op.condition.on}`;
+        : `requires ${op.from} on ${guardLabel(op)}`;
     case "set_status":
       // The timeline is a sentence, so the status arrives as a word — see `statusInWords`.
       return `-> ${statusInWords(op.status)}`;
@@ -98,7 +99,7 @@ function detailOf(op: CommittedOp): string {
       // The name, never the value: an output is arbitrary JSON and rule 9's reveal is the
       // place for it. The name alone tells a reader which `inputs[].ref` just resolved.
       return `output ${op.output_name}`;
-    case "supersede_activity":
+    case "supersede_node":
       // `by` is optional (§6.4). Superseding with no replacement is how a branch is retired
       // outright — the fixture's Priya wait, after her address bounced — and calling that
       // "superseded by undefined" would read as a missing activity rather than a deliberate end.
@@ -107,7 +108,7 @@ function detailOf(op: CommittedOp): string {
 }
 
 function timelineOp(op: CommittedOp): TimelineOp {
-  return { kind: op.op, activity: subjectOf(op), detail: detailOf(op) };
+  return { kind: op.op, node: subjectOf(op), detail: detailOf(op) };
 }
 
 export function buildTimeline(records: readonly MutationRecord[]): TimelineEntry[] {

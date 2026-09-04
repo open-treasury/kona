@@ -20,7 +20,7 @@ export interface Rejection {
   /** Which op in the batch. Absent when the rejection is about the batch as a whole. */
   op_index?: number;
   /** Which invariant, when `code` is INVARIANT_VIOLATION. */
-  invariant?: number;
+  invariant?: 1 | 2 | 3;
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; rejection: Rejection };
@@ -38,14 +38,20 @@ export function refuse(
 }
 
 export function violate(
-  invariant: number,
+  invariant: 1 | 2 | 3 | undefined,
   reason: string,
   message: string,
   extra: Omit<Rejection, "code" | "reason" | "message" | "invariant"> = {},
 ): Result<never> {
   return {
     ok: false,
-    rejection: { code: "INVARIANT_VIOLATION", reason, message, invariant, ...extra },
+    rejection: {
+      code: "INVARIANT_VIOLATION",
+      reason,
+      message,
+      ...(invariant === undefined ? {} : { invariant }),
+      ...extra,
+    },
   };
 }
 

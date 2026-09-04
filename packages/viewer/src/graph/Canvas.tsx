@@ -8,24 +8,27 @@
  */
 
 import { useMemo } from "react";
-import { Background, Controls, MarkerType, ReactFlow } from "@xyflow/react";
+import { Background, Controls, MarkerType, Panel, ReactFlow } from "@xyflow/react";
 import type { Edge as FlowEdge, Node as FlowNode } from "@xyflow/react";
 import type { Graph } from "@kona/core";
+import { isControlNode } from "@kona/core";
 import type { GraphView } from "../model/types.ts";
+import type { CollapsedEdgeState, CollapsedRegion } from "../model/collapse.ts";
 import type { ViewEdge } from "../model/edges.ts";
 import { END_MARKER_ID, START_MARKER_ID, flowTerminals, viewEdges } from "../model/edges.ts";
 import { edgeKeyString } from "../model/diff.ts";
-import { MARKER_SIZE, ACTIVITY_SIZE } from "../layout/dagre.ts";
-import { edgeHandles } from "../layout/handles.ts";
+import { COLLAPSED_GROUP_SIZE, MARKER_SIZE, sizeOf } from "../layout/dagre.ts";
+import { barHandles, edgeHandles } from "../layout/handles.ts";
 import type { Fresh } from "./useFresh.ts";
 import type { Positions } from "./useTween.ts";
 import { KONA_ACTIVITY_TYPE, nodeTypes } from "./ActivityCard.tsx";
 import type { CardData } from "./ActivityCard.tsx";
 import { KONA_MARKER_TYPE, markerNodeTypes } from "./MarkerNode.tsx";
+import { KONA_CONTROL_TYPE, controlNodeTypes } from "./ControlGlyph.tsx";
 import { Legend } from "./Legend.tsx";
 
 /** The card renderer and the two notation circles, in one map React Flow can hold. */
-const ALL_NODE_TYPES = { ...nodeTypes, ...markerNodeTypes };
+const ALL_NODE_TYPES = { ...nodeTypes, ...markerNodeTypes, ...controlNodeTypes };
 
 /**
  * An arrowhead, on the edges that mean FLOW.
@@ -43,6 +46,11 @@ export interface CanvasProps {
   fresh: Fresh;
   selected: string | null;
   onSelect: (id: string | null) => void;
+  collapsedRegions: ReadonlyMap<string, CollapsedRegion>;
+  collapsedEdgeStates: ReadonlyMap<string, CollapsedEdgeState>;
+  onToggleGroup: (id: string) => void;
+  onCollapseAll: () => void;
+  canCollapse: boolean;
 }
 
 /**
@@ -73,13 +81,21 @@ export function Canvas({
   fresh,
   selected,
   onSelect,
+  collapsedRegions,
+  collapsedEdgeStates,
+  onToggleGroup,
+  onCollapseAll,
+  canCollapse,
 }: CanvasProps): React.ReactElement {
   // `data` identity is held stable across tween frames: React Flow memoizes an activity's render on
   // it, so rebuilding it 60 times a second would re-render every card for the whole animation.
   const data = useMemo(() => {
     const map = new Map<string, CardData>();
-    for (const activityView of view.activities) {
-      map.set(activityView.activity.id, { view: activityView, fresh: fresh.activities.has(activityView.activity.id) });
+    for (const activityView of view.nodes) {
+      map.set(activityView.activity.id, {
+        view: activityView,
+        fresh: fresh.nodes.has(activityView.activity.id),
+      });
     }
     return map;
   }, [view, fresh]);
@@ -87,33 +103,58 @@ export function Canvas({
   // React Flow calls these nodes; they are the flow representation of our activities.
   const flowActivities = useMemo<FlowNode[]>(
     () =>
-      view.activities.map((activityView) => {
-        const id = activityView.activity.id;
-        const size = ACTIVITY_SIZE[activityView.activity.type];
-        return {
-          id,
-          type: KONA_ACTIVITY_TYPE,
-          position: positions.get(id) ?? { x: 0, y: 0 },
-          data: data.get(id) ?? { view: activityView, fresh: false },
-          // The dagre box, so an edge knows where to land before the DOM has been measured.
-          // Do NOT also set `style.width` / `style.height`: measured on React Flow 12.11.3,
-          // an activity carrying explicit style dimensions is skipped by the measuring pass, its
-          // handle bounds are never computed, and every edge touching it silently fails to
-          // render — no warning, no error, just no lines. The card pins its own box instead.
-          width: size.width,
-          height: size.height,
-          handles: edgeHandles(size),
-          selected: id === selected,
-          draggable: false,
-          connectable: false,
-          deletable: false,
-        };
-      }),
-    [view, positions, data, selected],
+      view.nodes
+        .filter((activityView) => graph.nodes.has(activityView.activity.id))
+        .map((activityView) => {
+          const id = activityView.activity.id;
+          const nodeType = activityView.activity.type;
+          const size = collapsedRegions.has(id)
+            ? COLLAPSED_GROUP_SIZE
+            : sizeOf(graph, activityView.activity);
+          // The family decides the renderer. A control node is not work and must not be drawn
+          // as a card: it has no status to chip, no instruction to show, and nothing to claim.
+          const control = isControlNode(nodeType);
+          return {
+            id,
+            type: control ? KONA_CONTROL_TYPE : KONA_ACTIVITY_TYPE,
+            position: positions.get(id) ?? { x: 0, y: 0 },
+            data: control
+              ? {
+                  type: nodeType,
+                  name: activityView.activity.name,
+                  selected: id === selected,
+                  fresh: fresh.nodes.has(id),
+                  region: collapsedRegions.get(id),
+                  onToggle: collapsedRegions.has(id) ? () => onToggleGroup(id) : undefined,
+                }
+              : (data.get(id) ?? { view: activityView, fresh: false }),
+            // The dagre box, so an edge knows where to land before the DOM has been measured.
+            // Do NOT also set `style.width` / `style.height`: measured on React Flow 12.11.3,
+            // an activity carrying explicit style dimensions is skipped by the measuring pass, its
+            // handle bounds are never computed, and every edge touching it silently fails to
+            // render — no warning, no error, just no lines. The card pins its own box instead.
+            width: size.width,
+            height: size.height,
+            // A bar gets its arms spread ALONG it; everything else gets one pair, centred.
+            handles:
+              nodeType === "fork" || nodeType === "join"
+                ? barHandles(
+                    size,
+                    graph.edges.filter((edge) => edge.to === id).length,
+                    graph.edges.filter((edge) => edge.from === id).length,
+                  )
+                : edgeHandles(size),
+            selected: id === selected,
+            draggable: false,
+            connectable: false,
+            deletable: false,
+          };
+        }),
+    [view, graph, positions, data, selected, collapsedRegions, onToggleGroup],
   );
 
   /**
-   * The two notation circles. Appended to the activity list rather than mixed into `view.activities`,
+   * The two notation circles. Appended to the activity list rather than mixed into `view.nodes`,
    * so that everything upstream — the model, the inspector, every count — still sees exactly
    * the pursuit's own activities and nothing else.
    */
@@ -148,7 +189,7 @@ export function Canvas({
 
   const edges = useMemo<FlowEdge[]>(
     () =>
-      viewEdges(graph).map((edge) => {
+      viewEdges(graph, collapsedEdgeStates).map((edge) => {
         const flow: FlowEdge = {
           id: edge.id,
           source: edge.from,
@@ -158,7 +199,7 @@ export function Canvas({
             // Only a dependency flashes. The diff reports added dependencies, and a supersede
             // arc appearing is already announced by the card it points at.
             edge.kind === "requires" &&
-              fresh.edges.has(edgeKeyString({ from: edge.from, to: edge.to, on: edge.condition })),
+              fresh.edges.has(edgeKeyString({ from: edge.from, to: edge.to, guard: edge.guard })),
           ),
           animated: false,
           deletable: false,
@@ -174,7 +215,7 @@ export function Canvas({
         if (edge.label !== null) flow.label = edge.label;
         return flow;
       }),
-    [graph, fresh],
+    [graph, fresh, collapsedEdgeStates],
   );
 
   const markerEdges = useMemo<FlowEdge[]>(() => {
@@ -247,6 +288,17 @@ export function Canvas({
     >
       <Background gap={22} size={1} color="var(--color-dots)" />
       <Controls showInteractive={false} />
+      {canCollapse && (
+        <Panel position="top-left">
+          <button
+            type="button"
+            onClick={onCollapseAll}
+            className="rounded-sm border border-border bg-background px-2 py-1 font-mono text-[10px] text-muted-foreground shadow-minimal hover:bg-accent"
+          >
+            collapse groups
+          </button>
+        </Panel>
+      )}
       <Legend />
       {/*
         No minimap. It bought an overview that matters only past about ten arms — see

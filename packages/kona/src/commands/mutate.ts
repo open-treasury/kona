@@ -25,8 +25,8 @@ export interface MutateOptions {
 }
 
 /**
- * `--steps "read the failing test" "fix the parser"` -> a chain of `task` activities, each
- * depending on the one before it.
+ * `--steps "read the failing test" "fix the parser"` -> an initial node, a chain of actions,
+ * and an activity final.
  *
  * This is sugar and nothing more: it emits the same authored ops a hand-written file would,
  * and they go through the same validate -> lock -> CAS -> append path. There is no second
@@ -41,16 +41,22 @@ export interface MutateOptions {
  * a join, an effect, outputs worth recording — is what `--ops` is for.
  */
 export function opsFromSteps(names: string[]): unknown[] {
-  const ops: unknown[] = names.map((name) => ({
-    op: "add_activity",
-    name,
-    type: "task",
-    // The name is the instruction. A one-line step does not have a second sentence in it,
-    // and inventing one would put words in the author's mouth.
-    spec: { instruction: name, effect_class: "pure" },
-  }));
+  if (names.length === 0) return [];
+
+  const ops: unknown[] = [
+    { op: "add_node", name: "Start", type: "initial", spec: {} },
+    ...names.map((name) => ({
+      op: "add_node",
+      name,
+      type: "action",
+      // The name is the instruction. A one-line step does not have a second sentence in it,
+      // and inventing one would put words in the author's mouth.
+      spec: { instruction: name, effect_class: "pure" },
+    })),
+    { op: "add_node", name: "Complete", type: "final", spec: {} },
+  ];
   // `from A to B` means B depends on A (§6.4), so this reads in the order it was typed.
-  for (let index = 1; index < names.length; index += 1) {
+  for (let index = 1; index < names.length + 2; index += 1) {
     ops.push({ op: "add_edge", from: `$${index - 1}`, to: `$${index}` });
   }
   return ops;

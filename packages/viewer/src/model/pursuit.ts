@@ -50,20 +50,20 @@ export function versionTimeOf(records: readonly MutationRecord[]): Map<number, I
 }
 
 /**
- * Activity id → the moment it first *succeeded*. The clock a `{after, duration}` deadline runs
+ * ActivityNode id → the moment it first *succeeded*. The clock a `{after, duration}` deadline runs
  * from, and the reason this map exists at all.
  *
- * The tempting one-liner is `versionTime.get(activity.status.observed_at_version)`, and it is
+ * The tempting one-liner is `versionTime.get(activity.status?.observed_at_version)`, and it is
  * wrong. `observed_at_version` is the LAST version to touch the activity, and §6.4 makes
  * `record_outcome` and `record_output` legal against a terminal one: a delivery receipt or a
  * §6.5 `late` reply landing an hour after the send would move `observed_at_version` forward,
  * slide the downstream deadline with it, and turn a wait the store considers blown back into
  * one that is quietly counting down. The moment an activity finished cannot be revised by learning
  * something else about it afterwards, so it is recorded when it happens and never again —
- * hence FIRST occurrence only, even if a later version sets `done` a second time.
+ * hence FIRST occurrence only, even if a later version sets `completed` a second time.
  *
- * Only `done` counts, and `TERMINAL_SUCCESS_STATUS` rather than the literal for the same
- * reason `satisfiesBlockingEdge` uses it: `failed` and `dropped` are terminal too, and a send
+ * Only `completed` counts, and `TERMINAL_SUCCESS_STATUS` rather than the literal for the same
+ * reason `satisfiesBlockingEdge` uses it: `failed`, `withdrawn` and `terminated` are terminal too, and a send
  * that bounced never started anybody's clock.
  */
 export function completionTimeOf(records: readonly MutationRecord[]): Map<string, Instant> {
@@ -73,7 +73,7 @@ export function completionTimeOf(records: readonly MutationRecord[]): Map<string
     if (Number.isNaN(at)) continue;
     for (const op of record.ops) {
       if (op.op !== "set_status" || op.status !== TERMINAL_SUCCESS_STATUS) continue;
-      if (!times.has(op.activity)) times.set(op.activity, at);
+      if (!times.has(op.node)) times.set(op.node, at);
     }
   }
   return times;

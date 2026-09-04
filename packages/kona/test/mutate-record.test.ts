@@ -34,7 +34,18 @@ function records(): MutationRecord[] {
 async function mutate(...extra: string[]): Promise<number> {
   const ops = h.writeOps("ops.json", ASK_DANA);
   return await run(
-    ["mutate", "--ops", ops, "--base-version", "2", "--why", "Dana is the only goalie", "--reason-code", "MISSING_STEP", ...extra],
+    [
+      "mutate",
+      "--ops",
+      ops,
+      "--base-version",
+      "2",
+      "--why",
+      "Dana is the only goalie",
+      "--reason-code",
+      "MISSING_STEP",
+      ...extra,
+    ],
     h.io,
   );
 }
@@ -63,7 +74,10 @@ describe("the rationale is carried through verbatim", () => {
 
   test("--alternative may be repeated, and order is preserved", async () => {
     expect(await mutate("--alternative", "cancel the game", "--alternative", "play short")).toBe(0);
-    expect(records().at(-1)?.rationale.alternatives_rejected).toEqual(["cancel the game", "play short"]);
+    expect(records().at(-1)?.rationale.alternatives_rejected).toEqual([
+      "cancel the game",
+      "play short",
+    ]);
   });
 
   test("with no alternatives it is an empty list, so the field always exists", async () => {
@@ -98,10 +112,18 @@ describe("engine-stamped fields", () => {
   test("versions increment by exactly one", async () => {
     expect(await mutate()).toBe(0);
     const ops = h.writeOps("done.json", [
-      { op: "set_status", activity: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
+      {
+        op: "set_status",
+        node: h.id("ask-dana-to-play-thursday"),
+        status: "completed",
+        evidence_ref: "e",
+      },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"],
+        h.io,
+      ),
     ).toBe(0);
     expect(records().map((r) => r.v)).toEqual([0, 1, 2, 3, 4]);
   });
@@ -113,8 +135,17 @@ describe("what mutate reports", () => {
     expect(JSON.parse(h.out[0] ?? "{}")).toEqual({
       ok: true,
       version: 3,
-      minted_ids: [h.id("ask-dana-to-play-thursday"), h.id("wait-for-dana")],
-      ops: 3,
+      minted_ids: [
+        h.id("ask-dana-to-play-thursday"),
+        h.id("wait-for-dana"),
+        h.id("route-dana-reply"),
+        h.id("dana-replied"),
+        h.id("dana-timed-out"),
+      ],
+      // Twelve, not the eleven authored. Readiness is DERIVED AT COMMIT, so the store's own
+      // `set_status ... ready` lifting the now-unblocked first activity onto the frontier is
+      // part of the batch. The count reports what landed in the log, not what was proposed.
+      ops: 12,
     });
   });
 
@@ -122,18 +153,28 @@ describe("what mutate reports", () => {
     await mutate();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", activity: h.id("ask-dana-to-play-thursday"), status: "done", evidence_ref: "e" },
+      {
+        op: "set_status",
+        node: h.id("ask-dana-to-play-thursday"),
+        status: "completed",
+        evidence_ref: "e",
+      },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"],
+        h.io,
+      ),
     ).toBe(0);
-    expect(h.out[0]).toBe("committed v4 · 1 ops");
+    // Two: the authored completion, plus the `ready` it derives onto "Wait for Dana", which
+    // that completion unblocks. The claim under test is the ABSENCE of a "· minted" clause.
+    expect(h.out[0]).toBe("committed v4 · 2 ops");
   });
 
   test("the human line names the version, the count and the ids", async () => {
     expect(await mutate()).toBe(0);
     expect(h.out[0]).toBe(
-      `committed v3 · 3 ops · minted ${h.id("ask-dana-to-play-thursday")}, ${h.id("wait-for-dana")}`,
+      `committed v3 · 12 ops · minted ${h.id("ask-dana-to-play-thursday")}, ${h.id("wait-for-dana")}, ${h.id("route-dana-reply")}, ${h.id("dana-replied")}, ${h.id("dana-timed-out")}`,
     );
   });
 
@@ -141,10 +182,24 @@ describe("what mutate reports", () => {
     await mutate();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", activity: h.id("wait-for-dana"), status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("wait-for-dana"), status: "completed", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER", "--json"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "3",
+          "--why",
+          "x",
+          "--reason-code",
+          "OTHER",
+          "--json",
+        ],
+        h.io,
+      ),
     ).toBe(0);
     expect(JSON.parse(h.out[0] ?? "{}").minted_ids).toEqual([]);
   });
@@ -167,7 +222,12 @@ describe("refusals say enough to act on", () => {
     await Bun.write(log, `${lines[0]}\n{"v":1,"broken":true}\n${lines[1]}\n`);
     h.reset();
     const ops = h.writeOps("more.json", ASK_DANA);
-    expect(await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER"], h.io)).toBe(1);
+    expect(
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "3", "--why", "x", "--reason-code", "OTHER"],
+        h.io,
+      ),
+    ).toBe(1);
     expect(h.err[0]).toStartWith("REFUSED CORRUPT_LOG line=2 UNPARSEABLE_RECORD ");
     expect(h.err[0]).toContain("schema_version");
   });

@@ -44,7 +44,12 @@ afterAll(() => {
 
 /** Wait for the URL the verb prints, or fail with whatever it said instead. */
 async function start(): Promise<string> {
-  Bun.spawnSync({ cmd: ["bun", BIN, "init", "--prefix", "t"], cwd: pursuit, stdout: "pipe", stderr: "pipe" });
+  Bun.spawnSync({
+    cmd: ["bun", BIN, "init", "--prefix", "t"],
+    cwd: pursuit,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   viewer = Bun.spawn(["bun", BIN, "view", "--port", "0", "--json"], {
     cwd: pursuit,
     stdout: "pipe",
@@ -105,7 +110,9 @@ describe("the page kona view serves from a pursuit directory", () => {
       expect(`${ref} -> ${String(asset.status)} ${type}`).toBe(`${ref} -> 200 ${expected}`);
       // And it is the real bundle, not a stub: both are hundreds of kilobytes.
       const bytes = (await asset.arrayBuffer()).byteLength;
-      expect(`${ref} is substantial: ${String(bytes > 10_000)}`).toBe(`${ref} is substantial: true`);
+      expect(`${ref} is substantial: ${String(bytes > 10_000)}`).toBe(
+        `${ref} is substantial: true`,
+      );
     }
   });
 

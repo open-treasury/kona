@@ -4,7 +4,7 @@
  * wrapped it: a verb wrapping a verb is a shell alias.
  */
 
-import { projectGraph } from "@kona/core";
+import { projectGraph, type GraphProjection } from "@kona/core";
 import { readFile } from "node:fs/promises";
 import { parseRejections } from "../rejections.ts";
 import { EXIT_OK, EXIT_REFUSED } from "../exit.ts";
@@ -38,6 +38,10 @@ async function readRejections(path: string): Promise<string> {
   }
 }
 
+export function projectPublicGraph(projection: GraphProjection) {
+  return projection;
+}
+
 export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
   const opened = await openPursuit(
     io,
@@ -45,10 +49,12 @@ export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
   );
   if (!opened.ok) return EXIT_REFUSED;
   const folded = opened.folded;
-  const projection = projectGraph(folded.graph);
+  const projection = projectPublicGraph(projectGraph(folded.graph));
 
   const refusals =
-    options.rejections === true ? parseRejections(await readRejections(opened.paths.rejections)) : null;
+    options.rejections === true
+      ? parseRejections(await readRejections(opened.paths.rejections))
+      : null;
 
   if (options.json) {
     io.out(
@@ -74,12 +80,22 @@ export async function runGraph(io: Io, options: GraphOptions): Promise<number> {
     }
     if (refusals.damaged > 0) io.out(`  ${refusals.damaged} unreadable line(s)`);
   } else {
-    io.out(`version ${projection.version} · ${projection.activities.length} activities · ${projection.edges.length} edges`);
-    for (const activity of projection.activities) {
-      io.out(`  ${activity.status.state.padEnd(8)} ${activity.type.padEnd(5)} ${activity.id}  ${activity.name}`);
+    io.out(
+      `version ${projection.version} · ${projection.nodes.length} activities · ${projection.edges.length} edges`,
+    );
+    for (const activity of projection.nodes) {
+      // A control node has no status, and the column says so rather than printing a blank:
+      // an empty cell reads as "we do not know", and the store knows exactly.
+      const state = activity.status?.state ?? "—";
+      io.out(`  ${state.padEnd(10)} ${activity.type.padEnd(12)} ${activity.id}  ${activity.name}`);
     }
     for (const edge of projection.edges) {
-      const on = edge.condition === undefined ? "" : ` [on:${edge.condition.on}]`;
+      const on =
+        edge.guard === undefined
+          ? ""
+          : typeof edge.guard === "object" && "on" in edge.guard
+            ? ` [on:${edge.guard.on}]`
+            : ` [guard:${typeof edge.guard === "string" ? edge.guard : JSON.stringify(edge.guard)}]`;
       io.out(`  ${edge.to} requires ${edge.from}${on}`);
     }
   }

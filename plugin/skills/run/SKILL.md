@@ -12,9 +12,9 @@ You are the orchestrator. **You hold no state.** Everything you need is in
 `.kona/mutations.jsonl`, and every verb below reads it fresh — so a crash, a new terminal
 or a week's gap costs you nothing.
 
-⚖ **The `kona` binary never calls a model.** It answers *what is ready*, *did a reply
-arrive*, *has the deadline passed*, *is this batch legal*. You answer *did Dana say yes*,
-*what should the plan become*, *what does this activity's work involve*. Keep that line sharp:
+⚖ **The `kona` binary never calls a model.** It answers _what is ready_, _did a reply
+arrive_, _has the deadline passed_, _is this batch legal_. You answer _did Dana say yes_,
+_what should the plan become_, _what does this action's work involve_. Keep that line sharp:
 if you find yourself doing arithmetic the CLI could do, ask the CLI.
 
 ---
@@ -24,7 +24,7 @@ if you find yourself doing arithmetic the CLI could do, ask the CLI.
 Run this loop. **One macro-step per external event** — one reply in, one lock, one cascade,
 one version.
 
-That is a rule about *commits*, not about *work*: it keeps the rationale chain readable by
+That is a rule about _commits_, not about _work_: it keeps the rationale chain readable by
 refusing to batch unrelated events into one version. Dispatching a wide frontier to many
 executors at once is not batching unrelated events — it is one decision, taken once, about
 what is ready.
@@ -44,33 +44,33 @@ output. If it says **NEEDS A HUMAN**, stop and see step 6.
 kona next --json
 ```
 
-**`next` returns the whole frontier, not one activity — dispatch all of it at once.** §6.7's
+**`next` returns the whole frontier, not one node — dispatch all of it at once.** §6.7's
 role-scoped write authority is what makes that safe: you own topology, each executor writes
-only its own activity's status and output, so concurrent executors never touch the same region.
+only its own node's status and output, so concurrent executors never touch the same region.
 A frontier of thirty invitations is thirty executors, not thirty turns.
 
-For each activity it returns:
+For each action it returns:
 
 ```bash
-kona brief <activity-id>
+kona brief <node-id>
 ```
 
-`brief` exits **non-zero** when the activity is not actually dispatchable — that is not advice,
-it is a refusal. Do not dispatch an activity whose brief exited non-zero.
+`brief` exits **non-zero** when the node is not actually dispatchable — that is not advice,
+it is a refusal. Do not dispatch a node whose brief exited non-zero.
 
 **Claim the whole frontier in one batch before you dispatch any of it**, so the graph says
 what is being worked rather than only what is ready, and so a second orchestrator cannot
-hand the same activity to a second executor:
+hand the same node to a second executor:
 
-```jsonc
+```json
 [
-  { "op": "set_status", "activity": "ask-dana", "status": "in_flight", "evidence_ref": "claim" },
-  { "op": "set_status", "activity": "ask-sam",  "status": "in_flight", "evidence_ref": "claim" }
+  { "op": "set_status", "node": "ask-dana", "status": "active", "evidence_ref": "claim" },
+  { "op": "set_status", "node": "ask-sam", "status": "active", "evidence_ref": "claim" }
 ]
 ```
 
 One batch, because one commit is cheaper than N and the whole frontier is one decision. A
-activity already claimed refuses with `ALREADY_CLAIMED` — somebody else is on it; take the rest
+A node already claimed refuses with `ALREADY_CLAIMED` — somebody else is on it; take the rest
 and move on. If you believe the holder is gone, `kona resume` returns abandoned claims to
 the frontier: nothing was sent, so nothing needs a human.
 
@@ -96,48 +96,57 @@ kona poll --json                     # which addresses to fetch
 kona poll --inbound /tmp/inbound.json --json
 ```
 
-`poll` tells you **which wait** each message belongs to. It will never tell you what the
-message *says* — that is the judgement you are here for.
+`poll` tells you **which `accept_event`** each message belongs to. It will never tell you what the
+message _says_ — that is the judgement you are here for.
 
 For each match, read the message, then commit the outcome:
 
-```jsonc
+```json
 [
-  { "op": "record_outcome", "activity": "wait-for-dana", "verdict": "confirmed",
-    "evidence_ref": "<m-201@mail>", "attrs": { "role": "goalie" } },
-  { "op": "set_status", "activity": "wait-for-dana", "status": "done",
-    "evidence_ref": "<m-201@mail>" }
+  {
+    "op": "record_outcome",
+    "node": "dana-replies",
+    "verdict": "confirmed",
+    "evidence_ref": "<m-201@mail>",
+    "attrs": { "role": "goalie" }
+  },
+  {
+    "op": "set_status",
+    "node": "dana-replies",
+    "status": "completed",
+    "evidence_ref": "<m-201@mail>"
+  }
 ]
 ```
 
-Substitute the wait's real id and the reply's real `message_id`. Both examples above are
-literal, valid ops — an activity id must match `[a-z0-9][a-z0-9-]*`, so a placeholder like
-`<the wait>` is rejected on arrival.
+Substitute the accept event's real id and the reply's real `message_id`. Both examples above are
+literal, valid ops — a node id must match `[a-z0-9][a-z0-9-]*`, so a placeholder like
+`<the event>` is rejected on arrival.
 
 **`evidence_ref` must be the literal `message_id`.** It is also the dedupe key — get it
 wrong and `poll` hands you the same message forever.
 
 Three cases the contract names, because a retry loop never converges on them:
 
-| | |
-|---|---|
-| the match says **`late: true`** | record `verdict: "late"` and **nothing else**. It does not reopen the wait. |
-| the reply is **non-committal** | record `verdict: "tentative"` and do **not** set the status. The wait stays armed. |
-| the reply is **a decision** | `confirmed` / `declined`, and set the status `done`. |
+|                                 |                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| the match says **`late: true`** | record `verdict: "late"` and **nothing else**. It does not reopen the accept event.        |
+| the reply is **non-committal**  | record `verdict: "tentative"` and do **not** set the status. The accept event stays armed. |
+| the reply is **a decision**     | `confirmed` / `declined`, and set the status `completed`.                                  |
 
 ### 4. Handle what the executor said
 
-| | |
-|---|---|
-| `EXECUTED` | bytes moved. It already called `kona effect record`. Nothing for you to do. |
-| `COMPOSED` | a payload is ready and **was not sent**. Read it. If it is right, tell the executor to send; if not, say what to change. |
-| `REFUSED` | it will carry a `refusal_reason`. **This is information, not an error.** A refusal usually means the plan is wrong — go to step 5. |
+|            |                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `EXECUTED` | bytes moved. It already called `kona effect record`. Nothing for you to do.                                                        |
+| `COMPOSED` | a payload is ready and **was not sent**. Read it. If it is right, tell the executor to send; if not, say what to change.           |
+| `REFUSED`  | it will carry a `refusal_reason`. **This is information, not an error.** A refusal usually means the plan is wrong — go to step 5. |
 
 ### 5. Change the plan
 
 This is the part that matters, and **it is automatic**. You do not ask permission to change
 the shape of the graph. Fan out, reroute, add a follow-up, obviate a branch, supersede a
-activity with its compensation, re-plan a whole arm — commit it with `kona mutate` and a
+node with its compensation, re-plan a whole arm — commit it with `kona mutate` and a
 rationale that says why.
 
 Adaptive workflow systems died because changing the plan was expensive and blameful.
@@ -157,14 +166,37 @@ kona mutate --ops /tmp/ops.json --base-version <head> \
 Use `/kona:plan`'s catalogue for the op shapes — the edge-direction rule in particular. On
 exit `3`, re-read the graph and **re-decide**; never resubmit the same batch.
 
+### 5b. Concurrency is in the graph, not in your head
+
+`kona next` returns a `fork` field on every node: the id of the fork it descends from, or
+null. **Nodes sharing a fork id are one set** — the plan says they run at the same time, so
+dispatch them together in one round rather than one after another. That field is the whole
+contract; you never infer concurrency from the shape.
+
+Two things `next` will never hand you, so you never have to check:
+
+- **A control node.** Diamonds, bars and circles are the store's, not work. They have no
+  instruction and nothing to execute.
+- **An `accept_event`.** It is polled by `kona poll` when the world answers, or resolved by
+  `kona resume` when its clock runs out. `kona next` returns actions only and never returns an
+  `accept_event`. **Never claim one**: it belongs to the poll/resume path, not the work frontier.
+
+**At a join, stop.** If `next` is empty and a join is still waiting on an arm, the pursuit is
+waiting on that arm — not stuck, and not yours to unblock by claiming something else.
+
+---
+
 ### 6. Stop when
 
-- `kona next` returns nothing and every wait is armed with a live deadline → the pursuit is
+- `kona next` returns nothing and every accept event is armed with a live deadline → the pursuit is
   waiting on the world. Say so and stop.
 - `kona resume` reports **NEEDS A HUMAN** → an irreversible send was reserved and never
   resolved. **Do not retry it and do not send anything.** The log genuinely cannot say
-  whether those bytes reached anybody; only the mailbox can. Show the operator the activity,
+  whether those bytes reached anybody; only the mailbox can. Show the operator the node,
   the `effect_key` and the recipient, and stop.
+- `kona next` says `complete` → the flow reached its final node. The pursuit is **done**, which
+  is different from an empty frontier: an empty frontier also happens when everything is
+  blocked, failed, or waiting. Say which one it is.
 - Something is refused twice for the same reason → stop and explain. A third attempt is a
   loop.
 
@@ -177,7 +209,7 @@ Everything above is automatic. Exactly one thing is not:
 > **A mutation that creates a new irreversible effect targeting a recipient the graph has
 > never seen.**
 
-Concretely: you are about to add an activity with `effect_class` of `pivot` or `compensatable`
+Concretely: you are about to add a node with `effect_class` of `pivot` or `compensatable`
 whose `recipient_ref` does not resolve to something already in the graph with evidence
 behind it.
 
@@ -194,7 +226,7 @@ The store enforces this too and will reject the batch. But you should never make
 find the person's actual reference in the graph first, or ask.
 
 Gate the **class**, never the individual mutation. Once a human has said "yes, Marcus is
-real, here is his address", Marcus is evidenced and subsequent activities addressing him are
+real, here is his address", Marcus is evidenced and subsequent nodes addressing him are
 automatic like everything else.
 
 ---
@@ -205,7 +237,7 @@ automatic like everything else.
   in your head goes stale the moment the graph changes, and the graph changes constantly.
 - **Do not re-derive readiness.** If it is not in `kona next`, it is not ready — even if it
   looks ready to you. Readiness fails safe on purpose.
-- **Do not re-execute anything.** An activity with a recorded send is never dispatched again;
+- **Do not re-execute anything.** A node with a recorded send is never dispatched again;
   the CLI refuses. If you find yourself wanting to, read `kona brief` and believe it.
 - **Do not summarise a brief before handing it over.**
 - **Do not batch unrelated events.** One external event, one commit. It keeps the rationale

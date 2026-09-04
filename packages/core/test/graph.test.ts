@@ -12,29 +12,34 @@ import {
   projectGraph,
   satisfiesBlockingEdge,
 } from "../src/index.ts";
-import { commit, record, seeded, task, activityAt, slugOr, nid, slugOf } from "./fixtures.ts";
+import { commit, record, seeded, action, activityAt, slugOr, nid, slugOf } from "./fixtures.ts";
 
-const WIRED = commit(seeded([task("A"), task("B"), task("C")]), [
+const WIRED = commit(seeded([action("A"), action("B"), action("C")]), [
   { op: "add_edge", from: "a", to: "b" },
   { op: "add_edge", from: "a", to: "c" },
   { op: "add_edge", from: "b", to: "c" },
 ]);
 
 describe("status vocabulary", () => {
-  test("terminal means done, failed or dropped — and sending is not terminal", () => {
-    // `sending` means the real world's answer is unknown, not that the activity resolved.
+  test("terminal means completed, failed, withdrawn or terminated — and active is not terminal", () => {
+    // `active` means the real world's answer is unknown, not that the activity resolved.
     expect(STATUSES.filter(isTerminal).toSorted()).toEqual(TERMINAL_STATUSES.toSorted());
-    expect(isTerminal("in_flight")).toBe(false);
+    // Both non-terminal states, and they are non-terminal for DIFFERENT reasons — which is
+    // why both are here. `inactive` has not started; `active` is claimed and its answer from
+    // the real world is unknown, which is emphatically not "resolved". A blind substitution
+    // during the rename collapsed these two lines onto one token and halved the coverage
+    // without failing: the assertion was still true, just asked twice.
+    expect(isTerminal("inactive")).toBe(false);
     expect(isTerminal("active")).toBe(false);
   });
 
-  test("only `done` satisfies a blocking edge — readiness fails safe", () => {
-    // A dropped source never satisfies readiness; otherwise the second activity on an untaken
+  test("only `completed` satisfies a blocking edge — readiness fails safe", () => {
+    // An abandoned source never satisfies readiness; otherwise the second activity on an untaken
     // branch has no blocker, lands on the frontier, and gets dispatched — pivot send included.
     const satisfying = STATUSES.filter((state) =>
       satisfiesBlockingEdge({ status: { state } } as never),
     );
-    expect(satisfying).toEqual(["done"]);
+    expect(satisfying).toEqual(["completed"]);
   });
 
   test("compensatable and pivot are the classes that move bytes we cannot take back", () => {
@@ -45,7 +50,7 @@ describe("status vocabulary", () => {
   });
 
   test("isActivityTerminal reads the activity's own state", () => {
-    const done = commit(WIRED, [{ op: "set_status", activity: "a", status: "done", evidence_ref: "e" }]);
+    const done = commit(WIRED, [{ op: "set_status", node: "a", status: "completed", evidence_ref: "e" }]);
     expect(isActivityTerminal(activityAt(done, "a") as never)).toBe(true);
     expect(isActivityTerminal(activityAt(done, "b") as never)).toBe(false);
   });
@@ -76,7 +81,7 @@ describe("edge projections", () => {
 describe("the read contract", () => {
   test("projection is ordered and plain, so two stringifies match", () => {
     const projection = projectGraph(WIRED);
-    expect(projection.activities.map((n) => slugOf(n.id))).toEqual(["a", "b", "c"]);
+    expect(projection.nodes.map((n) => slugOf(n.id))).toEqual(["a", "b", "c"]);
     expect(JSON.stringify(projectGraph(WIRED))).toBe(JSON.stringify(projection));
   });
 

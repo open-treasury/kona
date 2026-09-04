@@ -8,7 +8,7 @@ import {
 } from "../src/index.ts";
 
 describe("slugify", () => {
-  test("reduces a human label to the id alphabet", () => {
+  test("reduces a human name to the id alphabet", () => {
     expect(slugify("Ask Dana to play Thursday")).toBe("ask-dana-to-play-thursday");
   });
 
@@ -20,7 +20,7 @@ describe("slugify", () => {
     expect(slugify("goalie/dana")).toBe("goalie-dana");
   });
 
-  test("is total: a label with no usable characters still yields a legal id", () => {
+  test("is total: a name with no usable characters still yields a legal id", () => {
     expect(slugify("!!!")).toBe("activity");
     expect(slugify("")).toBe("activity");
   });
@@ -90,8 +90,8 @@ describe("mintActivityId", () => {
     );
   });
 
-  test("the same label in different commits mints different ids", () => {
-    // Version and op index are in the seed, so a label reused later does not land on the
+  test("the same name in different commits mints different ids", () => {
+    // Version and op index are in the seed, so a name reused later does not land on the
     // collision loop every time.
     expect(mintActivityId("kn", "Ask Dana", 1, 0, new Set())).not.toBe(
       mintActivityId("kn", "Ask Dana", 2, 0, new Set()),
@@ -104,8 +104,8 @@ describe("mintActivityId", () => {
     );
   });
 
-  test("mints a valid activity id for a label with nothing in the id alphabet", () => {
-    // A slug had to fall back to "activity" here. A hash does not care what the label contains.
+  test("mints a valid activity id for a name with nothing in the id alphabet", () => {
+    // A slug had to fall back to "activity" here. A hash does not care what the name contains.
     const id = mintActivityId("kn", "\u2014 \u2014 \u2014", 1, 0, new Set());
     expect(isValidActivityId(id)).toBe(true);
   });

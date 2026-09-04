@@ -1,6 +1,6 @@
 /**
  * T2.6 — branch resolution. §6.4: "When a `wait` resolves, the store marks the target of
- * every untaken out-edge `dropped`, **transitively**." NEVER CUT: without it, v2's dominant
+ * every untaken out-edge `withdrawn`, **transitively**." NEVER CUT: without it, v2's dominant
  * silent deadlock returns.
  *
  * **Derivation happens once, at commit.** Everything here is called by `validate()`, which
@@ -18,8 +18,9 @@
  */
 
 import type { CommittedOp } from "./schema.ts";
-import type { Edge, Graph, Activity } from "./graph.ts";
-import { inEdges, isEdgeDead, isActivityTerminal, outEdges } from "./graph.ts";
+import type { Edge, Graph, ActivityNode } from "./graph.ts";
+import { inEdges, isActivityTerminal, isEdgeDead, isNodeLive, isReady, outEdges } from "./graph.ts";
+import { INITIAL_STATUS, isUnclaimed } from "./vocab.ts";
 
 /**
  * The `evidence_ref` a derived drop carries. It names the store, not a message, because no
@@ -32,27 +33,30 @@ export const DERIVED_EVIDENCE_PREFIX = "derived:branch-resolution";
  * May the store rewrite this activity's status? Distinct from "is this arm dead" on purpose —
  * §2 of the cascade below propagates through activities it may not itself rewrite.
  */
-export function isDroppable(activity: Activity): boolean {
-  // §6.6 — `sending` means the real world's answer is UNKNOWN, and `kona resume` reports
-  // `sending` unknowns to a human. Dropping erases the marker resume needs.
-  if (activity.status.state === "in_flight") return false;
+export function isDroppable(activity: ActivityNode): boolean {
+  // A control node is never rewritten by the cascade: it has no status to write. The arm dies
+  // THROUGH it — see the walk below — but nothing is recorded on it.
+  if (activity.status === undefined) return false;
+  // §6.6 — a claim with an open effect means the real world's answer is UNKNOWN, and `kona
+  // resume` reports those to a human. Withdrawing it erases the marker resume needs.
+  if (activity.status.state === "active") return false;
   // §6.6 — a non-empty effect_log means bytes already moved. Cancelling the plan does not
   // un-send the email; that needs a compensation, which only an author can write.
   return activity.status.effect_log.length === 0;
 }
 
 export interface BranchResolution {
-  /** Derived `set_status(…, "dropped")` ops, in activity insertion order. */
+  /** Derived `set_status(…, "withdrawn")` ops, in node insertion order. */
   drops: CommittedOp[];
   /**
-   * Activities on a dead arm the store refused to rewrite — `sending`, or bytes already moved.
+   * Activities on a dead arm the store refused to rewrite — `active`, or bytes already moved.
    * Surfaced rather than silently skipped: each one is a human's decision.
    */
   withheld: string[];
 }
 
 /**
- * Identity of an edge as a value. `{from, to, condition?}` carries no id of its own.
+ * Identity of an edge as a value. `{from, to, guard?}` carries no id of its own.
  *
  * `\u0000` written as an ESCAPE, never as a literal byte: a raw NUL in the source makes git
  * treat this whole file as binary — no diff, no blame, no review. It is still the right
@@ -60,7 +64,7 @@ export interface BranchResolution {
  * condition can never contain, so two distinct edges can never collide on one key.
  */
 function edgeKey(edge: Edge): string {
-  return `${edge.from}\u0000${edge.to}\u0000${edge.condition?.on ?? ""}`;
+  return `${edge.from}\u0000${edge.to}\u0000${JSON.stringify(edge.guard)}`;
 }
 
 /**
@@ -109,7 +113,7 @@ export function resolveBranches(pre: Graph, post: Graph): BranchResolution {
   const work: string[] = seeds.map((edge) => edge.to);
   for (const id of work) {
     if (deadArm.has(id)) continue;
-    const activity = post.activities.get(id);
+    const activity = post.nodes.get(id);
     if (activity === undefined) continue;
     const ins = inEdges(post, id);
     // §6.4 — "It stops at an activity still held by a live in-edge — a shared descendant, which
@@ -119,15 +123,22 @@ export function resolveBranches(pre: Graph, post: Graph): BranchResolution {
     if (!ins.every((edge) => isEdgeDead(post, edge) || deadArm.has(edge.from))) continue;
     deadArm.add(id);
 
-    if (isActivityTerminal(activity)) {
+    if (activity.status === undefined) {
+      // A control node has no status to rewrite, so it is neither dropped nor withheld — and
+      // yet the arm dies THROUGH it, exactly as it dies through a terminal node below. Under
+      // S7 a diamond or a bar sits between almost every pair of steps, so stopping here would
+      // stop the cascade at the first control node and leave the whole untaken branch live —
+      // which is the pivot-fires-unapproved bug, reintroduced by the notation that was meant
+      // to make it impossible.
+    } else if (isActivityTerminal(activity)) {
       // The past is not rewritten — and invariant 1 would refuse it. But the ARM is still
-      // dead, so the walk continues: a `done` activity on an all-dead arm was never legitimately
+      // dead, so the walk continues: a `completed` activity on an all-dead arm was never legitimately
       // ready, and its successors' plain edges out of it ARE satisfied. Stopping here puts
       // them on the frontier and fires the pivot the branch existed to avoid.
     } else if (isDroppable(activity)) {
       dropped.add(id);
     } else {
-      // Same reasoning: withhold this activity, keep walking. A `sending` activity completing later
+      // Same reasoning: withhold this activity, keep walking. An `active` activity completing later
       // makes no edge newly dead, so the op-delta could never re-seed from it.
       withheld.add(id);
     }
@@ -137,16 +148,53 @@ export function resolveBranches(pre: Graph, post: Graph): BranchResolution {
 
   // Emission order is activity insertion order — never discovery order — so the bytes written to
   // the log do not depend on how the traversal happened to run.
-  const order = [...post.activities.keys()];
+  const order = [...post.nodes.keys()];
   return {
     drops: order
       .filter((id) => dropped.has(id))
       .map((id): CommittedOp => ({
         op: "set_status",
-        activity: id,
-        status: "dropped",
+        node: id,
+        status: "withdrawn",
         evidence_ref: `${DERIVED_EVIDENCE_PREFIX}:${dropCause(post, id)}`,
       })),
     withheld: order.filter((id) => withheld.has(id)),
   };
+}
+
+/**
+ * §6.2.1 — the readiness derivation. The cascade's twin, and it MUST run after it.
+ *
+ * A node on an arm this very commit withdrew must not be lifted to `ready` first and corrected
+ * afterwards: both would be real ops in a real log, and the intermediate one says the store
+ * offered work on a branch nobody took. §6.4's fail-safe exists precisely so that never
+ * happens, and it would be undone here by an ordering mistake rather than by a rule change.
+ *
+ * Like the cascade, this derives ONCE, at commit, and the log records the decision. A fold
+ * next month by code with a different readiness rule still produces the frontier the human
+ * approved, because the frontier is in the log rather than in this function.
+ */
+export function deriveReadiness(post: Graph): CommittedOp[] {
+  const ops: CommittedOp[] = [];
+
+  // Node insertion order, never traversal order, so the bytes do not depend on how the walk ran.
+  for (const node of post.nodes.values()) {
+    if (node.status === undefined) continue;
+    if (!isNodeLive(node)) continue;
+    // Claimed or over. Neither is the derivation's to touch: a claim is a person's statement
+    // and a terminal state is protected by invariant 1.
+    if (!isUnclaimed(node.status.state)) continue;
+
+    const want = isReady(post, node) ? "ready" : INITIAL_STATUS;
+    if (want === node.status.state) continue;
+
+    ops.push({
+      op: "set_status",
+      node: node.id,
+      status: want,
+      evidence_ref: `${DERIVED_EVIDENCE_PREFIX}:readiness`,
+    });
+  }
+
+  return ops;
 }

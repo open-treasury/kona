@@ -17,20 +17,24 @@ import {
   openEffect,
   parseEffectEvidence,
 } from "../src/index.ts";
-import { commit, rostered, task, activityAt } from "./fixtures.ts";
+import { commit, rostered, action, activityAt } from "./fixtures.ts";
 
 const KEY = "ek_b4668bc35579b3eb";
 
 function pivot(name: string): AuthoredOp {
-  return task(name, {
+  return action(name, {
     effect_class: "pivot",
     effect: { channel: "email", recipient_ref: "roster#dana" },
   });
 }
 
 function activityOf(graph: Graph, id: string) {
+  // Narrowed to a node that carries a status: every use here is about work, and under D6 a
+  // control node has none. Throwing beats optional-chaining, which would let a test that
+  // asked the wrong question quietly compare two undefineds and pass.
   const activity = activityAt(graph, id);
-  if (activity === undefined) throw new Error(`no activity ${id}`);
+  if (activity === undefined) throw new Error(`no node ${id}`);
+  if (activity.status === undefined) throw new Error(`${id} is a ${activity.type}, which carries no status`);
   return activity;
 }
 
@@ -127,8 +131,8 @@ describe("fold materialises the ledger from the log", () => {
   const reserved = commit(rostered(["dana"], [pivot("Ask Dana")]), [
     {
       op: "set_status",
-      activity: "ask-dana",
-      status: "in_flight",
+      node: "ask-dana",
+      status: "active",
       evidence_ref: encodeReserveEvidence(KEY, "sha256:aaa"),
     },
   ]);
@@ -156,8 +160,8 @@ describe("fold materialises the ledger from the log", () => {
     const done = commit(reserved, [
       {
         op: "set_status",
-        activity: "ask-dana",
-        status: "done",
+        node: "ask-dana",
+        status: "completed",
         evidence_ref: encodeRecordEvidence(KEY, "sent", "<m-101@mail>"),
       },
     ]);
@@ -174,7 +178,7 @@ describe("fold materialises the ledger from the log", () => {
     const failed = commit(reserved, [
       {
         op: "set_status",
-        activity: "ask-dana",
+        node: "ask-dana",
         status: "failed",
         evidence_ref: encodeRecordEvidence(KEY, "failed", "550 user unknown"),
       },
@@ -191,8 +195,8 @@ describe("fold materialises the ledger from the log", () => {
       commit(rostered(["dana"], [pivot("Ask Dana")]), [
         {
           op: "set_status",
-          activity: "ask-dana",
-          status: "done",
+          node: "ask-dana",
+          status: "completed",
           evidence_ref: encodeRecordEvidence("ek_forged", "sent", "<m-9@mail>"),
         },
       ]),
@@ -201,7 +205,7 @@ describe("fold materialises the ledger from the log", () => {
 
   test("ordinary evidence leaves the ledger alone", () => {
     const plain = commit(rostered(["dana"], [pivot("Ask Dana")]), [
-      { op: "set_status", activity: "ask-dana", status: "done", evidence_ref: "<m-101@mail>" },
+      { op: "set_status", node: "ask-dana", status: "completed", evidence_ref: "<m-101@mail>" },
     ]);
     expect(activityOf(plain, "ask-dana").status.effect_log).toEqual([]);
   });

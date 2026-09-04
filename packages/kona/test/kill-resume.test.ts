@@ -7,7 +7,7 @@
  *
  *   - a torn final line   crash between append and fsync
  *   - a stale lockfile    crash while holding the write lock
- *   - a `sending` activity    crash between reserve and record
+ *   - an `active` activity    crash between reserve and record
  *
  * Every assertion is made through a FRESH `Io` against the same directory: no session
  * state, nothing carried in memory, exactly what "a fresh terminal" means in 8.
@@ -38,15 +38,9 @@ const CONFIG = {
 
 const PLAN = [
   {
-    op: "add_activity",
-    name: "Escalate",
-    type: "task",
-    spec: { instruction: "Tell Ilya nobody replied.", effect_class: "pure" },
-  },
-  {
-    op: "add_activity",
+    op: "add_node",
     name: "Ask Dana",
-    type: "task",
+    type: "action",
     spec: {
       instruction: "Email Dana.",
       outputs: [{ name: "sent", type: "string" }],
@@ -55,24 +49,76 @@ const PLAN = [
     },
   },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Wait for Dana",
-    type: "wait",
+    type: "accept_event",
     spec: {
       instruction: "Await Dana's reply.",
       effect_class: "pure",
       deadline: { at: "2026-08-23T12:00:00.000Z" },
-      on_timeout: "$0",
       match: { kind: "event", conditions: [{ kind: "reply", on: "satisfied" }] },
     },
   },
+  { op: "add_node", name: "Route Dana reply", type: "decision", spec: {} },
+  { op: "add_node", name: "Dana replied", type: "flow_final", spec: {} },
+  {
+    op: "add_node",
+    name: "Escalate",
+    type: "action",
+    spec: { instruction: "Tell Ilya nobody replied.", effect_class: "pure" },
+  },
+  { op: "add_node", name: "Escalated", type: "final", spec: {} },
+  { op: "add_node", name: "Dana reply ignored", type: "flow_final", spec: {} },
+  { op: "supersede_node", node: "roster-recorded", by: "$5" },
+  { op: "add_edge", from: "roster-on-file", to: "$0" },
+  { op: "add_edge", from: "$0", to: "$1" },
   { op: "add_edge", from: "$1", to: "$2" },
+  { op: "add_edge", from: "$2", to: "$3", guard: { on: "satisfied" } },
+  { op: "add_edge", from: "$2", to: "$4", guard: { on: "timeout" } },
+  { op: "add_edge", from: "$2", to: "$6", guard: "else" },
+  { op: "add_edge", from: "$4", to: "$5" },
 ];
 
 /** `ask-dana` is created at v3 now: the roster seed takes v1 and v2. */
 // The effect key is derived from the activity id, and the id is minted — so this cannot be
 // computed until a pursuit exists. A function, evaluated inside the test.
 const KEY = (): string => effectKey(h.id("ask-dana"), 3);
+
+/**
+ * Cross the send, so that the wait behind it is ARMED.
+ *
+ * A wait is armed only in `ready`, and readiness is DERIVED at commit — so `wait-for-dana`
+ * sits `inactive` until `ask-dana` completes. Under the old vocabulary an unclaimed wait was
+ * `active` from the moment it was authored, so its deadline could fire on a message that had
+ * never gone anywhere. Two commits, v4 and v5: reserve, then record the outcome.
+ */
+async function crossTheSend(): Promise<void> {
+  expect(
+    await run(
+      ["effect", "reserve", h.id("ask-dana"), "--payload-hash", "sha256:aaa", "--why", "send"],
+      h.io,
+    ),
+  ).toBe(0);
+  expect(
+    await run(
+      [
+        "effect",
+        "record",
+        h.id("ask-dana"),
+        "--key",
+        KEY(),
+        "--outcome",
+        "sent",
+        "--message-id",
+        "<m-1>",
+        "--why",
+        "Dana has it",
+      ],
+      h.io,
+    ),
+  ).toBe(0);
+  h.reset();
+}
 
 /** A brand-new process, same directory. No session state crosses this boundary. */
 function freshTerminal(now = T0): Harness {
@@ -102,7 +148,20 @@ beforeEach(async () => {
   await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PLAN);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
+    await run(
+      [
+        "mutate",
+        "--ops",
+        ops,
+        "--base-version",
+        "2",
+        "--why",
+        "plan",
+        "--reason-code",
+        "MISSING_STEP",
+      ],
+      h.io,
+    ),
   ).toBe(0);
   h.reset();
 });
@@ -116,10 +175,23 @@ describe("crash between append and fsync — a torn final line", () => {
     expect(term.out.join("\n")).toContain("version 3");
     // And the next write lands at the version the torn record never reached.
     const ops = h.writeOps("more.json", [
-      { op: "set_status", activity: h.id("escalate"), status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("escalate"), status: "completed", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "done", "--reason-code", "OTHER"], term.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "3",
+          "--why",
+          "completed",
+          "--reason-code",
+          "OTHER",
+        ],
+        term.io,
+      ),
     ).toBe(0);
     expect(JSON.parse(logLines().at(-1) ?? "").v).toBe(4);
   });
@@ -134,16 +206,47 @@ describe("crash between append and fsync — a torn final line", () => {
 });
 
 describe("crash while holding the write lock", () => {
+  /**
+   * A pid that is genuinely GONE — probed, not picked.
+   *
+   * These tests go through the CLI, so the liveness check is the real `process.kill(pid, 0)`
+   * with nothing to inject through. A literal is therefore a bet on the machine's process
+   * table, and this file bet on 999, which on macOS is a live system daemon. Losing that bet
+   * makes the crashed writer answer "still running" — the exact wrong answer this describe
+   * exists to catch, arriving as a failure that looks like a bug in the lock.
+   */
+  const DEAD_PID = ((): number => {
+    for (let pid = 99_000; pid > 1; pid -= 1) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        // ESRCH alone means gone; EPERM means it exists and belongs to somebody else.
+        if ((error as { code?: string } | null)?.code === "ESRCH") return pid;
+      }
+    }
+    throw new Error("no free pid to impersonate a crashed writer");
+  })();
+
   function leaveStaleLock(): void {
-    writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: 999, started_at: T0 }));
+    writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: DEAD_PID, started_at: T0 }));
   }
 
   async function tryWrite(term: Harness): Promise<number> {
     const ops = h.writeOps("more.json", [
-      { op: "set_status", activity: h.id("escalate"), status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("escalate"), status: "completed", evidence_ref: "e" },
     ]);
     return await run(
-      ["mutate", "--ops", ops, "--base-version", "3", "--why", "after crash", "--reason-code", "OTHER"],
+      [
+        "mutate",
+        "--ops",
+        ops,
+        "--base-version",
+        "3",
+        "--why",
+        "after crash",
+        "--reason-code",
+        "OTHER",
+      ],
       term.io,
     );
   }
@@ -173,7 +276,7 @@ describe("crash while holding the write lock", () => {
     await tryWrite(term);
     expect(term.err[0]).toContain("no longer running");
     expect(term.err[0]?.toLowerCase()).toContain("delete the file");
-    expect(term.err[0]).toContain("999");
+    expect(term.err[0]).toContain(String(DEAD_PID));
   });
 
   test("a holder that is gone is STALE at once, without waiting out the timer", async () => {
@@ -200,7 +303,10 @@ describe("crash while holding the write lock", () => {
   test("a lock held right now is a different message — a slow peer is not a dead one", async () => {
     // A lock claiming THIS process, which is unarguably running. That is what separates the
     // two messages now: not the clock, but whether anybody is there.
-    writeFileSync(join(h.dir, ".kona", "lock"), JSON.stringify({ pid: process.pid, started_at: T0 }));
+    writeFileSync(
+      join(h.dir, ".kona", "lock"),
+      JSON.stringify({ pid: process.pid, started_at: T0 }),
+    );
     const term = freshTerminal(T0);
     expect(await tryWrite(term)).toBe(1);
     expect(term.err[0]).toContain("LOCK_HELD");
@@ -212,7 +318,10 @@ describe("crash while holding the write lock", () => {
 describe("crash between reserve and record — the send is unknown", () => {
   async function reserveThenCrash(): Promise<void> {
     expect(
-      await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "sha256:aaa", "--why", "send"], h.io),
+      await run(
+        ["effect", "reserve", h.id("ask-dana"), "--payload-hash", "sha256:aaa", "--why", "send"],
+        h.io,
+      ),
     ).toBe(0);
     h.reset();
   }
@@ -240,8 +349,8 @@ describe("crash between reserve and record — the send is unknown", () => {
     await reserveThenCrash();
     const term = freshTerminal();
     expect(await run(["next", "--json"], term.io)).toBe(0);
-    const payload = JSON.parse(term.out[0] ?? "{}") as { activities: { id: string }[] };
-    expect(payload.activities.map((n) => n.id)).not.toContain(h.id("ask-dana"));
+    const payload = JSON.parse(term.out[0] ?? "{}") as { nodes: { id: string }[] };
+    expect(payload.nodes.map((n) => n.id)).not.toContain(h.id("ask-dana"));
   });
 
   test("and re-reserving after the crash sends nothing new", async () => {
@@ -249,7 +358,10 @@ describe("crash between reserve and record — the send is unknown", () => {
     const term = freshTerminal();
     const before = logLines().length;
     expect(
-      await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "sha256:aaa", "--why", "retry"], term.io),
+      await run(
+        ["effect", "reserve", h.id("ask-dana"), "--payload-hash", "sha256:aaa", "--why", "retry"],
+        term.io,
+      ),
     ).toBe(0);
     expect(term.out[0]).toContain("already reserved");
     expect(logLines().length).toBe(before);
@@ -260,11 +372,25 @@ describe("crash between reserve and record — the send is unknown", () => {
     const term = freshTerminal();
     expect(
       await run(
-        ["effect", "record", h.id("ask-dana"), "--key", KEY(), "--outcome", "sent", "--message-id", "<m-1>", "--why", "found it in Sent"],
+        [
+          "effect",
+          "record",
+          h.id("ask-dana"),
+          "--key",
+          KEY(),
+          "--outcome",
+          "sent",
+          "--message-id",
+          "<m-1>",
+          "--why",
+          "found it in Sent",
+        ],
         term.io,
       ),
     ).toBe(0);
-    expect((await graphOf(term)).activities.find((n) => n.id === h.id("ask-dana"))?.status.state).toBe("done");
+    expect((await graphOf(term)).nodes.find((n) => n.id === h.id("ask-dana"))?.status?.state).toBe(
+      "completed",
+    );
     term.reset();
     expect(await run(["resume"], term.io)).toBe(0);
     expect(term.out.join("\n")).not.toContain("NEEDS A HUMAN");
@@ -277,6 +403,7 @@ describe("a fresh terminal is told what to DO, not only what is true", () => {
     // mailbox is a network call and no verb makes one. Naming `kona poll` is how the step
     // survives the split. Without it the operator is told the state and left to guess the
     // action — which is the moment somebody reaches for the graph and starts hand-editing.
+    await crossTheSend();
     const term = freshTerminal(T0);
     expect(await run(["resume", "--dry-run"], term.io)).toBe(0);
     const text = term.out.join("\n");
@@ -287,6 +414,7 @@ describe("a fresh terminal is told what to DO, not only what is true", () => {
 
   test("and says nothing about polling when nothing is waiting", async () => {
     // Advice nobody can act on is noise, and this report is read at the worst moment.
+    await crossTheSend();
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await run(["resume"], term.io)).toBe(0);
     term.reset();
@@ -298,20 +426,25 @@ describe("a fresh terminal is told what to DO, not only what is true", () => {
 });
 
 describe("resume fires overdue deadlines, and says why", () => {
+  // The deadline belongs to a wait, and a wait only counts once it is armed — so the send in
+  // front of it has to have gone out. That is the state a crash is being simulated on top of.
+  beforeEach(crossTheSend);
+
   test("a blown deadline resolves the wait and opens its escape route", async () => {
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await run(["resume"], term.io)).toBe(0);
     expect(term.out.join("\n")).toContain("OVERDUE");
-    expect(term.out.join("\n")).toContain("repaired at v4");
+    // v4 reserved the send and v5 recorded it, so the repair is v6.
+    expect(term.out.join("\n")).toContain("repaired at v6");
 
     const graph = await graphOf(term);
-    const gate = graph.activities.find((n) => n.id === h.id("wait-for-dana"));
-    expect(gate?.status.state).toBe("done");
-    expect(gate?.status.outcome?.verdict).toBe("timed_out");
+    const gate = graph.nodes.find((n) => n.id === h.id("wait-for-dana"));
+    expect(gate?.status?.state).toBe("completed");
+    expect(gate?.status?.outcome?.verdict).toBe("timed_out");
     expect(graph.edges).toContainEqual({
-      from: h.id("wait-for-dana"),
+      from: h.id("route-dana-reply"),
       to: h.id("escalate"),
-      condition: { on: "timeout" },
+      guard: { on: "timeout" },
     });
   });
 
@@ -351,18 +484,31 @@ describe("resume fires overdue deadlines, and says why", () => {
   });
 });
 
-describe("a done activity is never re-executed", () => {
+describe("a completed activity is never re-executed", () => {
   test("resume does not touch it, whatever the clock says", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "set_status", activity: h.id("escalate"), status: "done", evidence_ref: "e" },
+      { op: "set_status", node: h.id("escalate"), status: "completed", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "did it", "--reason-code", "OTHER"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "3",
+          "--why",
+          "did it",
+          "--reason-code",
+          "OTHER",
+        ],
+        h.io,
+      ),
     ).toBe(0);
     const term = freshTerminal(AFTER_DEADLINE);
     expect(await run(["resume"], term.io)).toBe(0);
     const graph = await graphOf(term);
-    expect(graph.activities.find((n) => n.id === h.id("escalate"))?.status.state).toBe("done");
+    expect(graph.nodes.find((n) => n.id === h.id("escalate"))?.status?.state).toBe("completed");
     expect(await run(["next", "--json"], term.io)).toBe(0);
   });
 });

@@ -26,21 +26,15 @@ const CONFIG = {
 };
 
 const PLAN = [
+  { op: "add_node", name: "Start", type: "initial", spec: {} },
   {
-    op: "add_activity",
-    name: "Escalate",
-    type: "task",
-    spec: { instruction: "Tell Ilya.", effect_class: "pure" },
-  },
-  {
-    op: "add_activity",
+    op: "add_node",
     name: "Await Dana",
-    type: "wait",
+    type: "accept_event",
     spec: {
       instruction: "Await Dana's reply.",
       effect_class: "pure",
       deadline: { at: "2026-08-30T12:00:00.000Z" },
-      on_timeout: "$0",
       match: {
         kind: "event",
         conditions: [
@@ -50,6 +44,20 @@ const PLAN = [
       },
     },
   },
+  { op: "add_node", name: "Route Dana reply", type: "decision", spec: {} },
+  {
+    op: "add_node",
+    name: "Escalate",
+    type: "action",
+    spec: { instruction: "Tell Ilya.", effect_class: "pure" },
+  },
+  { op: "add_node", name: "Escalated", type: "final", spec: {} },
+  { op: "add_node", name: "Dana replied", type: "flow_final", spec: {} },
+  { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$1", to: "$2" },
+  { op: "add_edge", from: "$2", to: "$3", guard: { on: "timeout" } },
+  { op: "add_edge", from: "$2", to: "$5", guard: "else" },
+  { op: "add_edge", from: "$3", to: "$4" },
 ];
 
 // Built inside a test: the reply address embeds a minted id, so there is nothing to
@@ -73,7 +81,20 @@ async function initWith(config: unknown): Promise<void> {
   }
   const ops = h.writeOps("ops.json", PLAN);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
+    await run(
+      [
+        "mutate",
+        "--ops",
+        ops,
+        "--base-version",
+        "0",
+        "--why",
+        "plan",
+        "--reason-code",
+        "MISSING_STEP",
+      ],
+      h.io,
+    ),
   ).toBe(0);
   h.reset();
 }
@@ -91,7 +112,10 @@ function inboundFile(messages: unknown[]): string {
 
 async function pollJson(messages?: unknown[]): Promise<Record<string, unknown>> {
   h.reset();
-  const args = messages === undefined ? ["poll", "--json"] : ["poll", "--json", "--inbound", inboundFile(messages)];
+  const args =
+    messages === undefined
+      ? ["poll", "--json"]
+      : ["poll", "--json", "--inbound", inboundFile(messages)];
   expect(await run(args, h.io)).toBe(0);
   return JSON.parse(h.out[0] ?? "{}") as Record<string, unknown>;
 }
@@ -119,10 +143,23 @@ describe("with no --inbound, it says what to fetch", () => {
 
   test("a pursuit with nothing awaiting mail says so", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "set_status", activity: h.id("await-dana"), status: "dropped", evidence_ref: "e" },
+      { op: "set_status", node: h.id("await-dana"), status: "terminated", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "1",
+          "--why",
+          "stop",
+          "--reason-code",
+          "WITHDRAWN",
+        ],
+        h.io,
+      ),
     ).toBe(0);
     h.reset();
     expect(await run(["poll"], h.io)).toBe(0);
@@ -153,7 +190,9 @@ describe("with --inbound, it says which wait each message is for", () => {
   });
 
   test("mail to the untagged mailbox matches nothing", async () => {
-    expect(await pollJson([{ ...DANA(), to: ["ilya@example.com"] }])).toMatchObject({ matches: [] });
+    expect(await pollJson([{ ...DANA(), to: ["ilya@example.com"] }])).toMatchObject({
+      matches: [],
+    });
   });
 
   test("it stops at WHICH wait — it never reports a verdict", async () => {
@@ -180,22 +219,68 @@ describe("with --inbound, it says which wait each message is for", () => {
   test("once the orchestrator records it, the same inbox matches nothing", async () => {
     await pollJson([DANA()]);
     const ops = h.writeOps("resolve.json", [
-      { op: "record_outcome", activity: h.id("await-dana"), verdict: "confirmed", evidence_ref: "<dana-1@mail>" },
-      { op: "set_status", activity: h.id("await-dana"), status: "done", evidence_ref: "<dana-1@mail>" },
+      {
+        op: "record_outcome",
+        node: h.id("await-dana"),
+        verdict: "confirmed",
+        evidence_ref: "<dana-1@mail>",
+      },
+      {
+        op: "set_status",
+        node: h.id("await-dana"),
+        status: "completed",
+        evidence_ref: "<dana-1@mail>",
+      },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "Dana is in", "--reason-code", "QUORUM_MET"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "1",
+          "--why",
+          "Dana is in",
+          "--reason-code",
+          "QUORUM_MET",
+        ],
+        h.io,
+      ),
     ).toBe(0);
     expect(await pollJson([DANA()])).toMatchObject({ matches: [] });
   });
 
   test("but a NEW straggler on a resolved wait is matched and flagged late", async () => {
     const ops = h.writeOps("resolve.json", [
-      { op: "record_outcome", activity: h.id("await-dana"), verdict: "confirmed", evidence_ref: "<dana-1@mail>" },
-      { op: "set_status", activity: h.id("await-dana"), status: "done", evidence_ref: "<dana-1@mail>" },
+      {
+        op: "record_outcome",
+        node: h.id("await-dana"),
+        verdict: "confirmed",
+        evidence_ref: "<dana-1@mail>",
+      },
+      {
+        op: "set_status",
+        node: h.id("await-dana"),
+        status: "completed",
+        evidence_ref: "<dana-1@mail>",
+      },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "1", "--why", "in", "--reason-code", "QUORUM_MET"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "1",
+          "--why",
+          "in",
+          "--reason-code",
+          "QUORUM_MET",
+        ],
+        h.io,
+      ),
     ).toBe(0);
     const payload = await pollJson([{ ...DANA(), message_id: "<dana-2@mail>" }]);
     expect((payload["matches"] as InboundMatch[])[0]?.late).toBe(true);

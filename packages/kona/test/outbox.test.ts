@@ -2,7 +2,7 @@
  * `kona effect reserve|record` through the real verb, against a real log (6.6, 7).
  *
  * The spec's crash table has three rows, and two of them leave IDENTICAL bytes on disk —
- * a `sending` activity with `completed_at: null`. Nothing in the log distinguishes "fsynced
+ * an `active` activity with `completed_at: null`. Nothing in the log distinguishes "fsynced
  * but never sent" from "sent but never recorded", which is why the safe behaviour is that
  * re-reserving the same payload is a no-op rather than a send, and why resume must hand
  * the state to a human rather than retry it.
@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { GraphProjection, Activity } from "@kona/core";
+import type { GraphProjection, BehaviourNode } from "@kona/core";
 import { run } from "../src/cli.ts";
 import { effectKey } from "../src/hash.ts";
 import { harness, seedRoster, type Harness } from "./harness.ts";
@@ -19,10 +19,11 @@ import { harness, seedRoster, type Harness } from "./harness.ts";
 let h: Harness;
 
 const PIVOT = [
+  { op: "add_node", name: "Run checks", type: "fork", spec: {} },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Ask Dana",
-    type: "task",
+    type: "action",
     spec: {
       instruction: "Email Dana.",
       outputs: [{ name: "sent", type: "string" }],
@@ -31,11 +32,19 @@ const PIVOT = [
     },
   },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Confirm roster",
-    type: "task",
+    type: "action",
     spec: { instruction: "Read the roster.", effect_class: "pure" },
   },
+  { op: "add_node", name: "Dana asked", type: "flow_final", spec: {} },
+  { op: "add_node", name: "Roster confirmed", type: "flow_final", spec: {} },
+  { op: "supersede_node", node: "roster-recorded", by: "$3" },
+  { op: "add_edge", from: "roster-on-file", to: "$0" },
+  { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$0", to: "$2" },
+  { op: "add_edge", from: "$1", to: "$3" },
+  { op: "add_edge", from: "$2", to: "$4" },
 ];
 
 /** The key for `ask-dana`, created at v1. Computed the same way the CLI computes it. */
@@ -64,30 +73,56 @@ beforeEach(async () => {
   await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PIVOT);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "ask", "--reason-code", "MISSING_STEP"], h.io),
+    await run(
+      [
+        "mutate",
+        "--ops",
+        ops,
+        "--base-version",
+        "2",
+        "--why",
+        "ask",
+        "--reason-code",
+        "MISSING_STEP",
+      ],
+      h.io,
+    ),
   ).toBe(0);
   h.reset();
 });
 afterEach(() => h.cleanup());
 
-async function activityOf(id: string): Promise<Activity> {
+async function activityOf(id: string): Promise<BehaviourNode> {
   h.reset();
   expect(await run(["graph", "--json"], h.io)).toBe(0);
   const projection = JSON.parse(h.out[0] ?? "{}") as GraphProjection;
-  // Callers name activities by the slug their label makes; the store minted a hash.
-  const activity = projection.activities.find((n) => n.id === id || n.id === h.id(id));
+  // Callers name activities by the slug their name makes; the store minted a hash.
+  const activity = projection.nodes.find((n) => n.id === id || n.id === h.id(id));
   if (activity === undefined) throw new Error(`no activity ${id}`);
+  // Narrowed: every assertion in this file is about an effect log or a claim, and a
+  // control node has neither. Under D6 that is a type error rather than a convention.
+  if (activity.status === undefined) throw new Error(`${id} is a ${activity.type}: no status`);
   return activity;
 }
 
 function logLineCount(): number {
-  return readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n").length;
+  return readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8")
+    .trim()
+    .split("\n").length;
 }
 
 async function reserve(payloadHash: string, activity = "ask-dana"): Promise<number> {
   h.reset();
   return await run(
-    ["effect", "reserve", h.id(activity), "--payload-hash", payloadHash, "--why", "sending the invite"],
+    [
+      "effect",
+      "reserve",
+      h.id(activity),
+      "--payload-hash",
+      payloadHash,
+      "--why",
+      "sending the invite",
+    ],
     h.io,
   );
 }
@@ -95,16 +130,28 @@ async function reserve(payloadHash: string, activity = "ask-dana"): Promise<numb
 async function record(key: string, outcome: string, messageId: string): Promise<number> {
   h.reset();
   return await run(
-    ["effect", "record", h.id("ask-dana"), "--key", key, "--outcome", outcome, "--message-id", messageId, "--why", "provider replied"],
+    [
+      "effect",
+      "record",
+      h.id("ask-dana"),
+      "--key",
+      key,
+      "--outcome",
+      outcome,
+      "--message-id",
+      messageId,
+      "--why",
+      "provider replied",
+    ],
     h.io,
   );
 }
 
 describe("reserve", () => {
-  test("appends the intent, moves the activity to sending, and fsyncs before anything is sent", async () => {
+  test("appends the intent, moves the activity to active, and fsyncs before anything is sent", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     const activity = await activityOf("ask-dana");
-    expect(activity.status.state).toBe("in_flight");
+    expect(activity.status.state).toBe("active");
     expect(activity.status.effect_log).toHaveLength(1);
     expect(activity.status.effect_log[0]?.effect_key).toBe(KEY());
     expect(activity.status.effect_log[0]?.payload_hash).toBe("sha256:aaa");
@@ -143,7 +190,9 @@ describe("reserve", () => {
 
   test("the reservation is a real mutation carrying a real rationale", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
-    const lines = readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n");
+    const lines = readFileSync(join(h.dir, ".kona", "mutations.jsonl"), "utf8")
+      .trim()
+      .split("\n");
     const reservation = JSON.parse(lines.at(-1) ?? "");
     expect(reservation.rationale.why).toBe("sending the invite");
     expect(reservation.actor.kind).toBe("subagent");
@@ -157,7 +206,10 @@ describe("reserve", () => {
 describe("the three crash windows (6.6)", () => {
   test("window 1 — crash between append and fsync: nothing happened", async () => {
     // Nothing is written until fsync returns, so the activity is still dispatchable.
-    expect((await activityOf("ask-dana")).status.state).toBe("active");
+    // `ready`, not `active`: the rollback left the node unclaimed, and unclaimed-with-
+    // dependencies-met is now its own recorded state rather than sharing a name with claimed.
+    // Under the old vocabulary both read `active`, which is the conflation this rename removed.
+    expect((await activityOf("ask-dana")).status.state).toBe("ready");
     expect((await activityOf("ask-dana")).status.effect_log).toEqual([]);
   });
 
@@ -176,12 +228,12 @@ describe("the three crash windows (6.6)", () => {
     expect(logLineCount()).toBe(before);
   });
 
-  test("window 3 — sent but not recorded leaves the same bytes as window 2, and stays sending", async () => {
+  test("window 3 — sent but not recorded leaves the same bytes as window 2, and stays active", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     const activity = await activityOf("ask-dana");
-    // This is genuinely indistinguishable from window 2 in the log. `sending` means the
+    // This is genuinely indistinguishable from window 2 in the log. `active` means the
     // world's answer is unknown — not that nothing happened.
-    expect(activity.status.state).toBe("in_flight");
+    expect(activity.status.state).toBe("active");
     expect(activity.status.effect_log[0]?.completed_at).toBeNull();
     expect(activity.status.effect_log[0]?.outcome).toBeNull();
   });
@@ -215,7 +267,7 @@ describe("record", () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "sent", "<m-101@mail>")).toBe(0);
     const activity = await activityOf("ask-dana");
-    expect(activity.status.state).toBe("done");
+    expect(activity.status.state).toBe("completed");
     expect(activity.status.effect_log[0]?.outcome).toBe("sent");
     expect(activity.status.effect_log[0]?.message_id).toBe("<m-101@mail>");
     expect(activity.status.effect_log[0]?.completed_at).not.toBeNull();
@@ -285,7 +337,7 @@ describe("an activity that has moved bytes is never re-executed", () => {
     expect(h.err[0]).toContain("EFFECT_ALREADY_SENT");
   });
 
-  test("an activity that is not active cannot be dispatched", async () => {
+  test("an activity that is not unclaimed cannot be dispatched", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(await record(KEY(), "failed", "550")).toBe(0);
     // `failed` is terminal; the retry path is supersede-with-a-replacement, which mints a
@@ -312,7 +364,16 @@ describe("--json says exactly what happened", () => {
     h.reset();
     expect(
       await run(
-        ["effect", "reserve", h.id("ask-dana"), "--payload-hash", payloadHash, "--why", "send", "--json"],
+        [
+          "effect",
+          "reserve",
+          h.id("ask-dana"),
+          "--payload-hash",
+          payloadHash,
+          "--why",
+          "send",
+          "--json",
+        ],
         h.io,
       ),
     ).toBe(0);
@@ -346,7 +407,20 @@ describe("--json says exactly what happened", () => {
     h.reset();
     expect(
       await run(
-        ["effect", "record", h.id("ask-dana"), "--key", KEY(), "--outcome", "sent", "--message-id", "<m-1>", "--why", "ok", "--json"],
+        [
+          "effect",
+          "record",
+          h.id("ask-dana"),
+          "--key",
+          KEY(),
+          "--outcome",
+          "sent",
+          "--message-id",
+          "<m-1>",
+          "--why",
+          "ok",
+          "--json",
+        ],
         h.io,
       ),
     ).toBe(0);
@@ -363,7 +437,9 @@ describe("--json says exactly what happened", () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     expect(h.out[0]).toBe(`reserved ${KEY()} at v4 — fsynced, safe to send`);
     expect(await reserve("sha256:aaa")).toBe(0);
-    expect(h.out[0]).toBe(`already reserved ${KEY()} for this payload — send it, do not re-reserve`);
+    expect(h.out[0]).toBe(
+      `already reserved ${KEY()} for this payload — send it, do not re-reserve`,
+    );
   });
 
   test("recording says which slot closed and how", async () => {
@@ -378,7 +454,19 @@ describe("dispatch", () => {
     h.reset();
     expect(
       await run(
-        ["effect", "record", h.id("ghost"), "--key", KEY(), "--outcome", "sent", "--message-id", "<m-1>", "--why", "x"],
+        [
+          "effect",
+          "record",
+          h.id("ghost"),
+          "--key",
+          KEY(),
+          "--outcome",
+          "sent",
+          "--message-id",
+          "<m-1>",
+          "--why",
+          "x",
+        ],
         h.io,
       ),
     ).toBe(1);
@@ -388,10 +476,30 @@ describe("dispatch", () => {
   test("--message-id and --key are both required to record", async () => {
     expect(await reserve("sha256:aaa")).toBe(0);
     h.reset();
-    expect(await run(["effect", "record", h.id("ask-dana"), "--outcome", "sent", "--message-id", "<m>", "--why", "x"], h.io)).toBe(1);
+    expect(
+      await run(
+        [
+          "effect",
+          "record",
+          h.id("ask-dana"),
+          "--outcome",
+          "sent",
+          "--message-id",
+          "<m>",
+          "--why",
+          "x",
+        ],
+        h.io,
+      ),
+    ).toBe(1);
     expect(h.err[0]).toContain("--key");
     h.reset();
-    expect(await run(["effect", "record", h.id("ask-dana"), "--key", KEY(), "--outcome", "sent", "--why", "x"], h.io)).toBe(1);
+    expect(
+      await run(
+        ["effect", "record", h.id("ask-dana"), "--key", KEY(), "--outcome", "sent", "--why", "x"],
+        h.io,
+      ),
+    ).toBe(1);
     expect(h.err[0]).toContain("--message-id");
   });
 
@@ -419,11 +527,27 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
       await seedRoster(bare, ["dana"]);
       const ops = bare.writeOps("ops.json", PIVOT);
       expect(
-        await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "ask", "--reason-code", "MISSING_STEP"], bare.io),
+        await run(
+          [
+            "mutate",
+            "--ops",
+            ops,
+            "--base-version",
+            "2",
+            "--why",
+            "ask",
+            "--reason-code",
+            "MISSING_STEP",
+          ],
+          bare.io,
+        ),
       ).toBe(0);
       bare.reset();
       expect(
-        await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h", "--why", "send"], bare.io),
+        await run(
+          ["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h", "--why", "send"],
+          bare.io,
+        ),
       ).toBe(1);
       expect(bare.err[0]).toContain("NO_EFFECT_BUDGET");
     } finally {
@@ -442,9 +566,9 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
       const ops = spent.writeOps("ops.json", [
         ...PIVOT,
         {
-          op: "add_activity",
+          op: "add_node",
           name: "Ask Sam",
-          type: "task",
+          type: "action",
           spec: {
             instruction: "Email Sam.",
             outputs: [{ name: "sent", type: "string" }],
@@ -452,19 +576,41 @@ describe("invariant 3(a): the budget is spent at reserve, not merely advised in 
             effect: { channel: "email", recipient_ref: "roster#sam" },
           },
         },
+        { op: "add_node", name: "Sam asked", type: "flow_final", spec: {} },
+        { op: "add_edge", from: "$0", to: "$11" },
+        { op: "add_edge", from: "$11", to: "$12" },
       ]);
       expect(
-        await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "ask", "--reason-code", "MISSING_STEP"], spent.io),
+        await run(
+          [
+            "mutate",
+            "--ops",
+            ops,
+            "--base-version",
+            "2",
+            "--why",
+            "ask",
+            "--reason-code",
+            "MISSING_STEP",
+          ],
+          spent.io,
+        ),
       ).toBe(0);
 
       spent.reset();
       expect(
-        await run(["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h", "--why", "send"], spent.io),
+        await run(
+          ["effect", "reserve", h.id("ask-dana"), "--payload-hash", "h", "--why", "send"],
+          spent.io,
+        ),
       ).toBe(0);
 
       spent.reset();
       expect(
-        await run(["effect", "reserve", spent.id("ask-sam"), "--payload-hash", "h", "--why", "send"], spent.io),
+        await run(
+          ["effect", "reserve", spent.id("ask-sam"), "--payload-hash", "h", "--why", "send"],
+          spent.io,
+        ),
       ).toBe(1);
       expect(spent.err[0]).toContain("EFFECT_BUDGET_EXHAUSTED");
       expect(spent.err[0]).toContain("1 of 1");

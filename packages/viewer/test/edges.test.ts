@@ -8,9 +8,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Graph } from "@kona/core";
-import { isReady, readyFrontier } from "@kona/core";
+import { foldLog, isReady, readyFrontier } from "@kona/core";
 import { flowTerminals, viewEdges } from "../src/model/edges.ts";
+import { guardValue } from "../src/model/guard.ts";
 import { folded, headVersion } from "./fixture.ts";
 
 const FOLD = folded();
@@ -23,12 +26,6 @@ function kinds(graph: Graph = GRAPH) {
   }, {});
 }
 
-function variant(edit: (graph: Graph) => void): Graph {
-  const clone = structuredClone(GRAPH);
-  edit(clone);
-  return clone;
-}
-
 describe("viewEdges", () => {
   test("every dependency is drawn, in append order, and nothing is invented", () => {
     const requires = viewEdges(GRAPH).filter((e) => e.kind === "requires");
@@ -38,29 +35,9 @@ describe("viewEdges", () => {
     );
   });
 
-  test("every wait's on_timeout is drawn — §6.4 requires one on every wait", () => {
-    const waits = [...GRAPH.activities.values()].filter((n) => n.type === "wait");
-    expect(waits.length).toBeGreaterThan(0);
-    const timeouts = viewEdges(GRAPH).filter((e) => e.kind === "timeout");
-    // Every wait in the fixture routes somewhere real, so the counts must agree exactly. A
-    // wait whose target were missing would be skipped, and that is asserted separately below.
-    expect(timeouts).toHaveLength(waits.length);
-    for (const wait of waits) {
-      expect(timeouts.some((e) => e.from === wait.id && e.to === wait.spec.on_timeout)).toBe(true);
-    }
-  });
-
-  test("the escalation is reachable on the canvas, not stranded", () => {
-    // The bug this file exists for: `th-vipt` has no in-edge and no out-edge
-    // in `graph.edges`, and was drawn floating while every wait in the pursuit pointed at it.
-    const escalation = "th-vipt";
-    expect(GRAPH.edges.some((e) => e.from === escalation || e.to === escalation)).toBe(false);
-    expect(viewEdges(GRAPH).some((e) => e.to === escalation)).toBe(true);
-  });
-
   test("a supersede chain is drawn link by link", () => {
-    const superseded = [...GRAPH.activities.values()].filter(
-      (n) => n.provenance.superseded_by !== null,
+    const superseded = [...GRAPH.nodes.values()].filter(
+      (node) => node.provenance.superseded_by !== null && node.provenance.superseded_by !== node.id,
     );
     expect(superseded.length).toBeGreaterThan(0);
     const links = viewEdges(GRAPH).filter((e) => e.kind === "supersedes");
@@ -79,7 +56,7 @@ describe("viewEdges", () => {
     const before = readyFrontier(GRAPH).map((n) => n.id);
     viewEdges(GRAPH);
     expect(readyFrontier(GRAPH).map((n) => n.id)).toEqual(before);
-    const escalation = GRAPH.activities.get("th-vipt");
+    const escalation = GRAPH.nodes.get("th-vipt");
     if (escalation === undefined) throw new Error("the fixture has no escalation activity");
     expect(isReady(GRAPH, escalation)).toBe(true);
   });
@@ -89,34 +66,12 @@ describe("viewEdges", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  test("a timeout target that is not in the graph is skipped, not minted", () => {
-    // `add_activity` permits a forward reference, and time travel to a version before the target
-    // landed produces exactly this. Minting it would hand dagre a zero-size phantom.
-    const graph = variant((g) => {
-      const wait = g.activities.get("th-es9m");
-      if (wait === undefined) throw new Error("no th-es9m");
-      wait.spec.on_timeout = "a-activity-added-later";
-    });
-    const arcs = viewEdges(graph).filter((e) => e.kind === "timeout");
-    expect(arcs.some((e) => e.from === "th-es9m")).toBe(false);
-    expect(arcs.every((e) => graph.activities.has(e.to))).toBe(true);
-  });
-
-  test("a wait whose timeout is itself is not drawn as a self-loop", () => {
-    const graph = variant((g) => {
-      const wait = g.activities.get("th-es9m");
-      if (wait === undefined) throw new Error("no th-es9m");
-      wait.spec.on_timeout = "th-es9m";
-    });
-    expect(viewEdges(graph).some((e) => e.from === e.to)).toBe(false);
-  });
-
-  test("only a dependency carries satisfaction; the other two never gate anything", () => {
+  test("only dependencies carry satisfaction; lineage never gates anything", () => {
     for (const edge of viewEdges(GRAPH)) {
       if (edge.kind === "requires") continue;
       expect(edge.satisfied).toBe(false);
       expect(edge.dead).toBe(false);
-      expect(edge.condition).toBeNull();
+      expect(edge.guard).toBeNull();
     }
   });
 
@@ -124,16 +79,15 @@ describe("viewEdges", () => {
     for (let v = 0; v <= headVersion(); v++) {
       const graph = folded(v).graph;
       for (const edge of viewEdges(graph)) {
-        expect(graph.activities.has(edge.from)).toBe(true);
-        expect(graph.activities.has(edge.to)).toBe(true);
+        expect(graph.nodes.has(edge.from)).toBe(true);
+        expect(graph.nodes.has(edge.to)).toBe(true);
       }
     }
   });
 
-  test("the fixture's three kinds are all present", () => {
+  test("the fixture's edge kinds are all present", () => {
     expect(kinds()).toMatchObject({
       requires: expect.any(Number),
-      timeout: expect.any(Number),
       supersedes: expect.any(Number),
     });
   });
@@ -155,7 +109,7 @@ describe("viewEdges — labels", () => {
   const conditionsBySource = new Map<string, Set<string | null>>();
   for (const edge of GRAPH.edges) {
     const set = conditionsBySource.get(edge.from) ?? new Set<string | null>();
-    set.add(edge.condition?.on ?? null);
+    set.add(guardValue(edge));
     conditionsBySource.set(edge.from, set);
   }
   const forks = (from: string): boolean => (conditionsBySource.get(from)?.size ?? 0) >= 2;
@@ -168,13 +122,13 @@ describe("viewEdges — labels", () => {
 
   test("an unconditional edge is never labelled", () => {
     for (const edge of requires) {
-      if (edge.condition === null) expect(edge.label).toBeNull();
+      if (edge.guard === null) expect(edge.label).toBeNull();
     }
   });
 
   test("`satisfied` alone is the default outcome and says nothing", () => {
     // 16 of the fixture's 17 labels used to be this word, five of them on grey lines.
-    const plain = requires.filter((edge) => edge.condition === "satisfied" && !forks(edge.from));
+    const plain = requires.filter((edge) => edge.guard === "satisfied" && !forks(edge.from));
     expect(plain.length).toBeGreaterThan(0);
     for (const edge of plain) expect(edge.label).toBeNull();
   });
@@ -183,17 +137,15 @@ describe("viewEdges — labels", () => {
     // The rule this replaced keyed on sibling count and dropped exactly the label worth having:
     // `ruling-on-inviting-a-stranger` has ONE out-edge, conditioned `accept`, and everything
     // downstream happens only if a person says yes.
-    const forked = requires.filter(
-      (edge) => edge.condition !== null && edge.condition !== "satisfied",
-    );
+    const forked = requires.filter((edge) => edge.guard !== null && edge.guard !== "satisfied");
     expect(forked.length).toBeGreaterThan(0);
-    for (const edge of forked) expect(edge.label).toBe(`on ${edge.condition}`);
+    for (const edge of forked) expect(edge.label).toBe(`on ${edge.guard}`);
   });
 
   test("on a forking source even the default is worth printing", () => {
     for (const edge of requires) {
-      if (edge.condition !== null && forks(edge.from)) {
-        expect(edge.label).toBe(`on ${edge.condition}`);
+      if (edge.guard !== null && forks(edge.from)) {
+        expect(edge.label).toBe(`on ${edge.guard}`);
       }
     }
   });
@@ -222,27 +174,9 @@ describe("flowTerminals", () => {
     }
   });
 
-  test("the escalation is an END, not a start — the timeout arcs are what make it one", () => {
-    // Without counting timeout routes as flow it has no in-edge at all and would read as the
-    // place the pursuit begins, which is the exact opposite of what it is.
-    const { starts, ends } = flowTerminals(GRAPH);
-    expect(GRAPH.edges.some((e) => e.to === "th-vipt")).toBe(false);
-    expect(starts.has("th-vipt")).toBe(false);
-    expect(ends.has("th-vipt")).toBe(true);
-  });
-
-  test("no wait is ever an end — §6.4 gives every one of them somewhere to go", () => {
-    const { ends } = flowTerminals(GRAPH);
-    for (const activity of GRAPH.activities.values()) {
-      if (activity.type !== "wait") continue;
-      if (activity.provenance.superseded_by !== null) continue;
-      expect(ends.has(activity.id)).toBe(false);
-    }
-  });
-
   test("a superseded activity is neither — it was replaced, not reached", () => {
     const { starts, ends } = flowTerminals(GRAPH);
-    const retired = [...GRAPH.activities.values()].filter((n) => n.provenance.superseded_by !== null);
+    const retired = [...GRAPH.nodes.values()].filter((n) => n.provenance.superseded_by !== null);
     expect(retired.length).toBeGreaterThan(0);
     for (const activity of retired) {
       expect(starts.has(activity.id)).toBe(false);
@@ -253,7 +187,7 @@ describe("flowTerminals", () => {
   test("the supersede chain does not count as flow", () => {
     // The REPLACEMENT has a supersede arc pointing at it and no dependency in-edge, so
     // counting lineage as flow would stop it being a start.
-    const replacement = [...GRAPH.activities.values()].find(
+    const replacement = [...GRAPH.nodes.values()].find(
       (n) => n.provenance.supersedes !== null && n.provenance.superseded_by === null,
     );
     if (replacement === undefined) throw new Error("the fixture lost its supersede chain");
@@ -265,5 +199,31 @@ describe("flowTerminals", () => {
     for (let v = 1; v <= headVersion(); v++) {
       expect(flowTerminals(folded(v).graph).starts.size).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("synthetic terminals stand down for a graph that has its own", () => {
+  test("an activity-model pursuit gets none — its initial and final nodes ARE the notation", () => {
+    // Drawn beside the real thing they put two filled discs at the left edge and two rings at
+    // the right, which reads as two pursuits rather than as one drawn twice. Caught on screen,
+    // not in a test: nothing here renders, so nothing here could have seen it.
+    const v2 = foldLog(
+      readFileSync(
+        join(import.meta.dir, "..", "..", "..", "fixtures", "goalie.mutations.jsonl"),
+        "utf8",
+      ),
+    ).graph;
+    const hasInitial = [...v2.nodes.values()].some((node) => node.type === "initial");
+    expect(hasInitial).toBe(true);
+
+    const terminals = flowTerminals(v2);
+    expect([...terminals.starts]).toEqual([]);
+    expect([...terminals.ends]).toEqual([]);
+  });
+
+  test("and a v1-shaped pursuit still gets them, because it has no terminators of its own", () => {
+    const v1 = folded().graph;
+    expect([...v1.nodes.values()].some((node) => node.type === "initial")).toBe(false);
+    expect(flowTerminals(v1).starts.size).toBeGreaterThan(0);
   });
 });

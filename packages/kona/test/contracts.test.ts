@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { Rejection } from "@kona/core";
+import type { Graph, Rejection } from "@kona/core";
 import { SCHEMA_VERSION } from "@kona/core";
 import { KONA_DIR, LOCK_FILE, LOG_FILE, REJECTIONS_FILE, konaPaths } from "../src/paths.ts";
 import { NETWORK_PATH_MARKERS, detectNetworkFilesystem } from "../src/netfs.ts";
@@ -17,6 +17,127 @@ import {
   exitCodeFor,
 } from "../src/exit.ts";
 import { genesisRecord } from "../src/commands/init.ts";
+import { projectPublicGraph } from "../src/commands/graph.ts";
+import { projectNext } from "../src/commands/next.ts";
+
+const provenance = { created_by_version: 1, supersedes: null, superseded_by: null };
+const status = (state: "ready" | "completed") => ({
+  state,
+  outcomes: [],
+  outcome: null,
+  output: null,
+  output_evidence: null,
+  conditions: [],
+  effect_log: [],
+  observed_at_version: 1,
+});
+
+function nextContractGraph(): Graph {
+  const actionSpec = {
+    instruction: "work",
+    inputs: [],
+    outputs: [],
+    effect_class: "pure" as const,
+  };
+  return {
+    schema_version: SCHEMA_VERSION,
+    version: 1,
+    nodes: new Map([
+      ["start", { id: "start", type: "initial", name: "Start", spec: {}, provenance }],
+      ["fork", { id: "fork", type: "fork", name: "Parallel", spec: {}, provenance }],
+      [
+        "a",
+        {
+          id: "a",
+          type: "action",
+          name: "A",
+          spec: actionSpec,
+          status: status("ready"),
+          provenance,
+        },
+      ],
+      [
+        "b",
+        {
+          id: "b",
+          type: "action",
+          name: "B",
+          spec: actionSpec,
+          status: status("ready"),
+          provenance,
+        },
+      ],
+      [
+        "wait",
+        {
+          id: "wait",
+          type: "accept_event",
+          name: "Wait",
+          spec: {
+            ...actionSpec,
+            deadline: { at: "2026-08-22T17:00:00.000Z" },
+            match: {
+              kind: "event",
+              conditions: [{ kind: "reply", on: "satisfied" }],
+              memory: true,
+            },
+          },
+          status: status("ready"),
+          provenance,
+        },
+      ],
+      [
+        "done",
+        {
+          id: "done",
+          type: "action",
+          name: "Done",
+          spec: actionSpec,
+          status: status("completed"),
+          provenance,
+        },
+      ],
+      ["final", { id: "final", type: "final", name: "Final", spec: {}, provenance }],
+    ]),
+    edges: [
+      { from: "start", to: "fork" },
+      { from: "fork", to: "a" },
+      { from: "fork", to: "b" },
+      { from: "fork", to: "wait" },
+      { from: "done", to: "final" },
+    ],
+  };
+}
+
+describe("the public next projection", () => {
+  test("returns only ready actions, carrying their containing fork", () => {
+    const projection = projectNext(nextContractGraph());
+    expect(projection.nodes.map(({ id, fork }) => ({ id, fork }))).toEqual([
+      { id: "a", fork: "fork" },
+      { id: "b", fork: "fork" },
+    ]);
+  });
+
+  test("reports a reached activity final independently of an empty frontier", () => {
+    const graph = nextContractGraph();
+    graph.nodes.delete("a");
+    graph.nodes.delete("b");
+    expect(projectNext(graph)).toMatchObject({ complete: true, nodes: [] });
+  });
+});
+
+test("the public graph projection exposes guard and never condition", () => {
+  const graph = nextContractGraph();
+  graph.edges = [{ from: "done", to: "final", guard: { on: "satisfied" } }];
+  const projection = projectPublicGraph({
+    schema_version: graph.schema_version,
+    version: graph.version,
+    nodes: [...graph.nodes.values()],
+    edges: graph.edges,
+  });
+  expect(projection.edges).toEqual([{ from: "done", to: "final", guard: { on: "satisfied" } }]);
+  expect(projection.edges.some((edge) => "condition" in edge)).toBe(false);
+});
 
 describe("the .kona layout is two files and no snapshot", () => {
   test("paths derive from the root", () => {
@@ -60,7 +181,10 @@ describe("exit status is 8-bit (§6.8)", () => {
   });
 
   test.each([
-    [{ code: "INVARIANT_VIOLATION", reason: "TERMINAL_ACTIVITY_PROTECTED", message: "" }, EXIT_INVARIANT_VIOLATION],
+    [
+      { code: "INVARIANT_VIOLATION", reason: "TERMINAL_ACTIVITY_PROTECTED", message: "" },
+      EXIT_INVARIANT_VIOLATION,
+    ],
     [{ code: "REFUSED", reason: "STALE_BASE_VERSION", message: "" }, EXIT_STALE_BASE_VERSION],
     [{ code: "REFUSED", reason: "MALFORMED_OPS", message: "" }, EXIT_REFUSED],
     [{ code: "REFUSED", reason: "UNKNOWN_ACTIVITY", message: "" }, EXIT_REFUSED],

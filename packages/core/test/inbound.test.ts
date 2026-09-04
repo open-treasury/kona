@@ -2,14 +2,14 @@
  * Matching inbound mail to armed waits (§6.5).
  *
  * The rule that carries the most weight is **first-match-wins**, in both directions: one
- * reply advances one condition, and one reply advances one wait. Evaluate-all would let a
+ * reply advances one guard, and one reply advances one acceptEvent. Evaluate-all would let a
  * single message resolve two fanned-out arms, which is unrecoverable under no-rollback.
  */
 
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph, InboundMessage } from "../src/index.ts";
 import { matchInbound, matchWait, waitAddresses } from "../src/index.ts";
-import { commit, seeded, task, wait, activityAt, nid, slugOf } from "./fixtures.ts";
+import { commit, seeded, action, acceptEvent, activityAt, nid, slugOf } from "./fixtures.ts";
 
 const MAILBOX = "ilya@example.com";
 
@@ -17,7 +17,7 @@ const MAILBOX = "ilya@example.com";
  * A plausible inbound reply.
  *
  * The default `to` used to be spelled out, because a slug id was predictable. It is a hash
- * now, so the caller passes the address it wants — every test that depends on which wait the
+ * now, so the caller passes the address it wants — every test that depends on which acceptEvent the
  * message is for was already doing that.
  */
 function message(over: Partial<InboundMessage> & { message_id: string }): InboundMessage {
@@ -30,14 +30,13 @@ function message(over: Partial<InboundMessage> & { message_id: string }): Inboun
   };
 }
 
-/** `escalate` (task) then one event-wait per name. */
+/** `escalate` (action) then one event-acceptEvent per name. */
 function waiting(...names: string[]): Graph {
   return seeded([
-    task("Escalate"),
+    action("Escalate"),
     ...names.map((name) =>
-      wait(name, {
-        on_timeout: "$0",
-        deadline: { at: "2026-08-30T12:00:00.000Z" },
+      acceptEvent(name, {
+                deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [
@@ -57,7 +56,7 @@ function activityOf(graph: Graph, id: string) {
 }
 
 describe("which addresses are worth polling", () => {
-  test("an armed event-wait, with its fully expanded reply address", () => {
+  test("an armed event-acceptEvent, with its fully expanded reply address", () => {
     const graph = waiting("Await Dana");
     const id = nid(graph, "await-dana");
     expect(waitAddresses(graph, MAILBOX)).toEqual([
@@ -71,10 +70,10 @@ describe("which addresses are worth polling", () => {
     ]);
   });
 
-  test("a RESOLVED wait stays pollable — §6.5 requires a late reply to be recorded", () => {
+  test("a RESOLVED acceptEvent stays pollable — §6.5 requires a late reply to be recorded", () => {
     const resolved = commit(waiting("Await Dana"), [
-      { op: "record_outcome", activity: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
-      { op: "set_status", activity: "await-dana", status: "done", evidence_ref: "<m-1>" },
+      { op: "record_outcome", node: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
+      { op: "set_status", node: "await-dana", status: "completed", evidence_ref: "<m-1>" },
     ]);
     const id = nid(resolved, "await-dana");
     expect(waitAddresses(resolved, MAILBOX)).toEqual([
@@ -87,22 +86,21 @@ describe("which addresses are worth polling", () => {
     ]);
   });
 
-  test("a task is never polled, however much it looks like one", () => {
-    expect(waitAddresses(seeded([task("Ask Dana")]), MAILBOX)).toEqual([]);
+  test("a action is never polled, however much it looks like one", () => {
+    expect(waitAddresses(seeded([action("Ask Dana")]), MAILBOX)).toEqual([]);
   });
 
-  test("a predicate or human wait has no inbox to poll", () => {
+  test("a predicate or human acceptEvent has no inbox to poll", () => {
     const graph = seeded([
-      task("Escalate"),
-      wait("Quorum", {
-        on_timeout: "$0",
-        match: {
+      action("Escalate"),
+      acceptEvent("Quorum", {
+                match: {
           kind: "predicate",
           conditions: [
             {
               kind: "predicate",
               on: "satisfied",
-              // A predicate wait must carry one: without it nothing counts against the wait
+              // A predicate acceptEvent must carry one: without it nothing counts against the acceptEvent
               // and invariant 2 can never judge it satisfiable.
               predicate: { count: { verdict: "confirmed", attrs: { role: "goalie" } }, op: ">=", n: 1 },
             },
@@ -113,9 +111,9 @@ describe("which addresses are worth polling", () => {
     expect(waitAddresses(graph, MAILBOX)).toEqual([]);
   });
 
-  test("a dropped or superseded wait is not polled", () => {
+  test("an abandoned or superseded acceptEvent is not polled", () => {
     const dropped = commit(waiting("Await Dana"), [
-      { op: "set_status", activity: "await-dana", status: "dropped", evidence_ref: "e" },
+      { op: "set_status", node: "await-dana", status: "terminated", evidence_ref: "e" },
     ]);
     expect(waitAddresses(dropped, MAILBOX)).toEqual([]);
   });
@@ -137,12 +135,12 @@ describe("which addresses are worth polling", () => {
   });
 });
 
-describe("matching one wait", () => {
+describe("matching one acceptEvent", () => {
   const graph = waiting("Await Dana");
   const address = `ilya+kona-${nid(graph, "await-dana")}@example.com`;
   const options = { ownMailbox: MAILBOX };
 
-  test("a reply to the wait's own address matches", () => {
+  test("a reply to the acceptEvent's own address matches", () => {
     const match = matchWait(activityOf(graph, "await-dana"), [message({ message_id: "<m-1>", to: [address] })], address, options);
     expect(match?.message_id).toBe("<m-1>");
     expect(match?.on).toBe("satisfied");
@@ -151,14 +149,14 @@ describe("matching one wait", () => {
 
   test("OUR OWN outbound copy is not a reply", () => {
     // A thread carries both halves of the conversation; both implementations of the port
-    // are capture sinks over one store. Matching our own send would resolve the wait the
+    // are capture sinks over one store. Matching our own send would resolve the acceptEvent the
     // instant it was armed.
     const own = message({ message_id: "<own-1>", from: "Ilya <ilya@example.com>", to: [address] });
     expect(matchWait(activityOf(graph, "await-dana"), [own], address, options)).toBeNull();
   });
 
-  test("mail to a different tag belongs to a different wait", () => {
-    // Some other wait's tag. It does not have to exist — the point is that it is not this
+  test("mail to a different tag belongs to a different acceptEvent", () => {
+    // Some other acceptEvent's tag. It does not have to exist — the point is that it is not this
     // activity's address, and correlation is what decides.
     const other = message({ message_id: "<m-2>", to: ["ilya+kona-someone-else@example.com"] });
     expect(matchWait(activityOf(graph, "await-dana"), [other], address, options)).toBeNull();
@@ -179,19 +177,19 @@ describe("matching one wait", () => {
     expect(matchWait(activityOf(graph, "await-dana"), [shouted], address, options)?.message_id).toBe("<m-5>");
   });
 
-  test("a message already recorded against this wait is skipped", () => {
-    // The dedupe set costs nothing: it is the wait's own outcomes. No cursor to persist,
+  test("a message already recorded against this acceptEvent is skipped", () => {
+    // The dedupe set costs nothing: it is the acceptEvent's own outcomes. No cursor to persist,
     // and none to lose.
     const seen = commit(graph, [
-      { op: "record_outcome", activity: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
+      { op: "record_outcome", node: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
     ]);
     const messages = [message({ message_id: "<m-1>", to: [address] }), message({ message_id: "<m-6>", to: [address] })];
     expect(matchWait(activityOf(seen, "await-dana"), messages, address, options)?.message_id).toBe("<m-6>");
   });
 
-  test("a tentative reply leaves the wait armed, so the next one still matches", () => {
+  test("a tentative reply leaves the acceptEvent armed, so the next one still matches", () => {
     const tentative = commit(graph, [
-      { op: "record_outcome", activity: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
+      { op: "record_outcome", node: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
     ]);
     const match = matchWait(activityOf(tentative, "await-dana"), [message({ message_id: "<m-7>", to: [address] })], address, options);
     expect(match?.late).toBe(false);
@@ -199,8 +197,8 @@ describe("matching one wait", () => {
 
   test("once resolved, a straggler is matched and flagged LATE", () => {
     const resolved = commit(graph, [
-      { op: "record_outcome", activity: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
-      { op: "set_status", activity: "await-dana", status: "done", evidence_ref: "<m-1>" },
+      { op: "record_outcome", node: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
+      { op: "set_status", node: "await-dana", status: "completed", evidence_ref: "<m-1>" },
     ]);
     const match = matchWait(activityOf(resolved, "await-dana"), [message({ message_id: "<m-8>", to: [address] })], address, options);
     expect(match?.late).toBe(true);
@@ -208,10 +206,9 @@ describe("matching one wait", () => {
 
   test("FIRST match wins within the or-group", () => {
     const twoWays = seeded([
-      task("Escalate"),
-      wait("Await Dana", {
-        on_timeout: "$0",
-        deadline: { at: "2026-08-30T12:00:00.000Z" },
+      action("Escalate"),
+      acceptEvent("Await Dana", {
+                deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [
@@ -225,12 +222,11 @@ describe("matching one wait", () => {
       .toBe("respond");
   });
 
-  test("a condition scoped to one sender ignores everybody else", () => {
+  test("a guard scoped to one sender ignores everybody else", () => {
     const fromDana = seeded([
-      task("Escalate"),
-      wait("Await Dana", {
-        on_timeout: "$0",
-        deadline: { at: "2026-08-30T12:00:00.000Z" },
+      action("Escalate"),
+      acceptEvent("Await Dana", {
+                deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [{ kind: "reply", on: "satisfied", from: "dana@example.com" }],
@@ -244,12 +240,11 @@ describe("matching one wait", () => {
     expect(matchWait(activity, [dana], address, options)?.message_id).toBe("<m-11>");
   });
 
-  test("a condition scoped to a thread ignores replies to anything else", () => {
+  test("a guard scoped to a thread ignores replies to anything else", () => {
     const threaded = seeded([
-      task("Escalate"),
-      wait("Await Dana", {
-        on_timeout: "$0",
-        deadline: { at: "2026-08-30T12:00:00.000Z" },
+      action("Escalate"),
+      acceptEvent("Await Dana", {
+                deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [{ kind: "reply", on: "satisfied", in_reply_to: ["<sent-1>"] }],
@@ -263,12 +258,11 @@ describe("matching one wait", () => {
       .toBe("<c>");
   });
 
-  test("a DEADLINE condition never matches a message — that is the clock's job", () => {
+  test("a DEADLINE guard never matches a message — that is the clock's job", () => {
     const clockOnly = seeded([
-      task("Escalate"),
-      wait("Await Dana", {
-        on_timeout: "$0",
-        deadline: { at: "2026-08-30T12:00:00.000Z" },
+      action("Escalate"),
+      acceptEvent("Await Dana", {
+                deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: { kind: "event", conditions: [{ kind: "deadline", on: "timeout" }] },
       }),
     ]);
@@ -283,7 +277,7 @@ describe("matching one wait", () => {
 });
 
 describe("matching a batch across waits", () => {
-  test("ONE reply advances ONE wait, never two", () => {
+  test("ONE reply advances ONE acceptEvent, never two", () => {
     // Evaluate-all would let a single message resolve two fanned-out arms, and there is no
     // rollback to undo the second.
     const graph = waiting("Await Dana", "Await Sam");
@@ -308,7 +302,7 @@ describe("matching a batch across waits", () => {
     ]);
   });
 
-  test("one wait takes at most one message per poll", () => {
+  test("one acceptEvent takes at most one message per poll", () => {
     const graph = waiting("Await Dana");
     const to = [`ilya+kona-${nid(graph, "await-dana")}@example.com`];
     const matches = matchInbound(graph, MAILBOX, [
@@ -322,7 +316,7 @@ describe("matching a batch across waits", () => {
     expect(matchInbound(waiting("Await Dana"), MAILBOX, [])).toEqual([]);
     // A graph with no waits matches nothing, whatever the message is addressed to.
     expect(
-      matchInbound(seeded([task("A")]), MAILBOX, [
+      matchInbound(seeded([action("A")]), MAILBOX, [
         message({ message_id: "<m-1>", to: ["ilya+kona-nobody@example.com"] }),
       ]),
     ).toEqual([]);
@@ -336,8 +330,8 @@ describe("matching a batch across waits", () => {
     expect(matchInbound(graph, MAILBOX, inbox)).toHaveLength(1);
 
     const recorded = commit(graph, [
-      { op: "record_outcome", activity: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
-      { op: "set_status", activity: "await-dana", status: "done", evidence_ref: "<m-1>" },
+      { op: "record_outcome", node: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
+      { op: "set_status", node: "await-dana", status: "completed", evidence_ref: "<m-1>" },
     ] as AuthoredOp[]);
     expect(matchInbound(recorded, MAILBOX, inbox)).toEqual([]);
   });

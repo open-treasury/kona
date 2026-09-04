@@ -16,16 +16,24 @@ import { harness, type Harness } from "./harness.ts";
 let h: Harness;
 
 const PLAN = [
+  { op: "add_node", name: "Start", type: "initial", spec: {} },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Confirm roster",
-    type: "task",
+    type: "action",
     spec: { instruction: "Read the roster.", effect_class: "pure" },
   },
+  { op: "add_node", name: "Roster confirmed", type: "final", spec: {} },
+  { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$1", to: "$2" },
 ];
 
 /** Records what it was handed, and hands back a server that does nothing. */
-function fakeViewer(): { serve: ServeViewer; calls: { root: string; port?: number }[]; stopped: number } {
+function fakeViewer(): {
+  serve: ServeViewer;
+  calls: { root: string; port?: number }[];
+  stopped: number;
+} {
   const state = { calls: [] as { root: string; port?: number }[], stopped: 0 };
   const serve: ServeViewer = async (config) => {
     state.calls.push(config);
@@ -36,7 +44,16 @@ function fakeViewer(): { serve: ServeViewer; calls: { root: string; port?: numbe
       },
     };
   };
-  return { serve, ...state, get calls() { return state.calls; }, get stopped() { return state.stopped; } };
+  return {
+    serve,
+    ...state,
+    get calls() {
+      return state.calls;
+    },
+    get stopped() {
+      return state.stopped;
+    },
+  };
 }
 
 beforeEach(async () => {
@@ -44,7 +61,20 @@ beforeEach(async () => {
   expect(await run(["init", "--prefix", "t"], h.io)).toBe(0);
   const ops = h.writeOps("ops.json", PLAN);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "0", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
+    await run(
+      [
+        "mutate",
+        "--ops",
+        ops,
+        "--base-version",
+        "0",
+        "--why",
+        "plan",
+        "--reason-code",
+        "MISSING_STEP",
+      ],
+      h.io,
+    ),
   ).toBe(0);
   h.reset();
 });

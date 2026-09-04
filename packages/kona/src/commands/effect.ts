@@ -1,7 +1,7 @@
 /**
  * `kona effect reserve|record` — §6.6's outbox, and **the only verbs that touch the world**.
  *
- *   1. reserve  -> append intent, status `sending`, FSYNC
+ *   1. reserve  -> append intent, status `active`, FSYNC
  *   2. executor sends
  *   3. record   -> append the outcome
  *
@@ -10,7 +10,7 @@
  * side effect. Never the reverse.
  *
  * A caveat the spec's table understates: crash windows 2 and 3 — between fsync and send,
- * and between send and record — leave EXACTLY the same bytes on disk, a `sending` activity
+ * and between send and record — leave EXACTLY the same bytes on disk, an `active` activity
  * with `completed_at: null`. Nothing in the log can tell them apart, which is why the
  * honest handling is to surface both for a human (or for reconciliation against the
  * mailbox, which §6.5 makes the source of truth) rather than to retry one of them.
@@ -18,7 +18,7 @@
 
 import {
   type Graph,
-  type Activity,
+  type ActivityNode,
   effectByKey,
   effectsCommitted,
   pursuitConfig,
@@ -52,8 +52,8 @@ export interface RecordOptions {
   json: boolean;
 }
 
-function lookup(graph: Graph, id: string, io: Io): Activity | null {
-  const activity = graph.activities.get(id);
+function lookup(graph: Graph, id: string, io: Io): ActivityNode | null {
+  const activity = graph.nodes.get(id);
   if (activity === undefined) {
     io.err(`REFUSED UNKNOWN_ACTIVITY activity '${id}' does not exist`);
     return null;
@@ -69,6 +69,13 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
     const activity = lookup(graph, options.activity, io);
     if (activity === null) return { refused: EXIT_REFUSED };
 
+    if (activity.type !== "action") {
+      io.err(
+        `REFUSED NOT_DISPATCHABLE '${activity.id}' is a ${activity.type}; only ready actions may reserve`,
+      );
+      return { refused: EXIT_REFUSED };
+    }
+
     if (activity.spec.effect === undefined) {
       io.err(
         `REFUSED NOT_AN_EFFECT_ACTIVITY '${activity.id}' is effect_class '${activity.spec.effect_class}' and reserves nothing`,
@@ -78,7 +85,9 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
 
     // §6.6 — "An activity with a non-empty effect_log is never re-executed. The CLI refuses."
     if (hasSentEffect(activity)) {
-      io.err(`REFUSED EFFECT_ALREADY_SENT '${activity.id}' has already moved bytes; it is never re-executed`);
+      io.err(
+        `REFUSED EFFECT_ALREADY_SENT '${activity.id}' has already moved bytes; it is never re-executed`,
+      );
       return { refused: EXIT_REFUSED };
     }
 
@@ -104,6 +113,13 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
       // is what makes the retry safe rather than a second email.
       idempotent = true;
       return { refused: EXIT_OK };
+    }
+
+    if (activity.status.state !== "ready") {
+      io.err(
+        `REFUSED NOT_DISPATCHABLE '${activity.id}' is an action in '${activity.status.state}', and only ready actions may reserve`,
+      );
+      return { refused: EXIT_REFUSED };
     }
 
     // INVARIANT 3(a), enforced at the moment of spending (§6.7).
@@ -133,18 +149,13 @@ export async function runReserve(io: Io, options: ReserveOptions): Promise<numbe
       return { refused: EXIT_REFUSED };
     }
 
-    if (activity.status.state !== "active") {
-      io.err(`REFUSED NOT_DISPATCHABLE '${activity.id}' is '${activity.status.state}', not active`);
-      return { refused: EXIT_REFUSED };
-    }
-
     return {
       commit: {
         ops: [
           {
             op: "set_status",
-            activity: activity.id,
-            status: "in_flight",
+            node: activity.id,
+            status: "active",
             evidence_ref: encodeReserveEvidence(key, options.payloadHash),
           },
         ],
@@ -202,8 +213,12 @@ export async function runRecord(io: Io, options: RecordOptions): Promise<number>
         ops: [
           {
             op: "set_status",
-            activity: activity.id,
-            status: options.outcome === "sent" ? "done" : "failed",
+            node: activity.id,
+            // Two vocabularies on one line: `options.outcome` is an EffectOutcome
+            // ("sent" | "failed") and this writes a Status. They share the spelling `failed`
+            // and nothing else, which is why the rename had to be read here rather than
+            // substituted — and why the compiler was no help: `Batch.ops` is `unknown`.
+            status: options.outcome === "sent" ? "completed" : "failed",
             evidence_ref: encodeRecordEvidence(open.effect_key, options.outcome, options.messageId),
           },
         ],

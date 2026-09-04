@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { parseBatch } from "../src/index.ts";
-import { task, wait } from "./fixtures.ts";
+import { CommittedOpSchema, parseBatch } from "../src/index.ts";
+import { action, acceptEvent } from "./fixtures.ts";
 
 function reject(ops: unknown): string {
   const result = parseBatch(ops);
@@ -12,7 +12,7 @@ function reject(ops: unknown): string {
 
 describe("the parser runs first, and free", () => {
   test("accepts a legal batch", () => {
-    expect(parseBatch([task("Ask Dana"), wait("Wait for Dana")]).ok).toBe(true);
+    expect(parseBatch([action("Ask Dana"), acceptEvent("Wait for Dana")]).ok).toBe(true);
   });
 
   test("a mutation with no ops is not a mutation", () => {
@@ -20,62 +20,90 @@ describe("the parser runs first, and free", () => {
   });
 
   test("rejects a non-array batch", () => {
-    expect(parseBatch({ op: "add_activity" }).ok).toBe(false);
+    expect(parseBatch({ op: "add_node" }).ok).toBe(false);
   });
 
   test("rejects an unknown op, because no seventh opcode is reserved", () => {
-    expect(parseBatch([{ op: "delete_node", activity: "x" }]).ok).toBe(false);
+    expect(parseBatch([{ op: "delete_node", node: "x" }]).ok).toBe(false);
   });
 
   test("rejects an unrecognised key rather than dropping it silently", () => {
     // A typo'd `recipient_refs` that parsed as "no recipient" would walk straight past
     // the recipient-evidence invariant.
-    expect(reject([task("Ask Dana", { recipient_refs: "dana@example.com" })])).toContain(
+    expect(reject([action("Ask Dana", { recipient_refs: "dana@example.com" })])).toContain(
       "recipient_refs",
     );
   });
 });
 
-describe("wait rules — the schema rule that prevents a silent multi-day hang", () => {
-  test("a wait without a deadline is rejected", () => {
-    expect(reject([wait("W", { deadline: undefined })])).toContain("deadline");
+describe("acceptEvent rules — the schema rule that prevents a silent multi-day hang", () => {
+  test("a acceptEvent without a deadline is rejected", () => {
+    expect(reject([acceptEvent("W", { deadline: undefined })])).toContain("deadline");
   });
 
-  test("a wait without an on_timeout is rejected", () => {
-    expect(reject([wait("W", { on_timeout: undefined })])).toContain("on_timeout");
+  test("an acceptEvent needs no on_timeout because its decision successor owns the route", () => {
+    expect(parseBatch([acceptEvent("W")]).ok).toBe(true);
   });
 
-  test("a wait without a match block is rejected", () => {
-    expect(reject([wait("W", { match: undefined })])).toContain("match");
+  test("a acceptEvent without a match block is rejected", () => {
+    expect(reject([acceptEvent("W", { match: undefined })])).toContain("match");
   });
 
-  test("a wait whose match has no conditions can never resolve", () => {
-    expect(reject([wait("W", { match: { kind: "event", conditions: [] } })])).toContain(
+  test("a acceptEvent whose match has no conditions can never resolve", () => {
+    expect(reject([acceptEvent("W", { match: { kind: "event", conditions: [] } })])).toContain(
       "never resolve",
     );
   });
 
-  test("a task carrying a match block is rejected", () => {
+  test("a action carrying a match block is rejected", () => {
     expect(
-      reject([task("T", { match: { kind: "event", conditions: [{ kind: "reply", on: "satisfied" }] } })]),
-    ).toContain("only a wait");
+      reject([
+        action("T", { match: { kind: "event", conditions: [{ kind: "reply", on: "satisfied" }] } }),
+      ]),
+    ).toContain("match");
   });
 });
 
 describe("effect rules", () => {
+  test("authored effects reject store-derived identity fields", () => {
+    const effect = {
+      channel: "email",
+      recipient_ref: "roster#dana",
+      correlation: "ilya+kona-node@example.com",
+      effect_key: "ek_123",
+    };
+    expect(parseBatch([action("Send", { effect_class: "pivot", effect })]).ok).toBe(false);
+  });
+
+  test("committed effects accept persisted derived identity fields", () => {
+    expect(
+      CommittedOpSchema.safeParse({
+        ...action("Send", {
+          effect_class: "pivot",
+          effect: {
+            channel: "email",
+            recipient_ref: "roster#dana",
+            correlation: "ilya+kona-node@example.com",
+            effect_key: "ek_123",
+          },
+        }),
+        id: "node-1",
+      }).success,
+    ).toBe(true);
+  });
   test("a pivot without an effect block is rejected", () => {
-    expect(reject([task("Send", { effect_class: "pivot" })])).toContain("requires an effect");
+    expect(reject([action("Send", { effect_class: "pivot" })])).toContain("requires an effect");
   });
 
   test("a compensatable without an effect block is rejected", () => {
-    expect(reject([task("Send", { effect_class: "compensatable" })])).toContain(
+    expect(reject([action("Send", { effect_class: "compensatable" })])).toContain(
       "requires an effect",
     );
   });
 
   test("an effect block on a pure activity is rejected — it would never be reserved", () => {
     const ops = [
-      task("Send", {
+      action("Send", {
         effect_class: "pure",
         effect: { channel: "email", recipient_ref: "roster#dana" },
       }),
@@ -85,7 +113,7 @@ describe("effect rules", () => {
 
   test("an author may not mint correlation or effect_key", () => {
     const ops = [
-      task("Send", {
+      action("Send", {
         effect_class: "pivot",
         effect: {
           channel: "email",
@@ -95,38 +123,51 @@ describe("effect rules", () => {
         },
       }),
     ];
-    // The committed shape allows these; the authored one does not, and the store fills
-    // them in. Either way the parser must not reject the committed form as malformed.
-    expect(parseBatch(ops).ok).toBe(true);
+    expect(parseBatch(ops).ok).toBe(false);
   });
 });
 
 describe("references", () => {
+  test("committed deadline anchors reject batch references", () => {
+    expect(
+      CommittedOpSchema.safeParse({
+        ...acceptEvent("W", { deadline: { after: "$0", duration: "1h" } }),
+        id: "wait-1",
+      }).success,
+    ).toBe(false);
+  });
   test("accepts $N", () => {
-    expect(parseBatch([task("A"), { op: "add_edge", from: "$0", to: "$0" }]).ok).toBe(true);
+    expect(parseBatch([action("A"), { op: "add_edge", from: "$0", to: "$0" }]).ok).toBe(true);
   });
 
   test("rejects the dotted form, which has no referent under six ops", () => {
-    expect(parseBatch([task("A"), { op: "add_edge", from: "$0.children.dana", to: "$0" }]).ok).toBe(
-      false,
-    );
+    expect(
+      parseBatch([action("A"), { op: "add_edge", from: "$0.children.dana", to: "$0" }]).ok,
+    ).toBe(false);
   });
 
   test("rejects an id that is not in the id alphabet", () => {
-    expect(reject([{ op: "set_status", activity: "Goalie/Dana", status: "done", evidence_ref: "e" }]))
-      .toContain("activity id");
+    expect(
+      reject([{ op: "set_status", node: "Goalie/Dana", status: "completed", evidence_ref: "e" }]),
+    ).toContain("activity id");
   });
 
-  test("rejects an unknown status, verdict or condition", () => {
-    expect(parseBatch([{ op: "set_status", activity: "a", status: "running", evidence_ref: "e" }]).ok).toBe(false);
-    expect(parseBatch([{ op: "record_outcome", activity: "a", verdict: "maybe", evidence_ref: "e" }]).ok).toBe(false);
-    expect(parseBatch([{ op: "add_edge", from: "a", to: "b", condition: { on: "later" } }]).ok).toBe(false);
+  test("rejects an unknown status, verdict or guard", () => {
+    expect(
+      parseBatch([{ op: "set_status", node: "a", status: "running", evidence_ref: "e" }]).ok,
+    ).toBe(false);
+    expect(
+      parseBatch([{ op: "record_outcome", node: "a", verdict: "maybe", evidence_ref: "e" }]).ok,
+    ).toBe(false);
+    expect(parseBatch([{ op: "add_edge", from: "a", to: "b", guard: { on: "later" } }]).ok).toBe(
+      false,
+    );
   });
 });
 
 describe("rationale", () => {
   test("names the op index of the first problem", () => {
-    const result = parseBatch([task("A"), { op: "add_edge", from: "a" }]);
+    const result = parseBatch([action("A"), { op: "add_edge", from: "a" }]);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
     expect(result.rejection.op_index).toBe(1);

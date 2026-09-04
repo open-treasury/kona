@@ -17,22 +17,26 @@ import {
   resolutionOf,
   resolvingOutcome,
 } from "../src/index.ts";
-import { commit, seeded, task, wait, activityAt, slugOr, slugOf } from "./fixtures.ts";
+import { commit, seeded, action, acceptEvent, activityAt, slugOr, slugOf } from "./fixtures.ts";
 
-function outcome(activity: string, verdict: Verdict, evidence: string): AuthoredOp {
-  return { op: "record_outcome", activity, verdict, evidence_ref: evidence };
+function outcome(node: string, verdict: Verdict, evidence: string): AuthoredOp {
+  return { op: "record_outcome", node, verdict, evidence_ref: evidence };
 }
 
 function activityOf(graph: Graph, id: string) {
+  // Narrowed to a node that carries a status: every use here is about work, and under D6 a
+  // control node has none. Throwing beats optional-chaining, which would let a test that
+  // asked the wrong question quietly compare two undefineds and pass.
   const activity = activityAt(graph, id);
-  if (activity === undefined) throw new Error(`no activity ${id}`);
+  if (activity === undefined) throw new Error(`no node ${id}`);
+  if (activity.status === undefined) throw new Error(`${id} is a ${activity.type}, which carries no status`);
   return activity;
 }
 
 describe("outcomes are append-only (§6.7)", () => {
   test("a second outcome appends rather than replacing", () => {
     const graph = commit(
-      commit(seeded([task("A")]), [outcome("a", "confirmed", "<m-1>")]),
+      commit(seeded([action("A")]), [outcome("a", "confirmed", "<m-1>")]),
       [outcome("a", "late", "<m-2>")],
     );
     expect(activityOf(graph, "a").status.outcomes.map((o) => o.verdict)).toEqual([
@@ -42,10 +46,10 @@ describe("outcomes are append-only (§6.7)", () => {
   });
 
   test("a late reply NEVER replaces the verdict the graph acted on", () => {
-    // §6.5: recorded, and it never reopens the wait. Under overwrite semantics the
+    // §6.5: recorded, and it never reopens the acceptEvent. Under overwrite semantics the
     // evidence for an email already sent would vanish behind a straggler.
     const graph = commit(
-      commit(seeded([task("A")]), [outcome("a", "confirmed", "<m-1>")]),
+      commit(seeded([action("A")]), [outcome("a", "confirmed", "<m-1>")]),
       [outcome("a", "declined", "<m-2>"), outcome("a", "late", "<m-3>")],
     );
     const resolved = activityOf(graph, "a").status.outcome;
@@ -55,14 +59,14 @@ describe("outcomes are append-only (§6.7)", () => {
   });
 
   test("a tentative reply records without resolving", () => {
-    const graph = commit(seeded([task("A")]), [outcome("a", "tentative", "<m-1>")]);
+    const graph = commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]);
     expect(activityOf(graph, "a").status.outcomes).toHaveLength(1);
     expect(activityOf(graph, "a").status.outcome).toBeNull();
   });
 
   test("and a later firm reply is what resolves it", () => {
     const graph = commit(
-      commit(seeded([task("A")]), [outcome("a", "tentative", "<m-1>")]),
+      commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]),
       [outcome("a", "confirmed", "<m-2>")],
     );
     expect(activityOf(graph, "a").status.outcome?.evidence_ref).toBe("<m-2>");
@@ -70,7 +74,7 @@ describe("outcomes are append-only (§6.7)", () => {
 
   test("each entry records the version that wrote it", () => {
     const graph = commit(
-      commit(seeded([task("A")]), [outcome("a", "tentative", "<m-1>")]),
+      commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]),
       [outcome("a", "confirmed", "<m-2>")],
     );
     expect(activityOf(graph, "a").status.outcomes.map((o) => o.at_version)).toEqual([2, 3]);
@@ -100,10 +104,10 @@ describe("outcomes are append-only (§6.7)", () => {
 
 describe("the resolution is derived, never stored (§6.2)", () => {
   function resolutionAfter(verdict: Verdict) {
-    return resolutionOf(activityOf(commit(seeded([task("A")]), [outcome("a", verdict, "e")]), "a"));
+    return resolutionOf(activityOf(commit(seeded([action("A")]), [outcome("a", verdict, "e")]), "a"));
   }
 
-  test.each([...DECISION_VERDICTS])("a human decision '%s' is its own condition", (verdict) => {
+  test.each([...DECISION_VERDICTS])("a human decision '%s' is its own guard", (verdict) => {
     expect(resolutionAfter(verdict)).toBe(verdict);
   });
 
@@ -124,12 +128,12 @@ describe("the resolution is derived, never stored (§6.2)", () => {
   });
 
   test("an unresolved activity has no resolution", () => {
-    expect(resolutionOf(activityOf(seeded([task("A")]), "a"))).toBeNull();
+    expect(resolutionOf(activityOf(seeded([action("A")]), "a"))).toBeNull();
     expect(resolutionAfter("tentative")).toBeNull();
     expect(resolutionAfter("late")).toBeNull();
   });
 
-  test("every resolving verdict projects onto some edge condition", () => {
+  test("every resolving verdict projects onto some edge guard", () => {
     for (const verdict of VERDICTS.filter(isResolvingVerdict)) {
       expect(resolutionAfter(verdict)).not.toBeNull();
     }
@@ -138,7 +142,7 @@ describe("the resolution is derived, never stored (§6.2)", () => {
 
 /** a -> b, plus an unconnected c. */
 function chain(): Graph {
-  return commit(seeded([task("A"), task("B"), task("C")]), [
+  return commit(seeded([action("A"), action("B"), action("C")]), [
     { op: "add_edge", from: "a", to: "b" },
   ]);
 }
@@ -148,43 +152,47 @@ describe("readiness fails safe (§6.4)", () => {
     expect(isReady(chain(), activityOf(chain(), "c"))).toBe(true);
   });
 
-  test("an activity whose blocker is still active is not", () => {
+  test("an activity whose blocker has not finished is not", () => {
     expect(isReady(chain(), activityOf(chain(), "b"))).toBe(false);
   });
 
   test("only a terminal SUCCESS unblocks it", () => {
+    // Every state an AUTHOR may write. `ready` and `withdrawn` are excluded because the store
+    // refuses them from an author (DERIVED_STATUS) — and they would prove nothing here anyway:
+    // `ready` is unclaimed-and-waiting, `withdrawn` is abandonment, and `terminated` already
+    // covers the abandoned case from this predicate's point of view.
     for (const [state, ready] of [
-      ["done", true],
+      ["completed", true],
       ["failed", false],
-      ["dropped", false],
-      ["in_flight", false],
+      ["terminated", false],
       ["active", false],
+      ["inactive", false],
     ] as [string, boolean][]) {
       const graph = commit(chain(), [
-        { op: "set_status", activity: "a", status: state, evidence_ref: "e" } as AuthoredOp,
+        { op: "set_status", node: "a", status: state, evidence_ref: "e" } as AuthoredOp,
       ]);
       expect(isEdgeSatisfied(graph, { from: slugOr(graph, "a"), to: slugOr(graph, "b") })).toBe(ready);
       expect(isReady(graph, activityOf(graph, "b"))).toBe(ready);
     }
   });
 
-  test("a DROPPED source never satisfies readiness, even though merge excludes it", () => {
+  test("an ABANDONED source never satisfies readiness, even though merge excludes it", () => {
     // Otherwise the second activity on an untaken branch has no blocker, lands on the
     // frontier, and gets dispatched — pivot send included.
     const graph = commit(chain(), [
-      { op: "set_status", activity: "a", status: "dropped", evidence_ref: "e" },
+      { op: "set_status", node: "a", status: "terminated", evidence_ref: "e" },
     ]);
     expect(isReady(graph, activityOf(graph, "b"))).toBe(false);
     expect(readyFrontier(graph).map((n) => slugOf(n.id))).not.toContain("b");
   });
 
-  test("a dropped or superseded activity is never itself ready", () => {
+  test("an abandoned or superseded activity is never itself ready", () => {
     const dropped = commit(chain(), [
-      { op: "set_status", activity: "c", status: "dropped", evidence_ref: "e" },
+      { op: "set_status", node: "c", status: "terminated", evidence_ref: "e" },
     ]);
     expect(isReady(dropped, activityOf(dropped, "c"))).toBe(false);
 
-    const superseded = commit(chain(), [task("C prime"), { op: "supersede_activity", activity: "c", by: "$0" }]);
+    const superseded = commit(chain(), [action("C prime"), { op: "supersede_node", node: "c", by: "$0" }]);
     expect(isReady(superseded, activityOf(superseded, "c"))).toBe(false);
   });
 
@@ -195,13 +203,13 @@ describe("readiness fails safe (§6.4)", () => {
 
 describe("conditional edges fire only on their own resolution", () => {
   function branched(verdict: Verdict): Graph {
-    const base = commit(seeded([task("Accepted"), task("Ignored"), wait("Gate", { on_timeout: "$0" })]), [
-      { op: "add_edge", from: "gate", to: "accepted", condition: { on: "accept" } },
-      { op: "add_edge", from: "gate", to: "ignored", condition: { on: "ignore" } },
+    const base = commit(seeded([action("Accepted"), action("Ignored"), acceptEvent("Gate", { })]), [
+      { op: "add_edge", from: "gate", to: "accepted", guard: { on: "accept" } },
+      { op: "add_edge", from: "gate", to: "ignored", guard: { on: "ignore" } },
     ]);
     return commit(base, [
       outcome("gate", verdict, "<m-1>"),
-      { op: "set_status", activity: "gate", status: "done", evidence_ref: "<m-1>" },
+      { op: "set_status", node: "gate", status: "completed", evidence_ref: "<m-1>" },
     ]);
   }
 
@@ -221,7 +229,7 @@ describe("conditional edges fire only on their own resolution", () => {
   });
 
   test("the frontier comes back in insertion order, so the viewer is stable", () => {
-    expect(readyFrontier(seeded([task("A"), task("B"), task("C")])).map((n) => slugOf(n.id))).toEqual([
+    expect(readyFrontier(seeded([action("A"), action("B"), action("C")])).map((n) => slugOf(n.id))).toEqual([
       "a",
       "b",
       "c",

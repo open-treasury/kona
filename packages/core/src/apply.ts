@@ -8,8 +8,9 @@
 
 import type { CommittedOp } from "./schema.ts";
 import { namedIn } from "./named.ts";
+import { INITIAL_STATUS, isUnclaimed } from "./vocab.ts";
 import { parseEffectEvidence } from "./effect.ts";
-import type { Edge, Graph, Activity, ActivitySpec, OutcomeRecord } from "./graph.ts";
+import type { BehaviourNode, Edge, Graph, ActivityNode, OutcomeRecord } from "./graph.ts";
 import { isActivityTerminal, resolvingOutcome } from "./graph.ts";
 import { type Result, ok, refuse } from "./result.ts";
 
@@ -21,7 +22,7 @@ import { type Result, ok, refuse } from "./result.ts";
  * goes last so that a batch superseding an activity and adding its compensation is legal
  * however the author happened to sequence the two.
  */
-const CANCELLATION_OPS = new Set(["supersede_activity"]);
+const CANCELLATION_OPS = new Set(["supersede_node"]);
 
 /** An op paired with the position it held in the authored array, for error reporting. */
 export interface PositionedOp {
@@ -46,7 +47,44 @@ export function orderOps(ops: readonly CommittedOp[]): PositionedOp[] {
  * zero deps, no globals, nothing to stub. That is what makes the mutation-score target on
  * this file affordable (§6.12).
  */
-function cloneActivity(activity: Activity): Activity {
+
+/**
+ * Look up the node an op targets, and refuse it if the op has no business there.
+ *
+ * `set_status`, `record_outcome` and `record_output` all write to `status`, and a control node
+ * has none. Before D6 that was a convention: nothing refused the op, `applyOps` would have
+ * written the field onto a diamond, and the graph would have carried a status on a node whose
+ * whole definition is that it has none. The union made it a type error, which is how the
+ * missing RULE was found — the compiler asking "which family did you mean" at 129 sites, and
+ * three of them having no answer.
+ */
+function targetBehaviour(
+  graph: Graph,
+  id: string,
+  op: string,
+  at: { op_index?: number },
+): Result<BehaviourNode> {
+  const node = graph.nodes.get(id);
+  if (node === undefined) {
+    return refuse("UNKNOWN_ACTIVITY", `activity '${id}' does not exist`, { activity: id, ...at });
+  }
+  if (node.status === undefined) {
+    return refuse(
+      "CONTROL_NODE_TARGETED",
+      `${op} targets ${namedIn(graph, id)}, which is a ${node.type} — control nodes are derived by the store and carry no status`,
+      { activity: id, ...at },
+    );
+  }
+  return ok(node);
+}
+
+function cloneActivity(activity: ActivityNode): ActivityNode {
+  // A control node has no `status` key to deep-copy — not an empty one, none (D6). Spreading
+  // `undefined` back in would put the key there with an undefined value, which is exactly the
+  // "shared shape with unused fields" the union exists to prevent.
+  if (activity.status === undefined) {
+    return { ...activity, provenance: { ...activity.provenance } };
+  }
   return {
     ...activity,
     status: {
@@ -63,45 +101,53 @@ function cloneGraph(graph: Graph): Graph {
   return {
     schema_version: graph.schema_version,
     version: graph.version,
-    activities: new Map([...graph.activities].map(([id, activity]) => [id, cloneActivity(activity)])),
+    nodes: new Map([...graph.nodes].map(([id, activity]) => [id, cloneActivity(activity)])),
     edges: graph.edges.map((edge) => ({ ...edge })),
   };
 }
 
-function makeNode(
-  id: string,
-  name: string,
-  type: Activity["type"],
-  spec: ActivitySpec,
-  scope: string | undefined,
-  version: number,
-): Activity {
+function makeNode(op: Extract<CommittedOp, { op: "add_node" }>, version: number): ActivityNode {
+  const provenance = {
+    created_by_version: version,
+    supersedes: null,
+    superseded_by: null,
+    retired: false,
+  };
+
+  // The one place a node is born, and the one place the family decides its shape. A control
+  // node is created WITHOUT a status key, so nothing downstream can read one off it by
+  // accident — which is the whole of D6, enforced once rather than remembered everywhere.
+  if (op.type === "action" || op.type === "accept_event") {
+    return {
+      id: op.id,
+      type: op.type,
+      name: op.name,
+      spec: op.spec,
+      status: {
+        state: INITIAL_STATUS,
+        outcomes: [],
+        outcome: null,
+        output: null,
+        output_evidence: null,
+        conditions: [],
+        effect_log: [],
+        observed_at_version: version,
+      },
+      provenance,
+    } as ActivityNode;
+  }
+
   return {
-    id,
-    type,
-    name,
-    spec,
-    status: {
-      state: "active",
-      outcomes: [],
-      outcome: null,
-      output: null,
-      output_evidence: null,
-      conditions: [],
-      effect_log: [],
-      observed_at_version: version,
-    },
-    provenance: {
-      created_by_version: version,
-      ...(scope === undefined ? {} : { group: scope }),
-      supersedes: null,
-      superseded_by: null,
-    },
+    id: op.id,
+    type: op.type,
+    name: op.name ?? op.type,
+    spec: op.spec,
+    provenance,
   };
 }
 
 function sameEdge(a: Edge, b: Edge): boolean {
-  return a.from === b.from && a.to === b.to && a.condition?.on === b.condition?.on;
+  return a.from === b.from && a.to === b.to && JSON.stringify(a.guard) === JSON.stringify(b.guard);
 }
 
 /**
@@ -118,17 +164,14 @@ function applyOne(
   const at = { op_index: opIndex };
 
   switch (op.op) {
-    case "add_activity": {
-      if (graph.activities.has(op.id)) {
+    case "add_node": {
+      if (graph.nodes.has(op.id)) {
         return refuse("DUPLICATE_ACTIVITY_ID", `activity '${op.id}' already exists`, {
           activity: op.id,
           ...at,
         });
       }
-      graph.activities.set(
-        op.id,
-        makeNode(op.id, op.name, op.type, op.spec, op.scope, version),
-      );
+      graph.nodes.set(op.id, makeNode(op, version));
       return ok(null);
     }
 
@@ -140,7 +183,7 @@ function applyOne(
         });
       }
       for (const endpoint of [op.from, op.to]) {
-        if (!graph.activities.has(endpoint)) {
+        if (!graph.nodes.has(endpoint)) {
           return refuse("UNKNOWN_ACTIVITY", `edge endpoint '${endpoint}' does not exist`, {
             activity: endpoint,
             ...at,
@@ -150,7 +193,7 @@ function applyOne(
       const edge: Edge = {
         from: op.from,
         to: op.to,
-        ...(op.condition === undefined ? {} : { condition: op.condition }),
+        ...(op.guard === undefined ? {} : { guard: op.guard }),
       };
       if (graph.edges.some((existing) => sameEdge(existing, edge))) {
         return refuse(
@@ -164,13 +207,9 @@ function applyOne(
     }
 
     case "set_status": {
-      const activity = graph.activities.get(op.activity);
-      if (activity === undefined) {
-        return refuse("UNKNOWN_ACTIVITY", `activity '${op.activity}' does not exist`, {
-          activity: op.activity,
-          ...at,
-        });
-      }
+      const found = targetBehaviour(graph, op.node, op.op, at);
+      if (!found.ok) return found;
+      const activity = found.value;
       // §6.6 — the outbox rides on `evidence_ref`, because there is no seventh op. This
       // MATERIALISES what the log already says; it decides nothing, so re-folding an old
       // log cannot produce an effect ledger the operator never approved.
@@ -191,8 +230,8 @@ function applyOne(
         if (reserved === undefined) {
           return refuse(
             "UNRESERVED_EFFECT",
-            `no open reservation '${evidence.effect_key}' on '${op.activity}' to record against`,
-            { activity: op.activity, ...at },
+            `no open reservation '${evidence.effect_key}' on '${op.node}' to record against`,
+            { activity: op.node, ...at },
           );
         }
         reserved.completed_at = occurredAt;
@@ -205,13 +244,9 @@ function applyOne(
     }
 
     case "record_outcome": {
-      const activity = graph.activities.get(op.activity);
-      if (activity === undefined) {
-        return refuse("UNKNOWN_ACTIVITY", `activity '${op.activity}' does not exist`, {
-          activity: op.activity,
-          ...at,
-        });
-      }
+      const found = targetBehaviour(graph, op.node, op.op, at);
+      if (!found.ok) return found;
+      const activity = found.value;
       // Append, never overwrite (§6.7). A `late` reply must not be able to replace the
       // verdict the graph already acted on.
       const recorded: OutcomeRecord = {
@@ -227,20 +262,23 @@ function applyOne(
     }
 
     case "record_output": {
-      const activity = graph.activities.get(op.activity);
-      if (activity === undefined) {
-        return refuse("UNKNOWN_ACTIVITY", `activity '${op.activity}' does not exist`, {
-          activity: op.activity,
-          ...at,
-        });
+      const found = targetBehaviour(graph, op.node, op.op, at);
+      if (!found.ok) return found;
+      const activity = found.value;
+      if (activity.type !== "action") {
+        return refuse(
+          "ACCEPT_EVENT_OUTPUT",
+          `record_output targets ${namedIn(graph, op.node)}; only actions produce outputs`,
+          { activity: op.node, ...at },
+        );
       }
       // §6.2: `outputs` is what makes `inputs[].ref` mean anything. An output nobody
       // declared can never be referenced, so writing one is an authoring error, not data.
       if (!activity.spec.outputs.some((declared) => declared.name === op.output_name)) {
         return refuse(
           "UNDECLARED_OUTPUT",
-          `activity ${namedIn(graph, op.activity)} declares no output named '${op.output_name}'`,
-          { activity: op.activity, ...at },
+          `activity ${namedIn(graph, op.node)} declares no output named '${op.output_name}'`,
+          { activity: op.node, ...at },
         );
       }
       activity.status.output = { ...activity.status.output, [op.output_name]: op.value };
@@ -252,36 +290,44 @@ function applyOne(
       return ok(null);
     }
 
-    case "supersede_activity": {
-      const activity = graph.activities.get(op.activity);
+    case "supersede_node": {
+      const activity = graph.nodes.get(op.node);
       if (activity === undefined) {
-        return refuse("UNKNOWN_ACTIVITY", `activity '${op.activity}' does not exist`, {
-          activity: op.activity,
+        return refuse("UNKNOWN_ACTIVITY", `activity '${op.node}' does not exist`, {
+          activity: op.node,
           ...at,
         });
       }
       if (op.by !== undefined) {
-        const replacement = graph.activities.get(op.by);
+        const replacement = graph.nodes.get(op.by);
         if (replacement === undefined) {
           return refuse("UNKNOWN_ACTIVITY", `replacement activity '${op.by}' does not exist`, {
             activity: op.by,
             ...at,
           });
         }
-        if (op.by === op.activity) {
-          return refuse("SELF_SUPERSEDE", `'${op.activity}' cannot supersede itself`, {
-            activity: op.activity,
+        if (op.by === op.node) {
+          return refuse("SELF_SUPERSEDE", `'${op.node}' cannot supersede itself`, {
+            activity: op.node,
             ...at,
           });
         }
-        replacement.provenance.supersedes = op.activity;
+        replacement.provenance.supersedes = op.node;
       }
+      activity.provenance.retired = true;
       activity.provenance.superseded_by = op.by ?? null;
-      // Derivable housekeeping, so the store does it (§6.4). An activity that already ran
-      // keeps its terminal status — superseding does not un-send an email — but one still
-      // in flight stops being work: `dropped` is "we stopped wanting this".
-      if (!isActivityTerminal(activity)) {
-        activity.status.state = "dropped";
+      // Derivable housekeeping, so the store does it (§6.4). A node that already ran keeps
+      // its terminal status — superseding does not un-send an email — but one that has not
+      // stops being work.
+      //
+      // WHICH kind of stopping is derivable too, and that is why the old single `dropped`
+      // became two states: a node nobody had claimed was set aside by the flow going
+      // elsewhere, and one that was being worked was stopped mid-work. The store reads which
+      // from the state it finds, so an author never chooses and the two can never be mixed
+      // up by hand. This site is also the proof that the cascade's guarantee is narrower than
+      // it looks: `isDroppable` refuses to touch a claimed node, but supersede reaches one.
+      if (activity.status !== undefined && !isActivityTerminal(activity)) {
+        activity.status.state = isUnclaimed(activity.status.state) ? "withdrawn" : "terminated";
         activity.status.observed_at_version = version;
       }
       return ok(null);

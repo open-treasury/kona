@@ -9,7 +9,7 @@
  * opinion, and the store's is the only one that counts.
  */
 
-import type { EdgeCondition, Graph, MutationRecord, Activity, OpKind } from "@kona/core";
+import type { Graph, MutationRecord, ActivityNode, OpKind, Status } from "@kona/core";
 
 /** Milliseconds since the epoch. Passed in, never read from the clock inside a pure module. */
 export type Instant = number;
@@ -26,17 +26,11 @@ export type Instant = number;
  * running.
  *
  * `resolved` and `failed` are split because rule 8's first colour is *fulfilled*, and only a
- * `done` wait is that. A wait that is terminal without succeeding — `failed`, or `done` with
+ * `completed` wait is that. A wait that is terminal without succeeding — `failed`, or `completed` with
  * no resolving outcome — satisfies no downstream edge (`satisfiesBlockingEdge`), so painting
  * it the success green would contradict the blocked reason rendered on the very next card.
  */
-export type WaitPhase =
-  | "unarmed"
-  | "awaiting"
-  | "blown"
-  | "resolved"
-  | "failed"
-  | "dropped";
+export type WaitPhase = "unarmed" | "awaiting" | "blown" | "resolved" | "failed" | "withdrawn";
 
 export interface WaitState {
   phase: WaitPhase;
@@ -54,8 +48,8 @@ export interface WaitState {
   matchLabel: string;
   /** Non-null only for `match.kind === "predicate"`. */
   predicate: PredicateCount | null;
-  /** Where a blown deadline routes. Rendered so a reader can see the escape hatch exists. */
-  onTimeout: string | null;
+  /** Where the following decision routes a blown deadline. */
+  timeoutTarget: string | null;
 }
 
 /** §6.2's `{count:{verdict,attrs},op,n}` — the quorum counter, evaluated against the graph. */
@@ -65,7 +59,7 @@ export interface PredicateCount {
   /** The threshold. */
   need: number;
   op: string;
-  /** How many sources could still contribute — everything not yet terminal-or-dropped. */
+  /** How many sources could still contribute — everything not yet terminal or abandoned. */
   live: number;
   /** `have op need` is already true. */
   met: boolean;
@@ -76,10 +70,28 @@ export interface PredicateCount {
 }
 
 // ---------------------------------------------------------------------------
-// Blocked reason (§6.10 rule 4 — "for a blocked activity the reason as text")
+// Standing (§6.2.1 — the recorded lifecycle, plus the one fact that is not a state)
 // ---------------------------------------------------------------------------
 
-export type Readiness = "ready" | "blocked" | "running" | "settled" | "superseded";
+/**
+ * Where an activity stands: the lifecycle state the store RECORDED, or `superseded`.
+ *
+ * There used to be a second, derived vocabulary here — `ready | blocked | running | settled |
+ * superseded` — and it existed because the store had no word for most of it. §6.2.1's seven
+ * states are those words. `ready` is written by the readiness derivation at commit, `running`
+ * was only ever `active`, `settled` was the four terminal states flattened into one, and
+ * `blocked` was `inactive`. Deriving them a second time put `ready` in two unions with two
+ * different meanings, so `expect(x).toBe("ready")` asked one question in a store test and a
+ * different one in a viewer test — two lines apart, and nothing in either type said so.
+ *
+ * `superseded` is the one value that stays derived, and only because it is not a state at all:
+ * it is `provenance.superseded_by`, which is orthogonal to `status.state` and outranks it.
+ */
+export type Standing = Status | "superseded";
+
+// ---------------------------------------------------------------------------
+// Blocked reason (§6.10 rule 4 — "for a blocked activity the reason as text")
+// ---------------------------------------------------------------------------
 
 export interface BlockedReason {
   /** One line, the thing a reader needs: "waiting on Wait for Pat". */
@@ -87,28 +99,41 @@ export interface BlockedReason {
   /** One entry per unsatisfied in-edge, in edge order. */
   causes: BlockedCause[];
   /**
-   * True when **any** unsatisfied in-edge can never be satisfied.
+   * True when this node can never become ready — the state that silently hangs a pursuit.
    *
-   * Any, not every: `isReady` requires *every* in-edge satisfied, so one permanently dead
-   * blocker settles it and the activity can never reach the frontier again, whatever the others
-   * do next. This is the state that silently hangs a pursuit, so it is named.
+   * It is the STORE's answer (`isArmDead`), not a rule restated here. The rule that used to be
+   * documented in this spot — "any, not every: one permanently dead blocker settles it" — was
+   * wrong about the store: §6.4 excludes an abandoned in-edge from readiness entirely, so it
+   * neither satisfies nor blocks. Under the old reading every fan-out that lost one counterparty
+   * painted its shared descendant dead while the store still intended to run it.
    */
   unreachable: boolean;
+  /**
+   * §6.10 rule 11 — waiting on something that will never arrive, which is NOT the same as
+   * unreachable and must not look the same.
+   *
+   * A `failed` arm parks a join forever by design: §6.4 rule 5 keeps `failed` distinct from
+   * abandoned so the subtree stalls loudly under a visibly failed node rather than the store
+   * quietly deleting work someone is about to repair. So the node is not dead — a human can
+   * still fix the failure — but nothing will happen until one does. Drawn like an ordinary
+   * wait, that is exactly the quiet hang this whole field exists to name.
+   */
+  parked: boolean;
 }
 
 export interface BlockedCause {
   from: string;
   fromLabel: string;
   /** Present when the edge is conditional. */
-  wants: EdgeCondition | null;
+  wants: string | null;
   /** What the source actually fired, when it has resolved. */
-  fired: EdgeCondition | null;
+  fired: string | null;
   /** Machine-readable shape of the problem, so the text has one place to live. */
   kind:
-    | "not-finished" // source is still active or sending
+    | "not-finished" // source has not reached a terminal state — `inactive`, `ready` or `active`
     | "wrong-resolution" // source resolved, but fired a different condition
     | "failed" // source is `failed`
-    | "dropped" // source is `dropped` — never satisfies readiness (§6.4)
+    | "withdrawn" // source is abandoned — never satisfies readiness (§6.4)
     | "missing"; // edge points at an activity that is not in the graph
   text: string;
 }
@@ -118,11 +143,12 @@ export interface BlockedCause {
 // ---------------------------------------------------------------------------
 
 export interface ActivityView {
-  activity: Activity;
-  readiness: Readiness;
-  /** Null unless `readiness === "blocked"`. */
+  activity: ActivityNode;
+  /** Null for a control node: it is not work, so nothing about it is 'getting on'. */
+  readiness: Standing | null;
+  /** Null unless `readiness === "inactive"` — §6.2.1's "dependencies not yet satisfied". */
   blocked: BlockedReason | null;
-  /** Null for a task. */
+  /** Null for an action or control node. */
   wait: WaitState | null;
   /** `provenance.group`, defaulted so grouping never has to handle undefined. */
   group: string;
@@ -150,7 +176,7 @@ export interface ActivityView {
 
 export interface GraphView {
   version: number;
-  activities: ActivityView[];
+  nodes: ActivityView[];
   byId: Map<string, ActivityView>;
   /** Ids on the ready frontier, insertion order — straight from `readyFrontier`. */
   frontier: string[];
@@ -165,7 +191,7 @@ export interface GraphView {
 export interface EdgeKey {
   from: string;
   to: string;
-  on: EdgeCondition | null;
+  guard: string | null;
 }
 
 export interface GraphDiff {
@@ -189,8 +215,8 @@ export interface GraphDiff {
 
 export interface TimelineOp {
   kind: OpKind;
-  /** The activity the op is about; for `add_edge`, `to`. */
-  activity: string;
+  /** The node the op is about; for `add_edge`, `to`. */
+  node: string;
   /** Human phrasing: "added", "→ done", "declined", "superseded by …". */
   detail: string;
 }
@@ -230,10 +256,10 @@ export interface PursuitView {
   /** Version → the moment the store observed it. */
   versionTime: Map<number, Instant>;
   /**
-   * Activity id → the moment it *succeeded*, for the activities that have.
+   * ActivityNode id → the moment it *succeeded*, for the activities that have.
    *
    * This is what a `{after: activity, duration}` deadline is anchored to, and it is emphatically
-   * not `versionTime.get(activity.status.observed_at_version)`: `observed_at_version` is the LAST
+   * not `versionTime.get(activity.status?.observed_at_version)`: `observed_at_version` is the LAST
    * version to touch the activity, and §6.4 makes `record_outcome` and `record_output` legal
    * against a terminal activity. A delivery receipt or a §6.5 `late` reply landing afterwards
    * would slide the deadline forward and turn a blown wait back into a running one.

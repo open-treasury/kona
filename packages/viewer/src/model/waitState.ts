@@ -23,8 +23,8 @@
  * the same log, and the snapshot tests could not pin a blown deadline at all.
  */
 
-import type { Graph, Activity } from "@kona/core";
-import { isTerminal, satisfiesBlockingEdge } from "@kona/core";
+import type { Graph, ActivityNode } from "@kona/core";
+import { isTerminal, outEdges, satisfiesBlockingEdge } from "@kona/core";
 import { formatInstant, statusInWords } from "../format.ts";
 import { predicateCount, predicateMatchLabel } from "./predicate.ts";
 import type { Instant, WaitPhase, WaitState } from "./types.ts";
@@ -67,7 +67,13 @@ interface ResolvedDeadline {
  * `isEdgeSatisfied` asks the same question: a send that bounced never went out, so counting
  * 48 hours from the bounce would put a deadline on a message nobody ever received.
  */
-function noClockYet(id: string, anchor: Activity): string {
+function noClockYet(id: string, anchor: ActivityNode): string {
+  // A control node never finishes, so a deadline anchored to one can never start — which is
+  // why §6.2 refuses that shape at commit. Reported rather than crashed: an older log may
+  // carry one, and a viewer that throws tells the reader nothing.
+  if (anchor.status === undefined) {
+    return `anchored to '${id}', which is a ${anchor.type} and never completes — the clock can never start`;
+  }
   if (!isTerminal(anchor.status.state)) {
     return (
       `anchored to '${id}', which is still ${statusInWords(anchor.status.state)} — ` +
@@ -76,7 +82,7 @@ function noClockYet(id: string, anchor: Activity): string {
   }
   if (!satisfiesBlockingEdge(anchor)) {
     return (
-      `anchored to '${id}', which is ${anchor.status.state} — it never succeeded, ` +
+      `anchored to '${id}', which is ${anchor.status?.state} — it never succeeded, ` +
       "so no clock ever started"
     );
   }
@@ -91,9 +97,12 @@ function noClockYet(id: string, anchor: Activity): string {
 
 function resolveDeadline(
   graph: Graph,
-  activity: Activity,
+  activity: ActivityNode,
   completionTime: ReadonlyMap<string, Instant>,
 ): ResolvedDeadline {
+  if (activity.type !== "accept_event") {
+    return { at: null, label: "no deadline", unresolvedReason: "not an accept event" };
+  }
   const deadline = activity.spec.deadline;
 
   // §6.2 requires a deadline on every wait and the schema enforces it, so this branch means
@@ -128,7 +137,7 @@ function resolveDeadline(
         unresolvedReason: `duration '${deadline.duration}' is not a whole number of s/m/h/d`,
       };
     }
-    const anchor = graph.activities.get(deadline.after);
+    const anchor = graph.nodes.get(deadline.after);
     if (anchor === undefined) {
       return {
         at: null,
@@ -137,7 +146,7 @@ function resolveDeadline(
       };
     }
     // The index holds successes and nothing else, so D2 needs no test here: a `failed` or
-    // `dropped` anchor is simply absent, and the wait stays unarmed. `noClockYet` says which
+    // abandoned anchor is simply absent, and the wait stays unarmed. `noClockYet` says which
     // of the three reasons it is, and asks `satisfiesBlockingEdge` to do it, so the words and
     // the arithmetic can never drift apart.
     const startedAt = completionTime.get(deadline.after);
@@ -159,7 +168,11 @@ function resolveDeadline(
   if (Number.isNaN(backstop)) {
     return { at: null, label: `backstop ${deadline.backstop} (expr)`, unresolvedReason: reason };
   }
-  return { at: backstop, label: `backstop ${formatInstant(backstop)} (expr)`, unresolvedReason: reason };
+  return {
+    at: backstop,
+    label: `backstop ${formatInstant(backstop)} (expr)`,
+    unresolvedReason: reason,
+  };
 }
 
 function unique(values: readonly string[]): string[] {
@@ -167,7 +180,8 @@ function unique(values: readonly string[]): string[] {
 }
 
 /** One line for what would close this wait, read off `match.conditions` and nothing else. */
-function matchLabelOf(activity: Activity): string {
+function matchLabelOf(activity: ActivityNode): string {
+  if (activity.type !== "accept_event") return "not an accept event";
   const match = activity.spec.match;
   if (match === undefined) return "no match block — nothing can close this wait";
 
@@ -189,7 +203,7 @@ function matchLabelOf(activity: Activity): string {
 }
 
 /**
- * Null for a task. Tasks have no deadline, no match and no timeout route, and returning an
+ * Null unless this is an `accept_event`. Actions have no deadline or match, and returning an
  * empty `WaitState` for one would invite the canvas to draw a wait chip on it.
  *
  * `completionTime` is `PursuitView.completionTime`: activity id → the instant that activity
@@ -199,11 +213,11 @@ function matchLabelOf(activity: Activity): string {
  */
 export function waitStateOf(
   graph: Graph,
-  activity: Activity,
+  activity: ActivityNode,
   completionTime: ReadonlyMap<string, Instant>,
   now: Instant,
 ): WaitState | null {
-  if (activity.type !== "wait") return null;
+  if (activity.type !== "accept_event") return null;
 
   const deadline = resolveDeadline(graph, activity, completionTime);
   const match = activity.spec.match;
@@ -212,19 +226,19 @@ export function waitStateOf(
   /**
    * The order is the point.
    *
-   * `dropped` first because a dropped wait can also carry a resolving outcome — the fixture's
-   * `wait-for-priya` bounced and was then dropped — and the drop is the fact that decides what
-   * happens next: §6.4 says a dropped source never satisfies readiness, whatever it answered.
+   * `withdrawn` first because a withdrawn wait can also carry a resolving outcome — the fixture's
+   * `wait-for-priya` bounced and was then withdrawn — and the drop is the fact that decides what
+   * happens next: §6.4 says an abandoned source never satisfies readiness, whatever it answered.
    * Reporting it as `resolved` would show a branch as alive that the store has abandoned.
    *
    * Then the rest of terminal, split into the two things terminal can mean, and split on
    * `satisfiesBlockingEdge` — the store's own test — rather than on a second reading of
    * `state`. That predicate is exactly "does this activity release what depends on it", which is
-   * what rule 8's *fulfilled* colour claims. A `failed` wait does not; a `done` one does.
+   * what rule 8's *fulfilled* colour claims. A `failed` wait does not; a `completed` one does.
    *
    * It deliberately does NOT also demand a resolving outcome. It used to, and that was wrong
    * in a way the fixture cannot show: `isEdgeSatisfied` returns true for an *unconditional*
-   * edge out of any `done` source, so a `done` wait with no outcome can and does put its
+   * edge out of any `completed` source, so a `completed` wait with no outcome can and does put its
    * successor on the frontier — and painting it the not-fulfilled red while the activity beneath
    * it went ready is the same contradiction in the other direction. When the out-edge IS
    * conditional and no outcome has landed, the honest place to say so is the target's blocked
@@ -233,8 +247,8 @@ export function waitStateOf(
    *
    * Nothing about an OPEN wait is decided by its outcome either. `record_outcome` and
    * `set_status` are separate ops (§6.4), so a batch can record a verdict without closing the
-   * wait — and until the store closes it, it is open: the deadline can still blow, `on_timeout`
-   * can still fire, and every activity downstream is still blocked. Reading the outcome as
+   * accept event — and until the store closes it, it is open: the deadline can still blow, the
+   * decision's timeout arm can still fire, and every activity downstream is still blocked. Reading the outcome as
    * "resolved" there would paint the success green on a wait the CLI still considers running,
    * which is the one disagreement this module exists to prevent.
    *
@@ -242,8 +256,8 @@ export function waitStateOf(
    * `now` against, and `null >= now` is a comparison JavaScript would happily answer wrongly.
    */
   const phase = ((): WaitPhase => {
-    if (activity.status.state === "dropped") return "dropped";
-    if (isTerminal(activity.status.state)) {
+    if (activity.status?.state === "withdrawn") return "withdrawn";
+    if (isTerminal(activity.status?.state)) {
       return satisfiesBlockingEdge(activity) ? "resolved" : "failed";
     }
     if (deadline.at === null) return "unarmed";
@@ -260,6 +274,22 @@ export function waitStateOf(
     matchKind: match?.kind ?? null,
     matchLabel: matchLabelOf(activity),
     predicate,
-    onTimeout: activity.spec.on_timeout ?? null,
+    timeoutTarget: timeoutTargetOf(graph, activity),
   };
+}
+
+/** S4: an accept_event feeds one decision; that decision owns the guarded timeout arm. */
+function timeoutTargetOf(graph: Graph, activity: ActivityNode): string | null {
+  const decisionEdge = outEdges(graph, activity.id)[0];
+  if (decisionEdge === undefined) return null;
+  const decision = graph.nodes.get(decisionEdge.to);
+  if (decision?.type !== "decision") return null;
+  const routes = outEdges(graph, decision.id);
+  const explicit = routes.find(
+    (edge) =>
+      typeof edge.guard === "object" &&
+      "on" in edge.guard &&
+      (edge.guard.on === "timeout" || edge.guard.on === "timed_out"),
+  );
+  return explicit?.to ?? routes.find((edge) => edge.guard === "else")?.to ?? null;
 }

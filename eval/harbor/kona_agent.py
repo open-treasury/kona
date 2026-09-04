@@ -114,8 +114,8 @@ class KonaTerminus(Terminus2):
         if log_check.return_code != 0 or not (log_check.stdout or "").strip():
             raise RuntimeError("kona init left no /.kona/mutations.jsonl")
 
-        # KONA_SEED=1 commits a generic five-node skeleton so the agent starts at `kona next`
-        # instead of at an empty store.
+        # KONA_SEED=1 commits a generic skeleton — an `initial`, five `action`s and a `final` —
+        # so the agent starts at `kona next` instead of at an empty store.
         #
         # Why: measured on production-planning, the model invoked `kona next` and then
         # `kona --help`/`kona mutate --help`, and never committed a graph. Reading the frontier
@@ -124,9 +124,18 @@ class KonaTerminus(Terminus2):
         #
         # The skeleton is deliberately TASK-AGNOSTIC (understand inputs → state requirements →
         # decide approach → do the work → verify). It encodes no knowledge of any task and
-        # gives away no answers; it only removes the blank page. Two of its nodes explicitly
-        # tell the model to split them with `kona mutate` as structure emerges, so authoring is
-        # still tested — just incrementally rather than all at once, up front, for free.
+        # gives away no answers; it only removes the blank page. Its `do the work` node says out
+        # loud that it is a placeholder and tells the model how to replace it — supersede it and
+        # commit the real steps wired to its neighbours — so authoring is still tested, just
+        # incrementally rather than all at once, up front, for free.
+        #
+        # And the five worked nodes are still a CHAIN, which after the activity model is a
+        # deliberate choice rather than an inherited one. `eval/analyze/shape.ts` scores a run by
+        # whether the log contains a `fork` and a `decision`; the seed is in that same log, so a
+        # seed that forked would report `expressedConcurrency` on every seeded trial no matter
+        # what the model did, and the one instrument that can falsify the redesign would be
+        # measuring itself. Concurrency is taught in the skill and in KONA_DIRECTIVE below; the
+        # starting graph stays the flattest legal thing, so branching in the log is the model's.
         if os.environ.get("KONA_SEED", "") not in ("", "0", "false", "no"):
             await environment.upload_file(_SKILLS / "kona" / "seed.json", "/opt/kona/seed.json")
             seeded = await environment.exec(
@@ -174,9 +183,15 @@ class KonaTerminus(Terminus2):
 #
 # THE CONTROL THAT MATTERS: telling one arm to plan and not the other measures the planning
 # instruction, not the tool. So the baseline gets a matched directive with the same shape and
-# the same demand — plan first, track progress, revise deliberately — and no tool. The only
+# the same demand — plan first, name what truly depends on what, name what runs at once, work
+# everything that is available, track progress, revise deliberately — and no tool. The only
 # thing that differs between arms is whether that discipline is enforced by `kona` or left to
 # the model's own notes.
+#
+# The two lists are matched BULLET FOR BULLET, and they have to stay that way: a demand added
+# to one arm and not the other silently turns the A/B into a measurement of the prompt. Where
+# Kona's bullet names a node type — `fork`, `join`, `merge` — the baseline's names the same
+# obligation without a vocabulary to write it in, which is exactly the difference under test.
 # ---------------------------------------------------------------------------------------
 
 KONA_DIRECTIVE = """\
@@ -189,19 +204,26 @@ advice and it is not optional: on this task, the graph is how you work.
   step would take more than a few commands to finish, it is two steps. `kona mutate --steps`
   starts a plan in a single command, so there is no reason to defer it.
 - **Draw an edge only where one step truly needs another.** An edge means "this must be
-  finished before that can start" — it does not mean "I planned to do that next". Steps that
-  do not depend on each other must be left unchained so they are ready at the same time. A
-  plan that is one long chain is usually wrong: check every edge by asking whether the target
-  genuinely needs the source.
-- **Claim before you work.** Set a node `in_flight` before you start it, so the graph says what
+  finished before that can start" — it does not mean "I planned to do that next". A plan that
+  is one long chain is usually wrong: check every edge by asking whether the target genuinely
+  needs the source.
+- **Draw the concurrency; do not leave it implied.** Steps that do not need each other belong
+  on the arms of a `fork`, and they come back together at a `join` when you need all of them or
+  a `merge` when any one will do. An `action` takes exactly one in-edge and one out-edge, so a
+  fan-out is something the graph states or does not have.
+- **Work the whole frontier.** `kona next` returns everything that is ready, not one thing. If
+  it hands you three nodes, the plan is saying all three can be worked now — do that, rather
+  than taking one and coming back for the others.
+- **Claim before you work.** Set a node `active` before you start it, so the graph says what
   is being worked and not merely what is ready.
 - **Record before you move on.** Every finished step gets its outcome and an `evidence_ref`
   naming what you actually looked at — a file, a log, a command.
 - **`kona next` is the only source of work.** Do not keep a to-do list, a notes file, or a plan
   in your head beside the graph. If you catch yourself tracking state the CLI could track, put
   it in the graph instead.
-- **When the work proves the plan wrong, change the plan** — add a step, supersede one, re-wire
-  a dependency — and say why. Replanning is the expected case, not a failure.
+- **When the work proves the plan wrong, change the plan** — supersede the node that was wrong
+  and commit what replaces it, wired to its neighbours in the same batch — and say why.
+  Replanning is the expected case, not a failure.
 
 Work the whole task this way, from the first step to the last one."""
 
@@ -212,17 +234,23 @@ optional: on this task, the written plan is how you work.
 - **Write the plan first.** One entry per concrete, checkable step, not three large ones. If a
   step would take more than a few commands to finish, it is two steps.
 - **Record a prerequisite only where one step truly needs another.** "Depends on" means "this
-  must be finished before that can start" — not "I planned to do that next". Steps that do not
-  depend on each other must be marked as available at the same time. A plan that is one long
-  sequence is usually wrong: check each prerequisite by asking whether it is real.
+  must be finished before that can start" — not "I planned to do that next". A plan that is one
+  long sequence is usually wrong: check each prerequisite by asking whether it is real.
+- **Write the concurrency down; do not leave it implied.** Steps that do not need each other go
+  in one named group that is worked together, and the plan says what waits on that group and
+  whether it waits for all of them or for whichever finishes first. A set of steps that runs at
+  once is something the plan states or does not have.
+- **Work the whole available set.** When the plan says three steps are available, that means
+  all three can be worked now — do that, rather than taking one and coming back for the others.
 - **Mark a step started before you work it**, so the plan says what is being worked and not
   merely what is ready.
 - **Record before you move on.** Every finished step gets its outcome and a note of what you
   actually looked at — a file, a log, a command.
 - **The plan is the only source of work.** Consult it rather than your memory when choosing
   what to do next, and keep one plan rather than a second list beside it.
-- **When the work proves the plan wrong, change the plan** — add a step, drop one, re-order —
-  and note why. Replanning is the expected case, not a failure.
+- **When the work proves the plan wrong, change the plan** — replace the step that was wrong
+  with the steps it turned out to be, and say what now comes before and after them — and note
+  why. Replanning is the expected case, not a failure.
 
 Work the whole task this way, from the first step to the last one."""
 

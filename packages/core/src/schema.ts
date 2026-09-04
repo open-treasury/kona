@@ -1,7 +1,7 @@
 /**
  * The parser. §6.7: "The parser first, free." A zod schema at the CLI boundary rejects
- * malformed shape — legal type and required fields, a condition on every wait out-edge,
- * a deadline and `on_timeout` on every wait — before any graph logic runs.
+ * malformed shape — legal type and required fields, well-formed guards, and a deadline on
+ * every accept-event — before any graph logic runs.
  *
  * Every object is `strictObject`: an unrecognised key is a rejection, not a silent drop.
  * A typo'd `recipient_refs` that parsed as "no recipient" would walk straight past
@@ -21,14 +21,17 @@
  */
 
 import { z } from "zod";
-import { ACTIVITY_ID_PATTERN, MAX_ACTIVITY_ID_LENGTH, PREFIX_PATTERN, isValidActivityId } from "./ids.ts";
+import {
+  ACTIVITY_ID_PATTERN,
+  MAX_ACTIVITY_ID_LENGTH,
+  PREFIX_PATTERN,
+  isValidActivityId,
+} from "./ids.ts";
 import {
   ACTOR_KINDS,
-  EDGE_CONDITIONS,
+  GUARD_VALUES,
   EFFECT_CLASSES,
   MATCH_KINDS,
-  MERGE_MODES,
-  ACTIVITY_TYPES,
   REASON_CODES,
   STATUSES,
   TRIGGER_RELATIONS,
@@ -69,15 +72,19 @@ const AuthoredRefSchema = z
   );
 
 // ---------------------------------------------------------------------------
-// Activity spec — the AUTHORED half of an activity (§6.2)
+// ActivityNode spec — the AUTHORED half of an activity (§6.2)
 // ---------------------------------------------------------------------------
 
 /** §6.2 — deadlines take one of exactly three shapes. */
 const DeadlineAtSchema = z.strictObject({
   at: z.iso.datetime(),
 });
-const DeadlineAfterSchema = z.strictObject({
+const AuthoredDeadlineAfterSchema = z.strictObject({
   after: AuthoredRefSchema,
+  duration: z.string().regex(/^\d+[smhd]$/, "duration must look like 48h"),
+});
+const CommittedDeadlineAfterSchema = z.strictObject({
+  after: ActivityIdSchema,
   duration: z.string().regex(/^\d+[smhd]$/, "duration must look like 48h"),
 });
 const DeadlineExprSchema = z.strictObject({
@@ -85,9 +92,14 @@ const DeadlineExprSchema = z.strictObject({
   backstop: z.iso.datetime(),
   after_unknown: z.boolean(),
 });
+const AuthoredDeadlineSchema = z.union([
+  DeadlineAtSchema,
+  AuthoredDeadlineAfterSchema,
+  DeadlineExprSchema,
+]);
 export const DeadlineSchema = z.union([
   DeadlineAtSchema,
-  DeadlineAfterSchema,
+  CommittedDeadlineAfterSchema,
   DeadlineExprSchema,
 ]);
 export type Deadline = z.infer<typeof DeadlineSchema>;
@@ -120,14 +132,30 @@ const CommittedEffectSchema = AuthoredEffectSchema.extend({
   effect_key: z.string().min(1),
 });
 
-/** §6.5 — the authored half of a wait. Cursor and resolution are observed; see NodeStatus. */
-const WaitMatchSchema = z.strictObject({
+const CountPredicateSchema = z.strictObject({
+  count: z.strictObject({
+    verdict: z.enum(VERDICTS),
+    attrs: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  }),
+  op: z.literal(">="),
+  n: z.number().int().min(1),
+});
+export type CountPredicate = z.infer<typeof CountPredicateSchema>;
+
+const GuardSchema = z.union([
+  z.literal("else"),
+  z.strictObject({ on: z.enum(GUARD_VALUES) }),
+  CountPredicateSchema,
+]);
+
+/** §6.5 — the authored half of an accept-event action. */
+const WaitMatchShape = {
   kind: z.enum(MATCH_KINDS),
   conditions: z
     .array(
       z.strictObject({
         kind: z.string().min(1),
-        on: z.enum(EDGE_CONDITIONS),
+        on: z.enum(GUARD_VALUES),
         in_reply_to: z.array(z.string()).optional(),
         from: z.string().optional(),
         at: z.iso.datetime().optional(),
@@ -135,8 +163,6 @@ const WaitMatchSchema = z.strictObject({
       }),
     )
     .min(1, "a wait with no conditions can never resolve"),
-  /** Derived from the activity id by the store; absent when authored. */
-  correlation: z.string().optional(),
   /**
    * DECLARED BY §6.5 AND READ BY NOTHING. Recorded here rather than quietly carried.
    *
@@ -154,6 +180,11 @@ const WaitMatchSchema = z.strictObject({
    * So: accepted, defaulted, unread, and now written down.
    */
   memory: z.boolean().default(true),
+};
+const AuthoredWaitMatchSchema = z.strictObject(WaitMatchShape);
+const CommittedWaitMatchSchema = z.strictObject({
+  ...WaitMatchShape,
+  correlation: z.string().min(1).optional(),
 });
 
 /**
@@ -163,71 +194,85 @@ const WaitMatchSchema = z.strictObject({
  * to it by hand. That is two hand-kept shapes and, measured, eleven mutants no test could
  * kill — guards against a match block the parser cannot admit in the first place.
  */
-export type WaitCondition = z.infer<typeof WaitMatchSchema>["conditions"][number];
+export type WaitCondition = z.infer<typeof CommittedWaitMatchSchema>["conditions"][number];
+export type WaitMatch = z.infer<typeof CommittedWaitMatchSchema>;
 
-function activitySpecSchema<R extends z.ZodType>(ref: R) {
-  return z.strictObject({
+type AuthoredEffect = z.infer<typeof AuthoredEffectSchema>;
+type CommittedEffect = z.infer<typeof AuthoredEffectSchema> | z.infer<typeof CommittedEffectSchema>;
+
+export interface ActionSpec {
+  instruction: string;
+  inputs: { ref: string }[];
+  outputs: { name: string; type: string }[];
+  effect_class: (typeof EFFECT_CLASSES)[number];
+  effect?: CommittedEffect;
+  compensates?: string;
+}
+
+export interface AcceptEventSpec extends ActionSpec {
+  deadline: Deadline;
+  match: WaitMatch;
+}
+
+interface AuthoredActionSpec extends Omit<ActionSpec, "effect"> {
+  effect?: AuthoredEffect;
+}
+
+interface AuthoredAcceptEventSpec extends AuthoredActionSpec {
+  deadline: z.infer<typeof AuthoredDeadlineSchema>;
+  match: z.infer<typeof AuthoredWaitMatchSchema>;
+}
+
+export type ControlSpec = Record<string, never>;
+
+type ControlNodeFields = {
+  [T in "initial" | "decision" | "merge" | "fork" | "join" | "final" | "flow_final"]: {
+    type: T;
+    name?: string;
+    spec: ControlSpec;
+  };
+}["initial" | "decision" | "merge" | "fork" | "join" | "final" | "flow_final"];
+
+type NodeFields =
+  | { type: "action"; name: string; spec: ActionSpec }
+  | { type: "accept_event"; name: string; spec: AcceptEventSpec }
+  | ControlNodeFields;
+
+type AuthoredNodeFields =
+  | { type: "action"; name: string; spec: AuthoredActionSpec }
+  | { type: "accept_event"; name: string; spec: AuthoredAcceptEventSpec }
+  | ControlNodeFields;
+
+type TailOp<R extends string> =
+  | { op: "add_edge"; from: R; to: R; guard?: z.infer<typeof GuardSchema> }
+  | { op: "set_status"; node: R; status: (typeof STATUSES)[number]; evidence_ref: string }
+  | {
+      op: "record_outcome";
+      node: R;
+      verdict: (typeof VERDICTS)[number];
+      evidence_ref: string;
+      attrs?: Record<string, unknown>;
+    }
+  | { op: "record_output"; node: R; output_name: string; value: unknown; evidence_ref: string }
+  | { op: "supersede_node"; node: R; by?: R };
+
+export type AuthoredOp = ({ op: "add_node" } & AuthoredNodeFields) | TailOp<string>;
+export type CommittedOp = ({ op: "add_node"; id: string } & NodeFields) | TailOp<string>;
+
+/** The spec keys that only a worked node may carry. Read by `refineNode`, listed once. */
+function behaviourSpecShape<R extends z.ZodType>(ref: R, effect: z.ZodType) {
+  return {
     instruction: z.string().min(1),
     inputs: z.array(InputRefSchema).default([]),
     outputs: z.array(OutputDeclSchema).default([]),
-    merge: z.enum(MERGE_MODES).optional(),
     effect_class: z.enum(EFFECT_CLASSES),
-    effect: z.union([AuthoredEffectSchema, CommittedEffectSchema]).optional(),
+    effect: effect.optional(),
     compensates: ref.optional(),
-    obviated_if: z
-      .strictObject({ wait: ref, satisfied: z.boolean() })
-      .optional(),
-    /** Required on every wait (§6.2) — enforced by the refinement below, not by optionality. */
-    deadline: DeadlineSchema.optional(),
-    /** Where a blown deadline routes. §6.4: zero live in-edges routes here and never hangs. */
-    on_timeout: ref.optional(),
-    match: WaitMatchSchema.optional(),
-  });
+  };
 }
 
-/**
- * §6.2 — the schema rule that most directly prevents a silent multi-day hang, and the
- * pairing that made a fresh subagent able to execute at all (0/8 -> 10/10 once every
- * `inputs[].ref` had a declared `outputs` to resolve against).
- */
-function refineNode(
-  value: { type: string; spec: Record<string, unknown> },
-  ctx: z.RefinementCtx,
-): void {
-  const isWait = value.type === "wait";
-  const spec = value.spec;
-
-  if (isWait) {
-    if (spec["deadline"] === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["spec", "deadline"],
-        message: "every wait requires a deadline (§6.2)",
-      });
-    }
-    if (spec["on_timeout"] === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["spec", "on_timeout"],
-        message: "every wait requires an on_timeout (§6.2)",
-      });
-    }
-    if (spec["match"] === undefined) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["spec", "match"],
-        message: "every wait requires a match block (§6.5)",
-      });
-    }
-  } else if (spec["match"] !== undefined) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["spec", "match"],
-      message: "only a wait carries a match block",
-    });
-  }
-
-  const effectClass = typeof spec["effect_class"] === "string" ? spec["effect_class"] : "";
+function refineBehaviourSpec(spec: Record<string, unknown>, ctx: z.RefinementCtx): void {
+  const effectClass = spec["effect_class"];
   const needsEffect = effectClass === "pivot" || effectClass === "compensatable";
   if (needsEffect && spec["effect"] === undefined) {
     ctx.addIssue({
@@ -245,13 +290,53 @@ function refineNode(
   }
 }
 
+function addNodeSchemas<R extends z.ZodType>(ref: R, committed: boolean) {
+  const base = { op: z.literal("add_node"), ...(committed ? { id: ActivityIdSchema } : {}) };
+  const effectSchema = committed
+    ? z.union([AuthoredEffectSchema, CommittedEffectSchema])
+    : AuthoredEffectSchema;
+  const actionSpec = z
+    .strictObject(behaviourSpecShape(ref, effectSchema))
+    .superRefine(refineBehaviourSpec);
+  const acceptEventSpec = z
+    .strictObject({
+      ...behaviourSpecShape(ref, effectSchema),
+      deadline: committed ? DeadlineSchema : AuthoredDeadlineSchema,
+      match: committed ? CommittedWaitMatchSchema : AuthoredWaitMatchSchema,
+    })
+    .superRefine(refineBehaviourSpec);
+  const controls = ["initial", "decision", "merge", "fork", "join", "final", "flow_final"] as const;
+  return [
+    z.strictObject({
+      ...base,
+      type: z.literal("action"),
+      name: z.string().min(1),
+      spec: actionSpec,
+    }),
+    z.strictObject({
+      ...base,
+      type: z.literal("accept_event"),
+      name: z.string().min(1),
+      spec: acceptEventSpec,
+    }),
+    ...controls.map((type) =>
+      z.strictObject({
+        ...base,
+        type: z.literal(type),
+        name: z.string().min(1).optional(),
+        spec: z.strictObject({}),
+      }),
+    ),
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // The six ops (§6.4)
 // ---------------------------------------------------------------------------
 
 /**
  * The five ops that carry no minted identity. Shared verbatim between the authored and
- * committed unions — only `add_activity` differs between the two, and only by gaining an `id`.
+ * committed unions — only `add_node` differs between the two, and only by gaining an `id`.
  */
 function tailOps<R extends z.ZodType>(ref: R) {
   return [
@@ -260,72 +345,60 @@ function tailOps<R extends z.ZodType>(ref: R) {
       /** §6.2: `{from: A, to: B}` means **B requires A**. */
       from: ref,
       to: ref,
-      condition: z.strictObject({ on: z.enum(EDGE_CONDITIONS) }).optional(),
+      guard: GuardSchema.optional(),
     }),
     z.strictObject({
       op: z.literal("set_status"),
-      activity: ref,
+      node: ref,
       status: z.enum(STATUSES),
       evidence_ref: z.string().min(1),
     }),
     z.strictObject({
       op: z.literal("record_outcome"),
-      activity: ref,
+      node: ref,
       verdict: z.enum(VERDICTS),
       evidence_ref: z.string().min(1),
       attrs: z.record(z.string(), z.unknown()).optional(),
     }),
     z.strictObject({
       op: z.literal("record_output"),
-      activity: ref,
+      node: ref,
       output_name: z.string().min(1),
       value: z.unknown(),
       evidence_ref: z.string().min(1),
     }),
     z.strictObject({
-      op: z.literal("supersede_activity"),
-      activity: ref,
+      op: z.literal("supersede_node"),
+      node: ref,
       by: ref.optional(),
     }),
   ] as const;
 }
 
-function addActivityShape<R extends z.ZodType>(ref: R) {
-  return {
-    op: z.literal("add_activity"),
-    /** Becomes `provenance.group`; the fan-out arm this activity belongs to. */
-    scope: z.string().min(1).optional(),
-    name: z.string().min(1),
-    type: z.enum(ACTIVITY_TYPES),
-    spec: activitySpecSchema(ref),
-  };
-}
-
 /** What an author submits: `$N` refs allowed, no minted ids (§6.4 forbids client ids). */
-export const AuthoredOpSchema = z.discriminatedUnion("op", [
-  z.strictObject(addActivityShape(AuthoredRefSchema)).superRefine(refineNode),
+const AuthoredOpUnion = z.union([
+  ...addNodeSchemas(AuthoredRefSchema, false),
   ...tailOps(AuthoredRefSchema),
 ]);
-export type AuthoredOp = z.infer<typeof AuthoredOpSchema>;
+export const AuthoredOpSchema = AuthoredOpUnion as typeof AuthoredOpUnion & z.ZodType<AuthoredOp>;
 
 /**
  * What the log stores: every ref resolved, every id minted. `fold` never mints, so a
  * replay cannot drift from the commit that produced it.
  */
-export const CommittedOpSchema = z.discriminatedUnion("op", [
-  z
-    .strictObject({ ...addActivityShape(ActivityIdSchema), id: ActivityIdSchema })
-    .superRefine(refineNode),
+const CommittedOpUnion = z.union([
+  ...addNodeSchemas(ActivityIdSchema, true),
   ...tailOps(ActivityIdSchema),
 ]);
-export type CommittedOp = z.infer<typeof CommittedOpSchema>;
+export const CommittedOpSchema = CommittedOpUnion as typeof CommittedOpUnion &
+  z.ZodType<CommittedOp>;
 
 /**
  * The AUTHORED half of an activity, derived from the parser rather than restated beside it.
  * Two hand-kept copies of this shape would drift, and the one that drifts is whichever
  * the invariants read.
  */
-export type ParsedNodeSpec = z.infer<ReturnType<typeof activitySpecSchema<typeof ActivityIdSchema>>>;
+export type ParsedNodeSpec = ActionSpec | AcceptEventSpec | ControlSpec;
 
 export const AuthoredBatchSchema = z
   .array(AuthoredOpSchema)
@@ -416,11 +489,20 @@ export type MutationRecord = z.infer<typeof MutationRecordSchema>;
 
 /**
  * 2 — `sending` became `in_flight` (§6.2).
+ * 6 — the activity model: nine node types in two families, and the seven-state lifecycle
+ *     (§6.2, §6.2.1). `in_flight` -> `active`, `done` -> `completed`, and the old `active` and
+ *     `dropped` each split in two.
  *
- * The status is DATA in `mutations.jsonl`, not just an identifier, so the rename is a
- * breaking change to the log format rather than a cosmetic one. A v1 log is refused at
- * fold rather than read with an alias: the graph is a fold over the log, and a store that
- * silently accepts two spellings of one state has two spellings to keep true forever.
- * Prototype-stage call — nothing durable is running on v1.
+ * The status is DATA in `mutations.jsonl`, not just an identifier, so a rename is a breaking
+ * change to the log format rather than a cosmetic one. An older log is refused at fold rather
+ * than read with an alias: the graph is a fold over the log, and a store that silently accepts
+ * two spellings of one state has two spellings to keep true forever.
+ *
+ * The bump is load-bearing in a way the last one was not, and it is worth saying why. Version 2
+ * was protected by the enum as well: a v1 log carrying `sending` is refused because the token
+ * no longer exists. This one is NOT, in one direction — a v5 log carrying `active` folds
+ * perfectly cleanly under the new vocabulary and reads as CLAIMED when it meant unclaimed. The
+ * token survived and inverted, so the version refusal is the only thing standing between an
+ * old log and a silently wrong graph. Nothing else in the repo would notice.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;

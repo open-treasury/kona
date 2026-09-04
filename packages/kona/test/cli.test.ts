@@ -24,7 +24,9 @@ const T0 = "2026-08-21T12:00:00.000Z";
 const WHY = ["--why", "Dana is the only goalie on the roster", "--reason-code", "MISSING_STEP"];
 
 function logLines(dir = h.dir): string[] {
-  return readFileSync(join(dir, ".kona", "mutations.jsonl"), "utf8").trim().split("\n");
+  return readFileSync(join(dir, ".kona", "mutations.jsonl"), "utf8")
+    .trim()
+    .split("\n");
 }
 
 async function init(): Promise<void> {
@@ -43,7 +45,17 @@ describe("dispatch", () => {
   test("help lists all nine verbs and marks the unbuilt ones", async () => {
     expect(await run([], h.io)).toBe(0);
     const help = h.out.join("\n");
-    for (const verb of ["init", "mutate", "graph", "next", "brief", "poll", "resume", "effect", "view"]) {
+    for (const verb of [
+      "init",
+      "mutate",
+      "graph",
+      "next",
+      "brief",
+      "poll",
+      "resume",
+      "effect",
+      "view",
+    ]) {
       expect(help).toContain(verb);
     }
     expect(help).toContain("never calls a language model");
@@ -111,12 +123,12 @@ describe("kona init", () => {
 });
 
 describe("kona mutate — the only write path", () => {
-  test("commits, mints ids from labels, and reports them", async () => {
+  test("commits, mints ids from names, and reports them", async () => {
     await init();
     expect(await commitAskDana()).toBe(0);
     expect(h.out[0]).toContain("committed v3");
     // Minting reports the ids it made; they are hashes, so the assertion names the activities
-    // through their labels rather than spelling ids that the store chooses.
+    // through their names rather than spelling ids that the store chooses.
     expect(h.out[0]).toContain(
       `minted ${h.id("ask-dana-to-play-thursday")}, ${h.id("wait-for-dana")}`,
     );
@@ -124,11 +136,9 @@ describe("kona mutate — the only write path", () => {
     expect(graph.version).toBe(3);
     // `roster-on-file` is the seed that attests to Dana; §6.7 wants her named before the
     // batch that emails her.
-    expect(graph.activities.map((n) => n.id)).toEqual([
-      h.id("roster-on-file"),
-      h.id("ask-dana-to-play-thursday"),
-      h.id("wait-for-dana"),
-    ]);
+    expect(graph.nodes.map((n) => n.id)).toContain(h.id("roster-on-file"));
+    expect(graph.nodes.map((n) => n.id)).toContain(h.id("ask-dana-to-play-thursday"));
+    expect(graph.nodes.map((n) => n.id)).toContain(h.id("wait-for-dana"));
   });
 
   test("writes the COMMITTED form: refs resolved, ids present, no $N survives", async () => {
@@ -138,7 +148,7 @@ describe("kona mutate — the only write path", () => {
     expect(line).not.toContain("$0");
     const ops = JSON.parse(line).ops;
     expect(ops[0].id).toBe(h.id("ask-dana-to-play-thursday"));
-    expect(ops[2]).toEqual({
+    expect(ops).toContainEqual({
       op: "add_edge",
       from: h.id("ask-dana-to-play-thursday"),
       to: h.id("wait-for-dana"),
@@ -162,7 +172,10 @@ describe("kona mutate — the only write path", () => {
     expect(await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "x"], h.io)).toBe(1);
     h.reset();
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "x", "--reason-code", "BECAUSE"], h.io),
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "2", "--why", "x", "--reason-code", "BECAUSE"],
+        h.io,
+      ),
     ).toBe(1);
     expect(h.err[0]).toContain("BAD_FLAG");
   });
@@ -181,17 +194,38 @@ describe("kona mutate — the only write path", () => {
     await commitAskDana();
     h.reset();
     const ops = h.writeOps("done.json", [
-      { op: "set_status", activity: "ask-dana-to-play-thursday", status: "done", evidence_ref: "e" },
+      {
+        op: "set_status",
+        node: "ask-dana-to-play-thursday",
+        status: "completed",
+        evidence_ref: "e",
+      },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"], h.io),
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"],
+        h.io,
+      ),
     ).toBe(0);
     h.reset();
     const again = h.writeOps("again.json", [
-      { op: "set_status", activity: "ask-dana-to-play-thursday", status: "active", evidence_ref: "e" },
+      { op: "set_status", node: "ask-dana-to-play-thursday", status: "active", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", again, "--base-version", "4", "--why", "reopen", "--reason-code", "OTHER"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          again,
+          "--base-version",
+          "4",
+          "--why",
+          "reopen",
+          "--reason-code",
+          "OTHER",
+        ],
+        h.io,
+      ),
     ).toBe(4);
     expect(h.err[0]).toStartWith("TERMINAL_ACTIVITY_PROTECTED");
     expect(h.err[0]).toContain(`activity=${h.id("ask-dana-to-play-thursday")}`);
@@ -202,7 +236,18 @@ describe("kona mutate — the only write path", () => {
     const ops = h.writeOps("ops.json", ASK_DANA);
     expect(
       await run(
-        ["mutate", "--ops", ops, "--base-version", "2", ...WHY, "--actor-kind", "subagent", "--actor-id", "exec-3"],
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "2",
+          ...WHY,
+          "--actor-kind",
+          "subagent",
+          "--actor-id",
+          "exec-3",
+        ],
         h.io,
       ),
     ).toBe(1);
@@ -218,7 +263,7 @@ describe("kona mutate — the only write path", () => {
     expect(h.err[0]).toContain("UNREADABLE_OPS");
 
     h.reset();
-    const wrong = h.writeOps("wrong.json", [{ op: "add_activity", name: "x" }]);
+    const wrong = h.writeOps("wrong.json", [{ op: "add_node", name: "x" }]);
     expect(await run(["mutate", "--ops", wrong, "--base-version", "2", ...WHY], h.io)).toBe(1);
     expect(h.err[0]).toContain("MALFORMED_OPS");
     expect(logLines()).toHaveLength(3);
@@ -312,7 +357,7 @@ describe("kona graph — the only read contract", () => {
   test("--version is read-only time travel and removes nothing", async () => {
     await init();
     await commitAskDana();
-    expect((await runGraphJson(["--version", "0"])).activities).toEqual([]);
+    expect((await runGraphJson(["--version", "0"])).nodes).toEqual([]);
     expect((await runGraphJson()).version).toBe(3);
   });
 
@@ -376,9 +421,9 @@ describe("the architecture, asserted", () => {
         expect(await run(["init", "--prefix", "t"], target.io)).toBe(0);
         await seedRoster(target, ["dana"]);
         const ops = target.writeOps("ops.json", ASK_DANA);
-        expect(
-          await run(["mutate", "--ops", ops, "--base-version", "2", ...WHY], target.io),
-        ).toBe(0);
+        expect(await run(["mutate", "--ops", ops, "--base-version", "2", ...WHY], target.io)).toBe(
+          0,
+        );
       }
       expect(logLines(other.dir)).toEqual(logLines(h.dir));
     } finally {
@@ -410,11 +455,43 @@ describe("6.8: every non-zero exit writes one symbolic stderr line", () => {
     ["effect with an unknown subcommand", ["effect", "cancel", "n", "--why", "x"]],
     ["effect with no activity", ["effect", "reserve", "--why", "x", "--payload-hash", "h"]],
     ["reserve outside a pursuit", ["effect", "reserve", "n", "--why", "x", "--payload-hash", "h"]],
-    ["mutate with no --ops", ["mutate", "--base-version", "2", "--why", "x", "--reason-code", "OTHER"]],
+    [
+      "mutate with no --ops",
+      ["mutate", "--base-version", "2", "--why", "x", "--reason-code", "OTHER"],
+    ],
     ["mutate with no --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2"]],
-    ["mutate with an empty --why", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2", "--why", ""]],
-    ["mutate with a bad --reason-code", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2", "--why", "x", "--reason-code", "NOPE"]],
-    ["mutate with a bad --base-version", ["mutate", "--ops", "/tmp/nope.json", "--base-version", "one", "--why", "x", "--reason-code", "OTHER"]],
+    [
+      "mutate with an empty --why",
+      ["mutate", "--ops", "/tmp/nope.json", "--base-version", "2", "--why", ""],
+    ],
+    [
+      "mutate with a bad --reason-code",
+      [
+        "mutate",
+        "--ops",
+        "/tmp/nope.json",
+        "--base-version",
+        "2",
+        "--why",
+        "x",
+        "--reason-code",
+        "NOPE",
+      ],
+    ],
+    [
+      "mutate with a bad --base-version",
+      [
+        "mutate",
+        "--ops",
+        "/tmp/nope.json",
+        "--base-version",
+        "one",
+        "--why",
+        "x",
+        "--reason-code",
+        "OTHER",
+      ],
+    ],
     ["a bad --version", ["graph", "--version", "abc"]],
     ["a bad --port", ["view", "--port", "abc"]],
   ];

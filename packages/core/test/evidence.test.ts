@@ -15,27 +15,27 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph } from "../src/index.ts";
 import { evidencedKeys, isEvidencedRecipient } from "../src/index.ts";
-import { commit, seeded, task, wait, activityAt } from "./fixtures.ts";
+import { commit, seeded, action, acceptEvent, workedAt } from "./fixtures.ts";
 
 /** A graph whose one activity has recorded `value` as its declared output. */
 function output(value: unknown): Graph {
-  return commit(seeded([task("A")]), [
-    { op: "record_output", activity: "a", output_name: "reply", value, evidence_ref: "src#1" },
+  return commit(seeded([action("A")]), [
+    { op: "record_output", node: "a", output_name: "reply", value, evidence_ref: "src#1" },
   ] as AuthoredOp[]);
 }
 
-/** A graph whose one wait carries an outcome with these attrs. */
+/** A graph whose one acceptEvent carries an outcome with these attrs. */
 function outcomeAttrs(attrs: Record<string, unknown> | undefined): Graph {
   const ops: AuthoredOp[] = [
     {
       op: "record_outcome",
-      activity: "w",
+      node: "w",
       verdict: "declined",
       evidence_ref: "<m-1@mail>",
       ...(attrs === undefined ? {} : { attrs }),
     },
   ] as AuthoredOp[];
-  return commit(seeded([task("Escalate"), wait("W")]), ops);
+  return commit(seeded([action("Escalate"), acceptEvent("W")]), ops);
 }
 
 describe("what counts as evidence", () => {
@@ -66,7 +66,7 @@ describe("what counts as evidence", () => {
   });
 
   test("an activity that has recorded nothing contributes nothing", () => {
-    expect(evidencedKeys(seeded([task("A")]))).toEqual(new Set());
+    expect(evidencedKeys(seeded([action("A")]))).toEqual(new Set());
   });
 });
 
@@ -113,18 +113,20 @@ describe("the guarantee this function relies on instead of re-checking", () => {
     // where it is true. If the schema ever relaxes, this fails — and `evidence.ts` says to
     // come back and add the check it deliberately does not have.
     const graph = commit(
-      commit(seeded([task("A", { outputs: [{ name: "reply", type: "string" }, { name: "note", type: "string" }] })]), [
-        { op: "record_output", activity: "a", output_name: "reply", value: "dana", evidence_ref: "src#1" },
+      commit(seeded([action("A", { outputs: [{ name: "reply", type: "string" }, { name: "note", type: "string" }] })]), [
+        { op: "record_output", node: "a", output_name: "reply", value: "dana", evidence_ref: "src#1" },
       ] as AuthoredOp[]),
       [
-        { op: "record_output", activity: "a", output_name: "note", value: "sam", evidence_ref: "src#2" },
+        { op: "record_output", node: "a", output_name: "note", value: "sam", evidence_ref: "src#2" },
       ] as AuthoredOp[],
     );
-    for (const activity of graph.activities.values()) {
+    for (const activity of graph.nodes.values()) {
+      // Control nodes produce nothing, so there is no pair to check on one.
+      if (activity.status === undefined) continue;
       const { output: recorded, output_evidence: evidence } = activity.status;
       expect(Object.keys(recorded ?? {}).toSorted()).toEqual(Object.keys(evidence ?? {}).toSorted());
     }
-    expect(activityAt(graph, "a")?.status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
+    expect(workedAt(graph, "a").status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
   });
 });
 

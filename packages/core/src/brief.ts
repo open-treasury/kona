@@ -12,7 +12,17 @@
  */
 
 import { named } from "./named.ts";
-import { type Graph, type Activity, inEdges, isEdgeSatisfied, outEdges } from "./graph.ts";
+import {
+  type ActionNode,
+  type ActivityNode,
+  type Edge,
+  type Graph,
+  inEdges,
+  isEdgeSatisfied,
+  isNodeLive,
+  outEdges,
+} from "./graph.ts";
+import { isUnclaimed } from "./vocab.ts";
 import type { Identity, MutationRecord, PursuitConfig } from "./schema.ts";
 import { hasSentEffect } from "./effect.ts";
 import { type Correlation, deriveCorrelation } from "./correlation.ts";
@@ -44,11 +54,33 @@ import { type Correlation, deriveCorrelation } from "./correlation.ts";
  * have arrived correlated to nothing. Unit tests on either half passed — each was
  * self-consistent — and only driving a whole pursuit through both showed it.
  */
-function awaitingWaits(graph: Graph, activity: Activity): Activity[] {
-  return outEdges(graph, activity.id).flatMap((edge) => {
-    const target = graph.activities.get(edge.to);
-    if (target === undefined || target.type !== "wait") return [];
-    if (target.provenance.superseded_by !== null) return [];
+function awaitingWaits(graph: Graph, activity: ActivityNode): ActivityNode[] {
+  return forwardToWaits(graph, activity.id, new Set());
+}
+
+/**
+ * Walk forward to the first node that carries a status on each path, THROUGH control nodes.
+ *
+ * The one-hop version this replaces was correct while a send could only ever be wired
+ * straight to its wait. It is not any more: under S7 a `fork` or a `decision` may sit between
+ * them, and a one-hop lookup would find a diamond, return nothing, and hand the executor a
+ * brief with no reply address — for a send whose whole purpose is to get a reply. Silent, and
+ * it would present as "the counterparty never answered".
+ *
+ * Stopping at the first status-carrying node on each path is what keeps `kona brief`'s
+ * fail-closed-on-more-than-one rule meaningful: the walk widens at a fork exactly as the flow
+ * does, so two waits behind one send are still two, and still refused.
+ */
+function forwardToWaits(graph: Graph, from: string, seen: Set<string>): ActivityNode[] {
+  if (seen.has(from)) return [];
+  seen.add(from);
+
+  return outEdges(graph, from).flatMap((edge) => {
+    const target = graph.nodes.get(edge.to);
+    if (target === undefined) return [];
+    if (!isNodeLive(target)) return [];
+    if (target.status === undefined) return forwardToWaits(graph, target.id, seen);
+    if (target.type !== "accept_event") return [];
     // Only an EVENT wait takes mail. A predicate wait is judged from the graph and a human
     // wait from a person; neither has an inbox, and addressing a reply to one would be a
     // reply nothing reads.
@@ -85,23 +117,21 @@ export interface Disclosable {
 }
 
 export const DISCLOSURE: Disclosable = {
-  disclosable: ["instruction", "inputs", "correlation.reply_to", "correlation.subject_tag", "identity"],
-  withheld: [
-    "deadline",
-    "on_timeout",
-    "graph_structure",
-    "rationale",
-    "effect_key",
-    "sibling_nodes",
-    "budget",
+  disclosable: [
+    "instruction",
+    "inputs",
+    "correlation.reply_to",
+    "correlation.subject_tag",
+    "identity",
   ],
+  withheld: ["deadline", "graph_structure", "rationale", "effect_key", "sibling_nodes", "budget"],
 };
 
 export interface UpstreamNeighbour {
   id: string;
   name: string;
   state: string;
-  condition?: string;
+  guard?: Edge["guard"];
   /** What it produced, so the executor can use it without re-reading the graph. */
   output: unknown;
 }
@@ -109,11 +139,11 @@ export interface UpstreamNeighbour {
 export interface DownstreamNeighbour {
   id: string;
   name: string;
-  condition?: string;
+  guard?: Edge["guard"];
 }
 
 export interface Brief {
-  activity: Activity;
+  activity: ActionNode;
   /** The activity's immediate neighbourhood, so an executor can see what it depends on. */
   subgraph: {
     upstream: UpstreamNeighbour[];
@@ -127,10 +157,12 @@ export interface Brief {
   disclosure: Disclosable;
 }
 
-export type BriefResult = { ok: true; brief: Brief } | { ok: false; reason: string; message: string };
+export type BriefResult =
+  | { ok: true; brief: Brief }
+  | { ok: false; reason: string; message: string };
 
 /** Resolve `inputs[].ref` of the form `<activity-id>.<output-name>` against recorded outputs. */
-function checkInputs(graph: Graph, activity: Activity): PreconditionCheck {
+function checkInputs(graph: Graph, activity: ActivityNode): PreconditionCheck {
   const unresolved: string[] = [];
   for (const input of activity.spec.inputs) {
     const dot = input.ref.indexOf(".");
@@ -140,27 +172,35 @@ function checkInputs(graph: Graph, activity: Activity): PreconditionCheck {
     }
     const sourceId = input.ref.slice(0, dot);
     const outputName = input.ref.slice(dot + 1);
-    const source = graph.activities.get(sourceId);
+    const source = graph.nodes.get(sourceId);
     if (source === undefined) {
       unresolved.push(`${input.ref} (no activity '${sourceId}')`);
+      continue;
+    }
+    if (source.status === undefined) {
+      unresolved.push(`${input.ref} ('${sourceId}' is a control node and declares no outputs)`);
       continue;
     }
     if (!source.spec.outputs.some((declared) => declared.name === outputName)) {
       unresolved.push(`${input.ref} ('${sourceId}' declares no '${outputName}')`);
       continue;
     }
-    if (source.status.output === null || !(outputName in source.status.output)) {
+    // A control node produces nothing, so an input ref pointing at one can never resolve.
+    // Reported as unproduced rather than crashed: the author wrote a ref, and the brief's job
+    // is to tell them which refs are not ready yet.
+    if (source.status?.output == null || !(outputName in source.status.output)) {
       unresolved.push(`${input.ref} (not produced yet)`);
     }
   }
   return {
     name: "inputs_resolved",
     ok: unresolved.length === 0,
-    detail: unresolved.length === 0 ? "every input resolves to a recorded output" : unresolved.join("; "),
+    detail:
+      unresolved.length === 0 ? "every input resolves to a recorded output" : unresolved.join("; "),
   };
 }
 
-function checkDependencies(graph: Graph, activity: Activity): PreconditionCheck {
+function checkDependencies(graph: Graph, activity: ActivityNode): PreconditionCheck {
   const blocking = inEdges(graph, activity.id).filter((edge) => !isEdgeSatisfied(graph, edge));
   return {
     name: "dependencies_satisfied",
@@ -172,7 +212,11 @@ function checkDependencies(graph: Graph, activity: Activity): PreconditionCheck 
   };
 }
 
-function checkBudget(graph: Graph, activity: Activity, budget: number | undefined): PreconditionCheck {
+function checkBudget(
+  graph: Graph,
+  activity: ActivityNode,
+  budget: number | undefined,
+): PreconditionCheck {
   if (activity.spec.effect === undefined) {
     return { name: "budget_remaining", ok: true, detail: "activity sends nothing" };
   }
@@ -182,10 +226,11 @@ function checkBudget(graph: Graph, activity: Activity, budget: number | undefine
     return {
       name: "budget_remaining",
       ok: false,
-      detail: "no effect budget configured for this pursuit; an unknown cap is not an unlimited one",
+      detail:
+        "no effect budget configured for this pursuit; an unknown cap is not an unlimited one",
     };
   }
-  const spent = [...graph.activities.values()].filter(hasSentEffect).length;
+  const spent = [...graph.nodes.values()].filter(hasSentEffect).length;
   return {
     name: "budget_remaining",
     ok: spent < budget,
@@ -193,14 +238,21 @@ function checkBudget(graph: Graph, activity: Activity, budget: number | undefine
   };
 }
 
-export function buildBrief(
-  graph: Graph,
-  nodeId: string,
-  config: PursuitConfig,
-): BriefResult {
-  const activity = graph.activities.get(nodeId);
+export function buildBrief(graph: Graph, nodeId: string, config: PursuitConfig): BriefResult {
+  const activity = graph.nodes.get(nodeId);
   if (activity === undefined) {
-    return { ok: false, reason: "UNKNOWN_ACTIVITY", message: `activity '${nodeId}' does not exist` };
+    return {
+      ok: false,
+      reason: "UNKNOWN_ACTIVITY",
+      message: `activity '${nodeId}' does not exist`,
+    };
+  }
+  if (activity.type !== "action") {
+    return {
+      ok: false,
+      reason: "NOT_BRIEFABLE",
+      message: `${named(activity)} is a ${activity.type}; only action nodes can be briefed`,
+    };
   }
 
   const { identity } = config;
@@ -239,7 +291,7 @@ export function buildBrief(
         `${String(awaiting.length)} waits hang off this send (${awaiting.map((wait) => wait.id).join(", ")}); ` +
         "a reply address can name only one, and guessing which would route an answer to the wrong arm";
     } else {
-      const target = awaiting[0] as Activity;
+      const target = awaiting[0] as ActivityNode;
       const derived = deriveCorrelation(identity.mailbox, target.id);
       if (derived.ok) {
         correlation = derived.correlation;
@@ -254,15 +306,20 @@ export function buildBrief(
   const checks: PreconditionCheck[] = [
     {
       name: "node_live",
-      ok: activity.status.state === "active" && activity.provenance.superseded_by === null,
-      detail: `state '${activity.status.state}'${activity.provenance.superseded_by === null ? "" : ", superseded"}`,
+      // A control node is never briefed at all (D2). This check fails CLOSED on purpose — an earlier version failed open, in front
+      // of an irreversible send.
+      ok:
+        activity.status !== undefined && isUnclaimed(activity.status.state) && isNodeLive(activity),
+      detail: `state '${activity.status?.state ?? "n/a — a control node"}'${isNodeLive(activity) ? "" : ", superseded"}`,
     },
     checkDependencies(graph, activity),
     checkInputs(graph, activity),
     {
       name: "effect_slot_unfired",
       ok: !hasSentEffect(activity),
-      detail: hasSentEffect(activity) ? "this activity has already moved bytes" : "no send recorded",
+      detail: hasSentEffect(activity)
+        ? "this activity has already moved bytes"
+        : "no send recorded",
     },
     { name: "correlation_expanded", ok: correlationOk, detail: correlationDetail },
     checkBudget(graph, activity, config.effect_budget),
@@ -274,22 +331,22 @@ export function buildBrief(
       activity,
       subgraph: {
         upstream: inEdges(graph, activity.id).map((edge) => {
-          const source = graph.activities.get(edge.from);
+          const source = graph.nodes.get(edge.from);
           const neighbour: UpstreamNeighbour = {
             id: edge.from,
             name: source?.name ?? "(missing)",
-            state: source?.status.state ?? "unknown",
-            output: source?.status.output ?? null,
+            state: source?.status?.state ?? "unknown",
+            output: source?.status?.output ?? null,
           };
-          if (edge.condition !== undefined) neighbour.condition = edge.condition.on;
+          if (edge.guard !== undefined) neighbour.guard = edge.guard;
           return neighbour;
         }),
         downstream: outEdges(graph, activity.id).map((edge) => {
           const neighbour: DownstreamNeighbour = {
             id: edge.to,
-            name: graph.activities.get(edge.to)?.name ?? "(missing)",
+            name: graph.nodes.get(edge.to)?.name ?? "(missing)",
           };
-          if (edge.condition !== undefined) neighbour.condition = edge.condition.on;
+          if (edge.guard !== undefined) neighbour.guard = edge.guard;
           return neighbour;
         }),
       },

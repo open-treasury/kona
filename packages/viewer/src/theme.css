@@ -14,8 +14,8 @@
  * **The palette is OpenTreasury's**, ported from `packages/ui/src/styles.css` in that repo:
  * carbon ink on white, the carbon alpha ladder for borders and hovers, the named shadow
  * ladder, the 4/6/8 radius scale, and the tag palette — tinted `lch(92 …)` backgrounds
- * carrying foreground text, never white on a saturated fill. Kona's five statuses map onto
- * that palette rather than inventing a sixth vocabulary of colour.
+ * carrying foreground text, never white on a saturated fill. Kona's seven lifecycle states map
+ * onto that palette rather than inventing a second vocabulary of colour.
  *
  * **Layer order is declared, not inherited.** Tailwind's preflight resets `svg`, `button` and
  * the box model, and React Flow's stylesheet depends on several of those defaults. Giving
@@ -100,35 +100,60 @@
   --color-tag-sienna-bg: lch(92 30 40);
 
   /*
-   * The five statuses (§6.2 froze them), each mapped onto the kit rather than given a new hue.
-   * `-fill` is the chip's tinted background, `-ink` the text and the card's left rule.
+   * The seven lifecycle states (§6.2.1 froze them), each mapped onto the kit rather than given
+   * a new hue, and declared in the order that table declares them. `-fill` is the chip's tinted
+   * background, `-ink` the text and the card's left rule.
    *
-   * The traffic light, and why `active` is not the yellow.
+   * **The traffic light, and why `active` is the yellow.** Green means finished, amber means
+   * somebody is inside it right now, red means it stopped. The obvious mapping — and it is
+   * earned rather than assumed: amber's claim was never on "in progress" in the abstract, it
+   * was on the one non-terminal state that looks finished from the outside, where the work has
+   * left our hands and the world has not answered yet. §6.2.1 makes that exactly what `active`
+   * means, and says so in the same breath as why it is non-terminal: a claim with an open
+   * effect is an unknown, not a result. The state has been renamed twice; the swatch has not
+   * moved once.
    *
-   * The tempting mapping is green=go, yellow=in-progress, red=stop. It does not survive §6.2,
-   * because **`sending` is the yellow** and it has a stronger claim: it is the one non-terminal
-   * status that looks finished from the outside — the bytes have left and what the world did
-   * with them is unknown. That is the anxious state, and amber is the colour for it.
+   * **`ready` and `active` must not look alike**, which is the pair this palette is actually
+   * built around. `ready` is the frontier — what a person could pick up — and `active` is what
+   * they must not. In one colour the canvas answers *what is left* and *what is under way* with
+   * the same mark, and those are the two questions a reader came to the graph with. Cobalt
+   * takes `ready`: the conventional colour for queued, unclaimed by anything else here, and far
+   * enough from amber to separate at a glance rather than on inspection.
    *
-   * Which leaves `active` meaning "exists, nobody has run it yet" — queued, not in flight. Blue
-   * is the conventional colour for that and, more to the point, it is the one that is still
-   * free.
+   * **`inactive` is the quietest thing on the canvas**, deliberately. Most of a large pursuit
+   * has not been reached yet, so this is the modal state; give it a hue and it *is* the canvas,
+   * and the eye has to hunt for the handful of cards in play. Carbon at 40% is dimmer even than
+   * `withdrawn` — not yet arrived is worth less of a reader's attention than deliberately
+   * abandoned.
+   *
+   * **Two states where there was one, and the split is visible.** `withdrawn` keeps the grey:
+   * the flow went elsewhere and nobody had started, so there is nothing to mourn. `terminated`
+   * takes the failed family, because somebody *was* working it when it was stopped — nearer a
+   * wound than a tidy-up. That it resolves to the same red as `failed` is not an oversight: the
+   * glyph already tells those two apart (a slash, not a cross), so the ink is spent on the
+   * distinction the glyph cannot make, `terminated` against `withdrawn`. Two names over one
+   * value is also the seam a later design needs — sienna is sitting unspent for whichever of
+   * them wants to move first.
    *
    * `-ink` is what paints the card's status glyph. The `-fill` half is the tinted chip
    * background and is currently unreferenced — status became a ring rather than a chip — so
    * Tailwind emits no utility for it. It stays because it is half of the vocabulary, and the
    * next thing that needs a status chip should not have to invent the tint again.
    */
-  --color-status-active-fill: var(--color-tag-cobalt-bg);
-  --color-status-active-ink: var(--color-cobalt-bold);
-  --color-status-in-flight-fill: var(--color-tag-ochre-bg);
-  --color-status-in-flight-ink: var(--color-ochre-bold);
-  --color-status-done-fill: var(--color-success-bg);
-  --color-status-done-ink: var(--color-success);
+  --color-status-inactive-fill: var(--color-titanium);
+  --color-status-inactive-ink: var(--color-carbon-40);
+  --color-status-ready-fill: var(--color-tag-cobalt-bg);
+  --color-status-ready-ink: var(--color-cobalt-bold);
+  --color-status-active-fill: var(--color-tag-ochre-bg);
+  --color-status-active-ink: var(--color-ochre-bold);
+  --color-status-completed-fill: var(--color-success-bg);
+  --color-status-completed-ink: var(--color-success);
   --color-status-failed-fill: var(--color-error-bg);
   --color-status-failed-ink: var(--color-error);
-  --color-status-dropped-fill: var(--color-titanium);
-  --color-status-dropped-ink: var(--color-carbon-60);
+  --color-status-withdrawn-fill: var(--color-titanium);
+  --color-status-withdrawn-ink: var(--color-carbon-60);
+  --color-status-terminated-fill: var(--color-error-bg);
+  --color-status-terminated-ink: var(--color-error);
 
   /*
    * §6.10 rule 8's three wait colours, plus the three states that are not about waiting.
@@ -141,7 +166,7 @@
   --color-wait-blown: var(--color-error);
   --color-wait-failed: var(--color-error);
   --color-wait-unarmed: var(--color-carbon-40);
-  --color-wait-dropped: var(--color-carbon-40);
+  --color-wait-withdrawn: var(--color-carbon-40);
 
   /* The canvas furniture. React Flow paints edges, dots and handles itself, so each of these
      would otherwise be a hex literal in a different file. */
@@ -266,13 +291,6 @@
    * `graph.edges` left the escalation and every retired node looking stranded. They are drawn
    * so that neither can be mistaken for something that gates work: a dependency is solid.
    */
-  .react-flow__edge.e-timeout .react-flow__edge-path {
-    stroke: var(--color-ochre-bold);
-    stroke-width: 1.25;
-    stroke-dasharray: 5 4;
-    opacity: 0.45;
-  }
-
   /* The arrows into and out of the two notation circles. Quiet: they carry no state, they only
      say where the flow enters and leaves. */
   .react-flow__edge.e-marker .react-flow__edge-path {
@@ -334,7 +352,6 @@
   .react-flow__attribution {
     display: none;
   }
-
 
   .react-flow__controls {
     box-shadow: var(--shadow-subtle);

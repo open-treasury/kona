@@ -50,7 +50,9 @@ function entry(version: number): TimelineEntry {
  * it. This is the only way to pose a rationale the nine-version fixture does not contain.
  */
 function withRecord(version: number, patch: (record: Record<string, unknown>) => void): FoldResult {
-  const lines = logText().split("\n").filter((line) => line.trim().length > 0);
+  const lines = logText()
+    .split("\n")
+    .filter((line) => line.trim().length > 0);
   const index = lines.findIndex((line) => (JSON.parse(line) as { v: number }).v === version);
   if (index < 0) throw new Error(`fixture has no v${String(version)}`);
 
@@ -63,7 +65,7 @@ function withRecord(version: number, patch: (record: Record<string, unknown>) =>
 
 /** The rows of one version's ops, as `[kind, activity, detail]`, in the order they were committed. */
 function opRows(version: number): string[][] {
-  return entry(version).ops.map((op) => [op.kind, op.activity, op.detail]);
+  return entry(version).ops.map((op) => [op.kind, op.node, op.detail]);
 }
 
 describe("A6 — every version, newest first, every one explained", () => {
@@ -114,9 +116,7 @@ describe("A6 — every version, newest first, every one explained", () => {
     }
     // Nothing in this pursuit was committed in reply to an inbound event, and none of the
     // rationales carried the two optional halves. Absent, not empty-string, not "unknown".
-    expect(TIMELINE.map((row) => row.trigger)).toEqual(
-      Array<null>(V.patReserved + 1).fill(null),
-    );
+    expect(TIMELINE.map((row) => row.trigger)).toEqual(Array<null>(V.patReserved + 1).fill(null));
     expect(entry(V.samRefers).expectedEffect).toBeNull();
     expect(entry(V.samRefers).alternativesRejected).toEqual([]);
   });
@@ -130,10 +130,14 @@ describe("op details — the wording is the product", () => {
     // existing only in the proposing batch", so the record naming these people has to be
     // committed before any activity may email one of them.
     expect(opRows(V.roster)).toEqual([
-      ["add_activity", "th-ahf6", "added task"],
-      ["add_activity", "th-vipt", "added task"],
+      ["add_node", "th-ahf6", "added action"],
+      ["add_node", "th-vipt", "added action"],
       ["record_output", "th-ahf6", "output availability"],
-      ["set_status", "th-ahf6", "-> done"],
+      ["set_status", "th-ahf6", "-> completed"],
+      // Readiness is derived and WRITTEN at commit, so the frontier is a recorded fact and
+      // not a recomputation: the escalation task depends on nothing, so the same commit that
+      // creates it lifts it out of `inactive` and says so in an op of its own.
+      ["set_status", "th-vipt", "-> ready"],
     ]);
   });
 
@@ -160,59 +164,53 @@ describe("op details — the wording is the product", () => {
 
   test("a send reads as two transitions, and the first is not terminal", () => {
     // The whole of §6.6, as two timeline rows. Nobody watching a pursuit has to be told what
-    // the outbox is; they can see the activity sit in `sending` and then move.
-    expect(opRows(V.danaReserved)).toEqual([
-      ["set_status", "th-nhwd", "-> in flight"],
+    // the outbox is; they can see the activity sit in `active` and then move.
+    expect(opRows(V.danaReserved)).toEqual([["set_status", "th-nhwd", "-> in flight"]]);
+    expect(opRows(V.danaSent)).toEqual([
+      ["set_status", "th-nhwd", "-> completed"],
+      // The second half of the derivation: finishing the ask satisfies the wait's only
+      // dependency, so the wait moves `inactive` -> `ready` in the very commit that did it.
+      ["set_status", "th-es9m", "-> ready"],
     ]);
-    expect(opRows(V.danaSent)).toEqual([["set_status", "th-nhwd", "-> done"]]);
     // And the one that never got its second row until four versions later.
-    expect(opRows(V.priyaReserved)).toEqual([
-      ["set_status", "th-t2yo", "-> in flight"],
-    ]);
-    expect(opRows(V.priyaFailed)).toEqual([
-      ["set_status", "th-t2yo", "-> failed"],
-    ]);
+    expect(opRows(V.priyaReserved)).toEqual([["set_status", "th-t2yo", "-> in flight"]]);
+    expect(opRows(V.priyaFailed)).toEqual([["set_status", "th-t2yo", "-> failed"]]);
   });
 
   test("an outcome leads with the verdict and keeps the attrs a quorum counts on", () => {
     expect(opRows(V.danaDeclines)).toEqual([
       ["record_outcome", "th-es9m", "declined · role=goalie · reason=away that week"],
-      ["set_status", "th-es9m", "-> done"],
+      ["set_status", "th-es9m", "-> completed"],
     ]);
   });
 
   test("the supersede names its replacement", () => {
     expect(opRows(V.rosterSuperseded)).toEqual([
-      ["add_activity", "th-five", "added task"],
-      [
-        "supersede_activity",
-        "th-ahf6",
-        "superseded by th-five",
-      ],
+      ["add_node", "th-five", "added action"],
+      ["supersede_node", "th-ahf6", "superseded by th-five"],
+      // The replacement arrives with no dependencies of its own, so it is on the frontier the
+      // moment it exists and the commit records that too.
+      ["set_status", "th-five", "-> ready"],
     ]);
   });
 
   test("a supersede with no replacement says so, rather than naming nothing", () => {
     // Priya's address bounced 550. Her wait is retired outright — `by` is absent, so
-    // `superseded_by` stays null and the store drops the activity instead.
+    // `superseded_by` stays null and the store withdraws the activity instead. `withdrawn` and
+    // not `terminated`: nobody had claimed the wait, so nothing was stopped mid-work.
     expect(opRows(V.patPlanned)).toEqual([
-      [
-        "record_outcome",
-        "th-1ppl",
-        "bounced · role=goalie · smtp=550 5.1.1 user unknown",
-      ],
-      ["supersede_activity", "th-1ppl", "superseded"],
-      ["add_activity", "th-gk0l", "added task"],
-      ["add_activity", "th-0s7c", "added wait"],
+      ["record_outcome", "th-1ppl", "bounced · role=goalie · smtp=550 5.1.1 user unknown"],
+      ["supersede_node", "th-1ppl", "superseded"],
+      ["add_node", "th-gk0l", "added action"],
+      ["add_node", "th-0s7c", "added accept_event"],
       ["add_edge", "th-0s7c", "requires th-gk0l"],
       ["add_edge", "th-ymld", "requires th-0s7c on satisfied"],
+      ["set_status", "th-gk0l", "-> ready"],
     ]);
 
     // Pat's reservation is a version of its own, after the plan that created his activity. It
     // has to be: `kona effect reserve` is the only thing that issues a slot, and it appends.
-    expect(opRows(V.patReserved)).toEqual([
-      ["set_status", "th-gk0l", "-> in flight"],
-    ]);
+    expect(opRows(V.patReserved)).toEqual([["set_status", "th-gk0l", "-> in flight"]]);
   });
 
   test("genesis has no ops at all", () => {
@@ -256,7 +254,7 @@ describe("each entry carries what its version did to the shape", () => {
     const diff = entry(V.danaDeclines).diff;
     expect(diff?.addedNodes).toEqual([]);
     expect(diff?.addedEdges).toEqual([]);
-    expect(diff?.statusChanged).toEqual([{ id: "th-es9m", from: "active", to: "done" }]);
+    expect(diff?.statusChanged).toEqual([{ id: "th-es9m", from: "ready", to: "completed" }]);
     expect(diff?.outcomeAdded).toEqual(["th-es9m"]);
   });
 

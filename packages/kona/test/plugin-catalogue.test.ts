@@ -3,7 +3,7 @@
  *
  * §6.9 is emphatic that the §6.2 catalogue ships into the plan prompt **verbatim**, because
  * a paraphrase produced four stuck-gate defects. But the spec writes ops in a shorthand —
- * `add_activity(scope, spec)` — that is not parseable JSON, so "verbatim" cannot mean copying
+ * `add_node(scope, spec)` — that is not parseable JSON, so "verbatim" cannot mean copying
  * that. It has to mean the shape the CLI actually accepts.
  *
  * Which leaves the documentation free to drift from the parser, silently, in the one place
@@ -16,7 +16,15 @@ import { describe, expect, test } from "bun:test";
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OP_KINDS, REASON_CODES, STATUSES, VERDICTS, parseBatch } from "@kona/core";
+import {
+  OP_KINDS,
+  REASON_CODES,
+  STATUSES,
+  NODE_TYPES,
+  STRUCTURAL_REFUSALS,
+  VERDICTS,
+  parseBatch,
+} from "@kona/core";
 
 const PLUGIN = join(import.meta.dir, "..", "..", "..", "plugin");
 
@@ -117,7 +125,9 @@ describe("every op the plan skill documents is accepted by the parser", () => {
     (_kind, entry) => {
       const result = parseBatch([entry.parsed]);
       if (!result.ok) {
-        throw new Error(`the plan skill documents an op the CLI rejects:\n${entry.source}\n\n${result.rejection.message}`);
+        throw new Error(
+          `the plan skill documents an op the CLI rejects:\n${entry.source}\n\n${result.rejection.message}`,
+        );
       }
       expect(result.ok).toBe(true);
     },
@@ -150,6 +160,33 @@ describe("the ops the other skills show are accepted too", () => {
 });
 
 describe("the vocabularies the prompt quotes are the real ones", () => {
+  test("canonical email actions use the irreversible-effect contract", () => {
+    const emailActions = opsIn(PLAN)
+      .map(
+        (entry) =>
+          entry.parsed as {
+            op: string;
+            type?: string;
+            spec?: {
+              instruction?: string;
+              effect_class?: string;
+              effect?: { channel?: string; recipient_ref?: string };
+            };
+          },
+      )
+      .filter(
+        (op) =>
+          op.op === "add_node" && op.type === "action" && op.spec?.instruction?.includes("Email"),
+      );
+
+    expect(emailActions.length).toBeGreaterThan(0);
+    for (const action of emailActions) {
+      expect(["pivot", "compensatable"]).toContain(action.spec?.effect_class ?? "");
+      expect(action.spec?.effect?.channel).toBe("email");
+      expect(action.spec?.effect?.recipient_ref).toMatch(/^[a-z0-9._-]+#[a-z0-9-]+$/);
+    }
+  });
+
   test("every status is listed, and nothing that is not a status", () => {
     // The prompt renders them as `·`-separated inline code in a table row.
     const row = /\| `status` \|([^|]+)\|/.exec(PLAN)?.[1] ?? "";
@@ -170,7 +207,7 @@ describe("the vocabularies the prompt quotes are the real ones", () => {
   test("the forbidden opcodes are named as forbidden", () => {
     for (const forbidden of ["delete_node", "rollback", "replace_graph"]) {
       expect(PLAN).toContain(forbidden);
-      expect(parseBatch([{ op: forbidden, activity: "a" }]).ok).toBe(false);
+      expect(parseBatch([{ op: forbidden, node: "a" }]).ok).toBe(false);
     }
   });
 });
@@ -259,20 +296,23 @@ describe("the real tooling accepts it", () => {
     expect(result.output).toContain("Validation passed");
   });
 
-  test.skipIf(!available)("and REFUSES a broken one — the control that gives the above meaning", () => {
-    // A copy, corrupted. Without this, "validation passed" is a sentence with no information
-    // in it: we would not know whether the tool had looked.
-    const scratch = mkdtempSync(join(tmpdir(), "kona-plugin-"));
-    try {
-      cpSync(PLUGIN, scratch, { recursive: true });
-      writeFileSync(join(scratch, ".claude-plugin", "plugin.json"), "{ not json");
-      const result = validate(scratch);
-      expect(`passed: ${String(result.ok)}`).toBe("passed: false");
-      expect(result.output).toContain("Validation failed");
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
-  });
+  test.skipIf(!available)(
+    "and REFUSES a broken one — the control that gives the above meaning",
+    () => {
+      // A copy, corrupted. Without this, "validation passed" is a sentence with no information
+      // in it: we would not know whether the tool had looked.
+      const scratch = mkdtempSync(join(tmpdir(), "kona-plugin-"));
+      try {
+        cpSync(PLUGIN, scratch, { recursive: true });
+        writeFileSync(join(scratch, ".claude-plugin", "plugin.json"), "{ not json");
+        const result = validate(scratch);
+        expect(`passed: ${String(result.ok)}`).toBe("passed: false");
+        expect(result.output).toContain("Validation failed");
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("the plugin is additive and trivially removable (§6.9)", () => {
@@ -314,5 +354,56 @@ describe("the plugin is additive and trivially removable (§6.9)", () => {
   test("the manifest names the plugin `kona`, which is what namespaces the skills", () => {
     const manifest = JSON.parse(read(".claude-plugin", "plugin.json")) as { name: string };
     expect(manifest.name).toBe("kona");
+  });
+});
+
+describe("every shape refusal the store can emit has a repair the model can read", () => {
+  // A refusal with no documented repair is a loop: the model is told the batch is wrong, is
+  // not told what would be right, and tries again. This is the guard that stops a new rule
+  // landing in `validate.ts` without the sentence that teaches its way out.
+  test("the plan skill's repair table covers all of them", () => {
+    const missing = STRUCTURAL_REFUSALS.filter((reason) => !PLAN.includes(reason));
+    expect(missing).toEqual([]);
+  });
+
+  test("and each one is a refusal `validate.ts` actually emits", () => {
+    // The other direction: a table row for a reason the store never emits teaches a repair
+    // for a refusal that cannot happen, which is worse than silence.
+    const source = readFileSync(
+      join(PLUGIN, "..", "packages", "core", "src", "validate.ts"),
+      "utf8",
+    );
+    for (const reason of STRUCTURAL_REFUSALS) expect(source).toContain(`"${reason}"`);
+  });
+});
+
+describe("the spec is normative, so it must not describe a vocabulary the code does not have", () => {
+  // docs/spec.md is cited by § number from 114 files, and its own §6.2 is what a reader
+  // consults to learn the shape. It has been wrong before and nothing noticed: `sending` was
+  // renamed to `in_flight` two schema versions ago and the spec still defined the old word
+  // when the activity model landed. A doc nobody checks drifts; this checks it.
+  const SPEC = readFileSync(join(PLUGIN, "..", "docs", "spec.md"), "utf8");
+
+  test("it names every node type, status and op the store actually has", () => {
+    for (const type of NODE_TYPES) expect(SPEC).toContain(`\`${type}\``);
+    for (const status of STATUSES) expect(SPEC).toContain(`\`${status}\``);
+    for (const op of OP_KINDS) expect(SPEC).toContain(op);
+  });
+
+  test("and names none the store has retired", () => {
+    // Each of these was in the spec while the code had moved on. The list only grows.
+    for (const dead of ["add_activity", "supersede_activity", "in_flight", "MERGE_MODES"]) {
+      expect(SPEC).not.toContain(dead);
+    }
+  });
+
+  test("the canonical email node is an irreversible effect", () => {
+    const example = SPEC.slice(
+      SPEC.indexOf('"name": "Ask Dana to play Thursday"'),
+      SPEC.indexOf("### 6.2.1"),
+    );
+    expect(example).toContain('"effect_class": "pivot"');
+    expect(example).toContain('"channel": "email"');
+    expect(example).toContain('"recipient_ref": "roster.contacts#dana"');
   });
 });

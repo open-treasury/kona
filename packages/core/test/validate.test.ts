@@ -1,10 +1,26 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthoredOp, Graph, Result } from "../src/index.ts";
-import { checkAuthority, checkInvariant1, formatRejection, validate } from "../src/index.ts";
-import { ORCHESTRATOR, SUBAGENT, commit, seeded, task, activityAt, resolveSlugs, nid } from "./fixtures.ts";
+import { checkAuthority, checkInvariant1, formatRejection } from "../src/index.ts";
+import {
+  ORCHESTRATOR,
+  SUBAGENT,
+  commit,
+  seeded,
+  action,
+  activityAt,
+  resolveSlugs,
+  nid,
+  validateFragment,
+} from "./fixtures.ts";
 
 function run(graph: Graph, ops: AuthoredOp[], actor = ORCHESTRATOR) {
-  return validate({ graph, ops: resolveSlugs(graph, ops), actor, version: graph.version + 1, prefix: "t" });
+  return validateFragment({
+    graph,
+    ops: resolveSlugs(graph, ops),
+    actor,
+    version: graph.version + 1,
+    prefix: "t",
+  });
 }
 
 function rejection<T>(result: Result<T>) {
@@ -13,44 +29,47 @@ function rejection<T>(result: Result<T>) {
   return result.rejection;
 }
 
-/** An activity that is `done` at head, and one that has already moved bytes. */
+/** An activity that is `completed` at head, and one that has already moved bytes. */
 function withTerminal(): Graph {
-  return commit(seeded([task("A"), task("B")]), [
-    { op: "set_status", activity: "a", status: "done", evidence_ref: "ev" },
+  return commit(seeded([action("A"), action("B")]), [
+    { op: "set_status", node: "a", status: "completed", evidence_ref: "ev" },
   ]);
 }
 
 describe("stage order", () => {
   test("shape is rejected before graph logic — a malformed batch never reaches minting", () => {
-    const r = rejection(run(seeded([task("A")]), [{ op: "add_activity" } as never]));
+    const r = rejection(run(seeded([action("A")]), [{ op: "add_node" } as never]));
     expect(r.reason).toBe("MALFORMED_OPS");
   });
 
   test("a legal batch returns both the committed ops and the post-commit graph", () => {
-    const result = run(seeded([task("A")]), [task("B"), { op: "add_edge", from: "a", to: "$0" }]);
+    const result = run(seeded([action("A")]), [
+      action("B"),
+      { op: "add_edge", from: "a", to: "$0" },
+    ]);
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
     expect(result.value.ops).toHaveLength(2);
     expect(result.value.graph.version).toBe(2);
-    expect(result.value.graph.activities.has(nid(result.value.graph, "b"))).toBe(true);
+    expect(result.value.graph.nodes.has(nid(result.value.graph, "b"))).toBe(true);
   });
 });
 
 describe("role-scoped write authority (§6.7)", () => {
   test("a subagent may write status, outcome and output", () => {
     for (const op of [
-      { op: "set_status", activity: "a", status: "done", evidence_ref: "e" },
-      { op: "record_outcome", activity: "a", verdict: "confirmed", evidence_ref: "e" },
-      { op: "record_output", activity: "a", output_name: "reply", value: "yes", evidence_ref: "e" },
+      { op: "set_status", node: "a", status: "completed", evidence_ref: "e" },
+      { op: "record_outcome", node: "a", verdict: "confirmed", evidence_ref: "e" },
+      { op: "record_output", node: "a", output_name: "reply", value: "yes", evidence_ref: "e" },
     ] as AuthoredOp[]) {
       expect(checkAuthority(SUBAGENT, [op]).ok).toBe(true);
     }
   });
 
   const TOPOLOGY_ATTEMPTS: [string, AuthoredOp][] = [
-    ["add_activity", task("B")],
+    ["add_node", action("B")],
     ["add_edge", { op: "add_edge", from: "a", to: "a" }],
-    ["supersede_activity", { op: "supersede_activity", activity: "a" }],
+    ["supersede_node", { op: "supersede_node", node: "a" }],
   ];
 
   test.each(TOPOLOGY_ATTEMPTS)("a subagent attempting %s is refused", (_name, op) => {
@@ -60,15 +79,15 @@ describe("role-scoped write authority (§6.7)", () => {
 
   test("names the offending op, not just the batch", () => {
     const ops: AuthoredOp[] = [
-      { op: "set_status", activity: "a", status: "done", evidence_ref: "e" },
-      { op: "supersede_activity", activity: "a" },
+      { op: "set_status", node: "a", status: "completed", evidence_ref: "e" },
+      { op: "supersede_node", node: "a" },
     ];
     expect(rejection(checkAuthority(SUBAGENT, ops)).op_index).toBe(1);
   });
 
   test("the orchestrator and a human may do anything the invariants allow", () => {
-    expect(checkAuthority(ORCHESTRATOR, [task("B")]).ok).toBe(true);
-    expect(checkAuthority({ kind: "human", id: "ilya" }, [task("B")]).ok).toBe(true);
+    expect(checkAuthority(ORCHESTRATOR, [action("B")]).ok).toBe(true);
+    expect(checkAuthority({ kind: "human", id: "ilya" }, [action("B")]).ok).toBe(true);
   });
 });
 
@@ -82,21 +101,29 @@ describe("invariant 1 — terminal & effect protection", () => {
   });
 
   test("refuses set_status against a terminal activity", () => {
-    const r = rejection(run(withTerminal(), [
-      { op: "set_status", activity: "a", status: "active", evidence_ref: "e" },
-    ]));
+    const r = rejection(
+      run(withTerminal(), [{ op: "set_status", node: "a", status: "active", evidence_ref: "e" }]),
+    );
     expect(r.reason).toBe("TERMINAL_ACTIVITY_PROTECTED");
   });
 
-  test("record_outcome, record_output and supersede_activity are still allowed", () => {
+  test("record_outcome, record_output and supersede_node are still allowed", () => {
     const graph = withTerminal();
-    expect(run(graph, [{ op: "record_outcome", activity: "a", verdict: "late", evidence_ref: "m-9" }]).ok).toBe(true);
-    expect(run(graph, [{ op: "record_output", activity: "a", output_name: "reply", value: "y", evidence_ref: "e" }]).ok).toBe(true);
-    expect(run(graph, [{ op: "supersede_activity", activity: "a" }]).ok).toBe(true);
+    expect(
+      run(graph, [{ op: "record_outcome", node: "a", verdict: "late", evidence_ref: "m-9" }]).ok,
+    ).toBe(true);
+    expect(
+      run(graph, [
+        { op: "record_output", node: "a", output_name: "reply", value: "y", evidence_ref: "e" },
+      ]).ok,
+    ).toBe(true);
+    expect(run(graph, [{ op: "supersede_node", node: "a" }]).ok).toBe(true);
   });
 
   test("an edge OUT of a terminal activity is fine — it is how the next activity becomes reachable", () => {
-    expect(run(withTerminal(), [task("C"), { op: "add_edge", from: "a", to: "$0" }]).ok).toBe(true);
+    expect(run(withTerminal(), [action("C"), { op: "add_edge", from: "a", to: "$0" }]).ok).toBe(
+      true,
+    );
   });
 
   /**
@@ -106,30 +133,37 @@ describe("invariant 1 — terminal & effect protection", () => {
    * completed activity onward.
    */
   test("EXISTING edges into a terminal activity do not block unrelated commits", () => {
-    const wired = commit(seeded([task("A"), task("B")]), [{ op: "add_edge", from: "a", to: "b" }]);
-    const finished = commit(wired, [{ op: "set_status", activity: "b", status: "done", evidence_ref: "e" }]);
+    const wired = commit(seeded([action("A"), action("B")]), [
+      { op: "add_edge", from: "a", to: "b" },
+    ]);
+    const finished = commit(wired, [
+      { op: "set_status", node: "b", status: "completed", evidence_ref: "e" },
+    ]);
     expect(finished.edges).toEqual([{ from: nid(finished, "a"), to: nid(finished, "b") }]);
     // b is terminal and still carries an in-edge. An unrelated commit must succeed.
-    expect(run(finished, [task("C")]).ok).toBe(true);
+    expect(run(finished, [action("C")]).ok).toBe(true);
   });
 
-  test("an activity that goes terminal WITHIN the batch is not protected from the same batch", () => {
-    const graph = seeded([task("A"), task("B")]);
-    expect(
+  test("an activity that goes terminal within the batch is protected from later ops", () => {
+    const graph = seeded([action("A"), action("B")]);
+    const r = rejection(
       run(graph, [
-        { op: "set_status", activity: "a", status: "done", evidence_ref: "e" },
+        { op: "set_status", node: "a", status: "completed", evidence_ref: "e" },
         { op: "add_edge", from: "b", to: "a" },
-      ]).ok,
-    ).toBe(true);
+      ]),
+    );
+    expect(r.reason).toBe("TERMINAL_ACTIVITY_PROTECTED");
+    expect(r.invariant).toBe(1);
+    expect(r.op_index).toBe(1);
   });
 });
 
 /** An activity that has already put an email on the wire. */
 function withEffect(): Graph {
-  const graph = seeded([task("Send invite")]);
+  const graph = seeded([action("Send invite")]);
   const activity = activityAt(graph, "send-invite");
   if (activity === undefined) throw new Error("fixture");
-  activity.status.effect_log.push({
+  activity.status?.effect_log.push({
     effect_key: "ek_1",
     payload_hash: "h1",
     attempted_at: "2026-08-21T10:00:00.000Z",
@@ -142,7 +176,7 @@ function withEffect(): Graph {
 
 describe("invariant 1 — superseding an activity that already moved bytes", () => {
   test("refuses a bare supersede — the email is already gone", () => {
-    const r = rejection(run(withEffect(), [{ op: "supersede_activity", activity: "send-invite" }]));
+    const r = rejection(run(withEffect(), [{ op: "supersede_node", node: "send-invite" }]));
     expect(r.invariant).toBe(1);
     expect(r.reason).toBe("UNCOMPENSATED_SUPERSEDE");
     expect(r.message).toContain("'Send invite'");
@@ -150,8 +184,8 @@ describe("invariant 1 — superseding an activity that already moved bytes", () 
 
   test("allows it when the same batch carries the compensation", () => {
     const result = run(withEffect(), [
-      task("Retract invite", { compensates: "send-invite" }),
-      { op: "supersede_activity", activity: "send-invite", by: "$0" },
+      action("Retract invite", { compensates: "send-invite" }),
+      { op: "supersede_node", node: "send-invite", by: "$0" },
     ]);
     expect(result.ok).toBe(true);
   });
@@ -160,15 +194,17 @@ describe("invariant 1 — superseding an activity that already moved bytes", () 
     // Wiring `compensates` backwards records the executed activity as compensating its own
     // compensation, and must not satisfy the invariant.
     const graph = withEffect();
-    const r = rejection(run(graph, [
-      task("Retract invite"),
-      { op: "supersede_activity", activity: "send-invite", by: "$0" },
-    ]));
+    const r = rejection(
+      run(graph, [
+        action("Retract invite"),
+        { op: "supersede_node", node: "send-invite", by: "$0" },
+      ]),
+    );
     expect(r.reason).toBe("UNCOMPENSATED_SUPERSEDE");
   });
 
   test("an activity with no effect_log needs no compensation", () => {
-    expect(run(seeded([task("A")]), [{ op: "supersede_activity", activity: "a" }]).ok).toBe(true);
+    expect(run(seeded([action("A")]), [{ op: "supersede_node", node: "a" }]).ok).toBe(true);
   });
 
   test("checkInvariant1 is happy with an empty batch", () => {
@@ -188,7 +224,11 @@ describe("rejections are one greppable line", () => {
   });
 
   test("omits the fields that do not apply", () => {
-    const line = formatRejection({ code: "REFUSED", reason: "NO_PURSUIT", message: "nothing here" });
+    const line = formatRejection({
+      code: "REFUSED",
+      reason: "NO_PURSUIT",
+      message: "nothing here",
+    });
     expect(line).toBe("NO_PURSUIT nothing here");
   });
 });

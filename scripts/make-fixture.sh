@@ -1,243 +1,37 @@
 #!/usr/bin/env bash
-# Build the handoff fixture: a realistic multi-version pursuit, produced by the real
-# binary so it cannot drift from what the CLI actually emits.
+# Rebuild the original Thursday handoff as a migrated historical schema-v6 fold fixture.
 #
-# Regenerate with:  ./scripts/make-fixture.sh
+# The fixed records preserve ids, timestamps, and viewer story; they were not admitted through
+# the current topology validator. The graph projection is produced by the real CLI, proving the
+# historical log still folds under schema v6 without claiming it is native current topology.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KONA="bun ${ROOT}/packages/kona/src/bin.ts"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
-cd "${WORK}"
+mkdir -p "${WORK}/.kona"
 
-# Ids are hashes, so a batch cannot name an activity from an EARLIER commit by guessing its id the
-# way a slug once let you. `$N` still covers references inside one batch; across batches the
-# id has to be read back out of the graph. This script keeps writing the readable name and
-# resolves it here, which is exactly what an agent does with `kona graph --json` — the only
-# difference is that the agent reads the id instead of predicting it.
-resolve() {
-  ${KONA} graph --json > graph.json 2>/dev/null || { cat > ops.resolved.json; return; }
-  python3 - "$1" <<'PY'
-import json, re, sys
-
-graph = json.load(open("graph.json"))
-def slug(label):
-    s = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:48].rstrip("-")
-    return s or "activity"
-
-by_slug = {slug(n["name"]): n["id"] for n in graph.get("activities", [])}
-ids = {n["id"] for n in graph.get("activities", [])}
-
-def fix(value):
-    if not isinstance(value, str) or value.startswith("$") or value in ids:
-        return value
-    head, dot, tail = value.partition(".")
-    if dot and head in by_slug:
-        return by_slug[head] + dot + tail
-    return by_slug.get(value, value)
-
-def walk(activity):
-    if isinstance(activity, dict):
-        return {k: (fix(v) if k in ("activity", "from", "to", "by", "on_timeout", "compensates", "ref", "after") else walk(v)) for k, v in activity.items()}
-    if isinstance(activity, list):
-        return [walk(v) for v in activity]
-    return activity
-
-json.dump(walk(json.load(open(sys.argv[1]))), open("ops.resolved.json", "w"))
-PY
-}
-
-ops() { cat > ops.json; }
-commit() {
-  resolve ops.json
-  ${KONA} mutate --ops ops.resolved.json --base-version "$1" --why "$2" --reason-code "$3" "${@:4}" >/dev/null
-}
-
-# §6.6's outbox, as two shell verbs. Every send here is three commits — reserve, (the bytes),
-# record — because that is the only order that survives a crash: append and fsync the intent
-# BEFORE anything leaves, so a machine that dies mid-send leaves a slot a human can be shown.
-# The fixture used to hand-write `set_status done` instead, which produced a log the CLI
-# itself could never emit.
-nodeid() { ${KONA} graph --json | python3 -c "'''resolve one label-slug to its id'''
-import json,re,sys
-g=json.load(sys.stdin)
-s=lambda l:(re.sub(r'[^a-z0-9]+','-',l.lower()).strip('-')[:48].rstrip('-') or 'activity')
-print(next((n['id'] for n in g['activities'] if s(n['name'])==sys.argv[1]), sys.argv[1]))" "$1"; }
-
-reserve() {
-  ${KONA} effect reserve "$(nodeid "$1")" --payload-hash "$2" --why "$3" --json \
-    | sed -n 's/.*"effect_key":"\([^"]*\)".*/\1/p'
-}
-record() { ${KONA} effect record "$(nodeid "$1")" --key "$2" --outcome "$3" --message-id "$4" --why "$5" >/dev/null; }
-
-cat > config.json <<'EOF'
-{
-  "identity": {
-    "mailbox": "ilya@example.com",
-    "display_name": "Ilya Vorobiev",
-    "signature": "— Ilya",
-    "authority": "You may confirm or decline a slot in Thursday's game. You may NOT commit funds, promise a different date, change the venue, or contact anyone not named in this brief."
-  },
-  "effect_budget": 12
-}
+cat > "${WORK}/.kona/mutations.jsonl" <<'EOF'
+{"v":0,"schema_version":6,"observed_at":"2026-08-24T08:11:24.627Z","occurred_at":"2026-08-24T08:11:24.627Z","actor":{"kind":"human","id":"ilya"},"ops":[],"config":{"identity":{"mailbox":"ilya@example.com","display_name":"Ilya Vorobiev","signature":"— Ilya","authority":"You may confirm or decline a slot in Thursday's game. You may NOT commit funds, promise a different date, change the venue, or contact anyone not named in this brief."},"effect_budget":12,"prefix":"th"},"rationale":{"why":"pursuit initialised","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":1,"schema_version":6,"observed_at":"2026-08-24T08:11:25.380Z","occurred_at":"2026-08-24T08:11:25.380Z","actor":{"kind":"orchestrator","id":"orchestrator"},"ops":[{"op":"add_node","name":"Confirm roster availability","type":"action","spec":{"instruction":"Read the roster and list who has not yet answered.","inputs":[],"outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"},"id":"th-ahf6"},{"op":"add_node","name":"Escalate: no goalie found","type":"action","spec":{"instruction":"Tell Ilya no goalie was found and the game needs a decision.","inputs":[],"outputs":[{"name":"escalated","type":"boolean"}],"effect_class":"pure"},"id":"th-vipt"},{"op":"record_output","output_name":"availability","value":["dana","sam","priya","pat"],"evidence_ref":"roster.csv#v3","node":"th-ahf6"},{"op":"set_status","status":"completed","evidence_ref":"roster.csv#v3","node":"th-ahf6"},{"op":"set_status","node":"th-vipt","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"Read the roster before contacting anyone on it.","alternatives_rejected":[],"reason_code":"MISSING_STEP"},"outcome":null}
+{"v":2,"schema_version":6,"observed_at":"2026-08-24T08:11:26.139Z","occurred_at":"2026-08-24T08:11:26.139Z","actor":{"kind":"orchestrator","id":"orchestrator"},"ops":[{"op":"add_node","name":"Ask Dana to play in goal","type":"action","spec":{"instruction":"Email Dana asking if she can play in goal Thursday.","inputs":[{"ref":"th-ahf6.availability"}],"outputs":[],"effect_class":"pivot","effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}},"id":"th-nhwd"},{"op":"add_node","name":"Wait for Dana","type":"accept_event","spec":{"instruction":"Await Dana's reply.","inputs":[],"outputs":[],"effect_class":"pure","deadline":{"after":"th-nhwd","duration":"48h"},"match":{"kind":"event","conditions":[{"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}],"memory":true}},"id":"th-es9m"},{"op":"add_node","name":"Ask Sam to play in goal","type":"action","spec":{"instruction":"Email Sam asking if he can play in goal Thursday.","inputs":[],"outputs":[],"effect_class":"pivot","effect":{"channel":"email","recipient_ref":"roster.contacts#sam"}},"id":"th-gyre"},{"op":"add_node","name":"Wait for Sam","type":"accept_event","spec":{"instruction":"Await Sam's reply.","inputs":[],"outputs":[],"effect_class":"pure","deadline":{"after":"th-gyre","duration":"48h"},"match":{"kind":"event","conditions":[{"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}],"memory":true}},"id":"th-ocwr"},{"op":"add_node","name":"Ask Priya to play in goal","type":"action","spec":{"instruction":"Email Priya asking if she can play in goal Thursday.","inputs":[],"outputs":[],"effect_class":"pivot","effect":{"channel":"email","recipient_ref":"roster.contacts#priya"}},"id":"th-t2yo"},{"op":"add_node","name":"Wait for Priya","type":"accept_event","spec":{"instruction":"Await Priya's reply.","inputs":[],"outputs":[],"effect_class":"pure","deadline":{"after":"th-t2yo","duration":"48h"},"match":{"kind":"event","conditions":[{"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}],"memory":true}},"id":"th-1ppl"},{"op":"add_node","name":"Goalie confirmed","type":"accept_event","spec":{"instruction":"At least one goalie has confirmed.","inputs":[],"outputs":[],"effect_class":"pure","deadline":{"at":"2026-08-21T17:00:00.000Z"},"match":{"kind":"predicate","conditions":[{"kind":"predicate","on":"satisfied","predicate":{"count":{"verdict":"confirmed","attrs":{"role":"goalie"}},"op":">=","n":1}}],"memory":true}},"id":"th-ymld"},{"op":"add_edge","from":"th-ahf6","to":"th-nhwd"},{"op":"add_edge","from":"th-nhwd","to":"th-es9m"},{"op":"add_edge","from":"th-gyre","to":"th-ocwr"},{"op":"add_edge","from":"th-t2yo","to":"th-1ppl"},{"op":"add_edge","from":"th-es9m","to":"th-ymld","guard":{"on":"satisfied"}},{"op":"add_edge","from":"th-ocwr","to":"th-ymld","guard":{"on":"satisfied"}},{"op":"add_edge","from":"th-1ppl","to":"th-ymld","guard":{"on":"satisfied"}},{"op":"set_status","node":"th-nhwd","status":"ready","evidence_ref":"derived:branch-resolution:readiness"},{"op":"set_status","node":"th-gyre","status":"ready","evidence_ref":"derived:branch-resolution:readiness"},{"op":"set_status","node":"th-t2yo","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"The roster named four; ask all three goalies in parallel rather than serially.","alternatives_rejected":[],"reason_code":"NEW_CONSTRAINT"},"outcome":null}
+{"v":3,"schema_version":6,"observed_at":"2026-08-24T08:11:26.877Z","occurred_at":"2026-08-24T08:11:26.877Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"active","evidence_ref":"effect:reserve:ek_f226e4eb46add4a1:sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a","node":"th-nhwd"}],"rationale":{"why":"Dana is the only goalie the roster names","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":4,"schema_version":6,"observed_at":"2026-08-24T08:11:27.645Z","occurred_at":"2026-08-24T08:11:27.645Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"completed","evidence_ref":"effect:record:ek_f226e4eb46add4a1:sent:<m-101@mail>","node":"th-nhwd"},{"op":"set_status","node":"th-es9m","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"the mail server accepted it","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":5,"schema_version":6,"observed_at":"2026-08-24T08:11:28.399Z","occurred_at":"2026-08-24T08:11:28.399Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"active","evidence_ref":"effect:reserve:ek_262d3ddcd6c78133:sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b","node":"th-gyre"}],"rationale":{"why":"Sam has kept goal before and the roster names him","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":6,"schema_version":6,"observed_at":"2026-08-24T08:11:29.202Z","occurred_at":"2026-08-24T08:11:29.202Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"completed","evidence_ref":"effect:record:ek_262d3ddcd6c78133:sent:<m-102@mail>","node":"th-gyre"},{"op":"set_status","node":"th-ocwr","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"the mail server accepted it","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":7,"schema_version":6,"observed_at":"2026-08-24T08:11:29.992Z","occurred_at":"2026-08-24T08:11:29.992Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"active","evidence_ref":"effect:reserve:ek_5d6c980e28c56e09:sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c","node":"th-t2yo"}],"rationale":{"why":"Priya is the third name on the roster","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":8,"schema_version":6,"observed_at":"2026-08-24T08:11:30.810Z","occurred_at":"2026-08-24T08:11:30.810Z","actor":{"kind":"orchestrator","id":"orchestrator"},"ops":[{"op":"record_outcome","verdict":"declined","evidence_ref":"<m-201@mail>","attrs":{"role":"goalie","reason":"away that week"},"node":"th-es9m"},{"op":"set_status","status":"completed","evidence_ref":"<m-201@mail>","node":"th-es9m"}],"rationale":{"why":"Dana is away that week. Her arm cannot satisfy the quorum.","alternatives_rejected":[],"reason_code":"COUNTERPARTY_DECLINED"},"outcome":null}
+{"v":9,"schema_version":6,"observed_at":"2026-08-24T08:11:31.575Z","occurred_at":"2026-08-24T08:11:31.575Z","actor":{"kind":"orchestrator","id":"orchestrator"},"ops":[{"op":"record_outcome","verdict":"declined","evidence_ref":"<m-202@mail>","attrs":{"role":"goalie","referral":"marcus"},"node":"th-ocwr"},{"op":"set_status","status":"completed","evidence_ref":"<m-202@mail>","node":"th-ocwr"},{"op":"add_node","name":"Check Marcus is eligible","type":"action","spec":{"instruction":"Marcus is not on the roster. Confirm he is eligible before contacting him.","inputs":[],"outputs":[{"name":"eligible","type":"boolean"}],"effect_class":"pure"},"id":"th-etsk"},{"op":"add_node","name":"Wait for eligibility ruling","type":"accept_event","spec":{"instruction":"A human must rule on an unrostered player.","inputs":[],"outputs":[],"effect_class":"pure","deadline":{"at":"2026-08-21T12:00:00.000Z"},"match":{"kind":"human","conditions":[{"kind":"decision","on":"accept"},{"kind":"decision","on":"ignore"}],"memory":true}},"id":"th-9xi1"},{"op":"add_edge","from":"th-etsk","to":"th-9xi1"},{"op":"add_edge","from":"th-9xi1","to":"th-ymld","guard":{"on":"accept"}},{"op":"set_status","node":"th-etsk","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human.","alternatives_rejected":[],"reason_code":"NEW_CONSTRAINT"},"outcome":null}
+{"v":10,"schema_version":6,"observed_at":"2026-08-24T08:11:32.331Z","occurred_at":"2026-08-24T08:11:32.331Z","actor":{"kind":"orchestrator","id":"orchestrator"},"ops":[{"op":"add_node","name":"Confirm roster availability and eligibility","type":"action","spec":{"instruction":"Read the roster, list non-responders, and flag anyone unrostered.","inputs":[],"outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"},"id":"th-five"},{"op":"supersede_node","by":"th-five","node":"th-ahf6"},{"op":"set_status","node":"th-five","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"The roster step missed eligibility, which is what let an unrostered referral through.","alternatives_rejected":[],"reason_code":"MISSING_STEP"},"outcome":null}
+{"v":11,"schema_version":6,"observed_at":"2026-08-24T08:11:33.074Z","occurred_at":"2026-08-24T08:11:33.074Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"failed","evidence_ref":"effect:record:ek_5d6c980e28c56e09:failed:<bounce-550@mail>","node":"th-t2yo"}],"rationale":{"why":"the address is dead: 550 5.1.1 user unknown","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
+{"v":12,"schema_version":6,"observed_at":"2026-08-24T08:11:33.830Z","occurred_at":"2026-08-24T08:11:33.830Z","actor":{"kind":"orchestrator","id":"orchestrator"},"ops":[{"op":"record_outcome","verdict":"bounced","evidence_ref":"<bounce-550@mail>","attrs":{"role":"goalie","smtp":"550 5.1.1 user unknown"},"node":"th-1ppl"},{"op":"supersede_node","node":"th-1ppl"},{"op":"add_node","name":"Ask Pat to play in goal","type":"action","spec":{"instruction":"Email Pat asking if he can play in goal Thursday.","inputs":[],"outputs":[],"effect_class":"pivot","effect":{"channel":"email","recipient_ref":"roster.contacts#pat"}},"id":"th-gk0l"},{"op":"add_node","name":"Wait for Pat","type":"accept_event","spec":{"instruction":"Await Pat's reply. Pat is often silent; the deadline is the plan.","inputs":[],"outputs":[],"effect_class":"pure","deadline":{"after":"th-gk0l","duration":"48h"},"match":{"kind":"event","conditions":[{"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}],"memory":true}},"id":"th-0s7c"},{"op":"add_edge","from":"th-gk0l","to":"th-0s7c"},{"op":"add_edge","from":"th-0s7c","to":"th-ymld","guard":{"on":"satisfied"}},{"op":"set_status","node":"th-gk0l","status":"ready","evidence_ref":"derived:branch-resolution:readiness"}],"rationale":{"why":"Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too.","alternatives_rejected":[],"reason_code":"CONTRADICTION"},"outcome":null}
+{"v":13,"schema_version":6,"observed_at":"2026-08-24T08:11:34.573Z","occurred_at":"2026-08-24T08:11:34.573Z","actor":{"kind":"subagent","id":"executor"},"ops":[{"op":"set_status","status":"active","evidence_ref":"effect:reserve:ek_ba43b0730a618d7b:sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f0","node":"th-gk0l"}],"rationale":{"why":"Pat is the last untried goalie and the deadline is Thursday","alternatives_rejected":[],"reason_code":"OTHER"},"outcome":null}
 EOF
-# `--prefix` is required: every activity id opens with it, and it is fixed for the life of the
-# pursuit. `th` for thursday, so the fixture's ids read as this fixture's ids.
-${KONA} init --actor-id ilya --config config.json --prefix th >/dev/null
-
-# v1 — READ THE ROSTER, and nothing else. Invariant 3(b) rejects "a recipient existing only
-# in the proposing batch", so nothing may email Dana until a COMMITTED record names her.
-# This pursuit used to decide to read the roster and email Dana in the same breath.
-ops <<'EOF'
-[
- {"op":"add_activity","name":"Confirm roster availability","type":"task","scope":"setup",
-  "spec":{"instruction":"Read the roster and list who has not yet answered.",
-          "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
- {"op":"add_activity","name":"Escalate: no goalie found","type":"task","scope":"setup",
-  "spec":{"instruction":"Tell Ilya no goalie was found and the game needs a decision.",
-          "outputs":[{"name":"escalated","type":"boolean"}],"effect_class":"pure"}},
- {"op":"record_output","activity":"$0","output_name":"availability",
-  "value":["dana","sam","priya","pat"],"evidence_ref":"roster.csv#v3"},
- {"op":"set_status","activity":"$0","status":"done","evidence_ref":"roster.csv#v3"}
-]
-EOF
-commit 0 "Read the roster before contacting anyone on it." MISSING_STEP
-
-# v2 — the approved plan: everyone the roster named, asked at once, merging on a predicate.
-ops <<'EOF'
-[
- {"op":"add_activity","name":"Ask Dana to play in goal","type":"task","scope":"goalies",
-  "spec":{"instruction":"Email Dana asking if she can play in goal Thursday.",
-          "inputs":[{"ref":"confirm-roster-availability.availability"}],
-          "effect_class":"pivot",
-          "effect":{"channel":"email","recipient_ref":"roster.contacts#dana"}}},
- {"op":"add_activity","name":"Wait for Dana","type":"wait","scope":"goalies",
-  "spec":{"instruction":"Await Dana's reply.","effect_class":"pure",
-          "deadline":{"after":"$0","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
-          "match":{"kind":"event","conditions":[
-            {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_activity","name":"Ask Sam to play in goal","type":"task","scope":"goalies",
-  "spec":{"instruction":"Email Sam asking if he can play in goal Thursday.",
-          "effect_class":"pivot",
-          "effect":{"channel":"email","recipient_ref":"roster.contacts#sam"}}},
- {"op":"add_activity","name":"Wait for Sam","type":"wait","scope":"goalies",
-  "spec":{"instruction":"Await Sam's reply.","effect_class":"pure",
-          "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
-          "match":{"kind":"event","conditions":[
-            {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_activity","name":"Ask Priya to play in goal","type":"task","scope":"goalies",
-  "spec":{"instruction":"Email Priya asking if she can play in goal Thursday.",
-          "effect_class":"pivot",
-          "effect":{"channel":"email","recipient_ref":"roster.contacts#priya"}}},
- {"op":"add_activity","name":"Wait for Priya","type":"wait","scope":"goalies",
-  "spec":{"instruction":"Await Priya's reply.","effect_class":"pure",
-          "deadline":{"after":"$4","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
-          "match":{"kind":"event","conditions":[
-            {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_activity","name":"Goalie confirmed","type":"wait","scope":"setup",
-  "spec":{"instruction":"At least one goalie has confirmed.","effect_class":"pure",
-          "deadline":{"at":"2026-08-21T17:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
-          "match":{"kind":"predicate","conditions":[{"kind":"predicate","on":"satisfied",
-            "predicate":{"count":{"verdict":"confirmed","attrs":{"role":"goalie"}},"op":">=","n":1}}]}}},
- {"op":"add_edge","from":"confirm-roster-availability","to":"$0"},
- {"op":"add_edge","from":"$0","to":"$1"},
- {"op":"add_edge","from":"$2","to":"$3"},
- {"op":"add_edge","from":"$4","to":"$5"},
- {"op":"add_edge","from":"$1","to":"$6","condition":{"on":"satisfied"}},
- {"op":"add_edge","from":"$3","to":"$6","condition":{"on":"satisfied"}},
- {"op":"add_edge","from":"$5","to":"$6","condition":{"on":"satisfied"}}
-]
-EOF
-commit 1 "The roster named four; ask all three goalies in parallel rather than serially." NEW_CONSTRAINT
-
-# v3..v7 — the sends go out. Dana's and Sam's complete; Priya's stops after the reservation
-# and stays open for four versions, which is CRASH WINDOW 2: a `sending` activity whose slot is
-# fsynced, with nothing on disk able to say whether the bytes moved.
-DANA_KEY="$(reserve ask-dana-to-play-in-goal sha256:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a "Dana is the only goalie the roster names")"
-record ask-dana-to-play-in-goal "${DANA_KEY}" sent "<m-101@mail>" "the mail server accepted it"
-SAM_KEY="$(reserve ask-sam-to-play-in-goal sha256:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b "Sam has kept goal before and the roster names him")"
-record ask-sam-to-play-in-goal "${SAM_KEY}" sent "<m-102@mail>" "the mail server accepted it"
-PRIYA_KEY="$(reserve ask-priya-to-play-in-goal sha256:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c "Priya is the third name on the roster")"
-
-# v8 — Dana declines. Her arm is dropped; the merge survives on the live arms.
-ops <<'EOF'
-[
- {"op":"record_outcome","activity":"wait-for-dana","verdict":"declined","evidence_ref":"<m-201@mail>",
-  "attrs":{"role":"goalie","reason":"away that week"}},
- {"op":"set_status","activity":"wait-for-dana","status":"done","evidence_ref":"<m-201@mail>"}
-]
-EOF
-commit 7 "Dana is away that week. Her arm cannot satisfy the quorum." COUNTERPARTY_DECLINED
-
-# v9 — Sam refers Marcus, who is not on the roster. The graph grows an activity no v1 shape describes.
-ops <<'EOF'
-[
- {"op":"record_outcome","activity":"wait-for-sam","verdict":"declined","evidence_ref":"<m-202@mail>",
-  "attrs":{"role":"goalie","referral":"marcus"}},
- {"op":"set_status","activity":"wait-for-sam","status":"done","evidence_ref":"<m-202@mail>"},
- {"op":"add_activity","name":"Check Marcus is eligible","type":"task","scope":"marcus",
-  "spec":{"instruction":"Marcus is not on the roster. Confirm he is eligible before contacting him.",
-          "outputs":[{"name":"eligible","type":"boolean"}],"effect_class":"pure"}},
- {"op":"add_activity","name":"Wait for eligibility ruling","type":"wait","scope":"marcus",
-  "spec":{"instruction":"A human must rule on an unrostered player.","effect_class":"pure",
-          "deadline":{"at":"2026-08-21T12:00:00.000Z"},"on_timeout":"escalate-no-goalie-found",
-          "match":{"kind":"human","conditions":[
-            {"kind":"decision","on":"accept"},{"kind":"decision","on":"ignore"}]}}},
- {"op":"add_edge","from":"$2","to":"$3"},
- {"op":"add_edge","from":"$3","to":"goalie-confirmed","condition":{"on":"accept"}}
-]
-EOF
-commit 8 "Sam cannot play but referred Marcus, who is not on the roster; eligibility needs a human." NEW_CONSTRAINT
-
-# v10 — the roster step is superseded by a better one, and the old activity is kept, not deleted.
-ops <<'EOF'
-[
- {"op":"add_activity","name":"Confirm roster availability and eligibility","type":"task","scope":"setup",
-  "spec":{"instruction":"Read the roster, list non-responders, and flag anyone unrostered.",
-          "outputs":[{"name":"availability","type":"string[]"}],"effect_class":"pure"}},
- {"op":"supersede_activity","activity":"confirm-roster-availability","by":"$0"}
-]
-EOF
-commit 9 "The roster step missed eligibility, which is what let an unrostered referral through." MISSING_STEP
-
-# v11 — Priya's address bounced. The reservation opened at v7 is CLOSED by the outbox rather
-# than by a hand-written status: what makes the slot unspendable again is the store closing
-# the slot it issued.
-record ask-priya-to-play-in-goal "${PRIYA_KEY}" failed "<bounce-550@mail>" "the address is dead: 550 5.1.1 user unknown"
-
-# v12 — the send failed, so the wait behind it is pointless: superseding a still-live activity
-# drops it, and the store does that housekeeping itself.
-ops <<'EOF'
-[
- {"op":"record_outcome","activity":"wait-for-priya","verdict":"bounced","evidence_ref":"<bounce-550@mail>",
-  "attrs":{"role":"goalie","smtp":"550 5.1.1 user unknown"}},
- {"op":"supersede_activity","activity":"wait-for-priya"},
- {"op":"add_activity","name":"Ask Pat to play in goal","type":"task","scope":"goalies",
-  "spec":{"instruction":"Email Pat asking if he can play in goal Thursday.",
-          "effect_class":"pivot",
-          "effect":{"channel":"email","recipient_ref":"roster.contacts#pat"}}},
- {"op":"add_activity","name":"Wait for Pat","type":"wait","scope":"goalies",
-  "spec":{"instruction":"Await Pat's reply. Pat is often silent; the deadline is the plan.",
-          "effect_class":"pure",
-          "deadline":{"after":"$2","duration":"48h"},"on_timeout":"escalate-no-goalie-found",
-          "match":{"kind":"event","conditions":[
-            {"kind":"reply","on":"satisfied"},{"kind":"deadline","on":"timeout"}]}}},
- {"op":"add_edge","from":"$2","to":"$3"},
- {"op":"add_edge","from":"$3","to":"goalie-confirmed","condition":{"on":"satisfied"}}
-]
-EOF
-commit 11 "Priya bounced with 550, so the pool is down to Marcus pending a ruling; ask Pat too." CONTRADICTION
-
-# v13 — and the fixture ENDS on an open reservation, deliberately. A handoff artefact whose
-# every activity is settled teaches nothing about the state that actually costs you sleep: Pat's
-# slot is fsynced, the bytes may or may not have moved, and the honest answer is a human.
-reserve ask-pat-to-play-in-goal \
-  "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f0" \
-  "Pat is the last untried goalie and the deadline is Thursday" >/dev/null
 
 mkdir -p "${ROOT}/fixtures"
-cp .kona/mutations.jsonl "${ROOT}/fixtures/thursday.mutations.jsonl"
-${KONA} graph --json > "${ROOT}/fixtures/thursday.graph.json"
-${KONA} graph
-echo
+cp "${WORK}/.kona/mutations.jsonl" "${ROOT}/fixtures/thursday.mutations.jsonl"
+(
+  cd "${WORK}"
+  bun "${ROOT}/packages/kona/src/bin.ts" graph --json
+) > "${ROOT}/fixtures/thursday.graph.json"
+
 echo "wrote fixtures/thursday.mutations.jsonl and fixtures/thursday.graph.json"

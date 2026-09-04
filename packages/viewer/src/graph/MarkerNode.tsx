@@ -4,7 +4,7 @@
  *
  * **They are notation, and the code keeps them at arm's length from the pursuit.** Nothing in
  * the log corresponds to them: they carry no status, they are not selectable, they are absent
- * from `GraphView.activities` and from `Layout.boxes`, and any count of "how many activities does this
+ * from `GraphView.nodes` and from `Layout.boxes`, and any count of "how many activities does this
  * pursuit have" cannot pick them up. What they render is a fact about the SHAPE of the graph —
  * which cards nothing comes before, and which cards nothing comes after — and that fact is
  * computed in `flowTerminals` where it can be tested.

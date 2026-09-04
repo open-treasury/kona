@@ -1,7 +1,7 @@
 /**
  * The executable form of "never re-layout on a status tick" (§6.10 rules 1 and 2).
  *
- * Every assertion here is a fact about `fixtures/thursday.*`, which the real binary wrote:
+ * Every assertion here is a fact about the migrated `fixtures/thursday.*` history:
  * which versions changed the shape of the graph and which only moved statuses around. The
  * table below IS that record — it was transcribed from an E6 working note that has since
  * been dropped from the repo, and keeping it here is the better home anyway: a table in a
@@ -56,17 +56,17 @@ describe("the topology table", () => {
     expect(table).toEqual({
       [V.roster]: false, // the roster step and the escalation, before anyone is contacted
       [V.plan]: false, // the fan-out to Dana, Sam and Priya, converging on the predicate
-      [V.danaReserved]: true, // active -> sending
-      [V.danaSent]: true, // sending -> done
+      [V.danaReserved]: true, // ready -> active
+      [V.danaSent]: true, // active -> completed
       [V.samReserved]: true,
       [V.samSent]: true,
-      [V.priyaReserved]: true, // and it stays sending until v11
+      [V.priyaReserved]: true, // and it stays active until v11
       [V.danaDeclines]: true, // one outcome, one status
       [V.samRefers]: false, // the Marcus arm
       [V.rosterSuperseded]: false, // the supersede — adds no edge and still moves the picture
-      [V.priyaFailed]: true, // sending -> failed, four versions after the reservation
-      [V.patPlanned]: false, // Pat's arm, after Priya's wait is dropped
-      [V.patReserved]: true, // active -> sending, and the fixture ends there
+      [V.priyaFailed]: true, // active -> failed, four versions after the reservation
+      [V.patPlanned]: false, // Pat's arm, after Priya's wait is withdrawn
+      [V.patReserved]: true, // ready -> active, and the fixture ends there
     });
   });
 
@@ -75,13 +75,17 @@ describe("the topology table", () => {
     // two versions are one email. The graph must not move while a send completes.
     const before = folded(V.danaReserved).graph;
     const after = folded(V.danaSent).graph;
-    expect([...after.activities.keys()]).toEqual([...before.activities.keys()]);
+    expect([...after.nodes.keys()]).toEqual([...before.nodes.keys()]);
     expect(after.edges).toEqual(before.edges);
 
     const diff = diffGraphs(before, after);
     expect(diff.topologyStable).toBe(true);
+    // Two entries, not one, and the second is what deriving readiness at commit looks like:
+    // `th-nhwd` completing satisfies the only in-edge of the wait below it, so the same commit
+    // writes that wait onto the frontier. The shape still does not move.
     expect(diff.statusChanged).toEqual([
-      { id: "th-nhwd", from: "in_flight", to: "done" },
+      { id: "th-nhwd", from: "active", to: "completed" },
+      { id: "th-es9m", from: "inactive", to: "ready" },
     ]);
   });
 
@@ -99,10 +103,7 @@ describe("versions that change the shape", () => {
     // proposing batch", so the roster has to land in a commit of its own before anything
     // may address the people in it. v1 adds no edges because it wires nothing yet.
     const diff = step(V.roster);
-    expect(diff.addedNodes).toEqual([
-      "th-ahf6",
-      "th-vipt",
-    ]);
+    expect(diff.addedNodes).toEqual(["th-ahf6", "th-vipt"]);
     expect(diff.addedEdges).toEqual([]);
     // Nothing CHANGED status: the roster activity is added and finished inside one version, so
     // it is an addition, not a transition. There is no earlier state to have moved from.
@@ -122,9 +123,9 @@ describe("versions that change the shape", () => {
     ]);
     // Three of the seven new edges are conditional, all on `satisfied`, all into the quorum.
     expect(diff.addedEdges.filter((key) => key.to === "th-ymld")).toEqual([
-      { from: "th-es9m", to: "th-ymld", on: "satisfied" },
-      { from: "th-ocwr", to: "th-ymld", on: "satisfied" },
-      { from: "th-1ppl", to: "th-ymld", on: "satisfied" },
+      { from: "th-es9m", to: "th-ymld", guard: "on:satisfied" },
+      { from: "th-ocwr", to: "th-ymld", guard: "on:satisfied" },
+      { from: "th-1ppl", to: "th-ymld", guard: "on:satisfied" },
     ]);
     expect(diff.statusChanged).toEqual([]);
   });
@@ -133,11 +134,11 @@ describe("versions that change the shape", () => {
     const diff = step(V.samRefers);
     expect(diff.addedNodes).toEqual(["th-etsk", "th-9xi1"]);
     expect(diff.addedEdges).toEqual([
-      { from: "th-etsk", to: "th-9xi1", on: null },
+      { from: "th-etsk", to: "th-9xi1", guard: null },
       // The one `accept` edge in the fixture: a human ruling, not a reply.
-      { from: "th-9xi1", to: "th-ymld", on: "accept" },
+      { from: "th-9xi1", to: "th-ymld", guard: "on:accept" },
     ]);
-    expect(diff.statusChanged).toEqual([{ id: "th-ocwr", from: "active", to: "done" }]);
+    expect(diff.statusChanged).toEqual([{ id: "th-ocwr", from: "ready", to: "completed" }]);
     expect(diff.outcomeAdded).toEqual(["th-ocwr"]);
     expect(diff.topologyStable).toBe(false);
   });
@@ -146,7 +147,7 @@ describe("versions that change the shape", () => {
     const diff = step(V.rosterSuperseded);
     expect(diff.addedNodes).toEqual(["th-five"]);
     expect(diff.addedEdges).toEqual([]);
-    // The superseded activity was already `done`, so superseding it moved nothing observable.
+    // The superseded activity was already `completed`, so superseding it moved nothing observable.
     // Only `superseded` records what happened — and it alone has to unstick the layout.
     expect(diff.statusChanged).toEqual([]);
     expect(diff.outcomeAdded).toEqual([]);
@@ -165,9 +166,7 @@ describe("versions that change the shape", () => {
     // moment the 550 arrives, and what to do about it is a separate decision, made after.
     const diff = step(V.priyaFailed);
     expect(diff.addedNodes).toEqual([]);
-    expect(diff.statusChanged).toEqual([
-      { id: "th-t2yo", from: "in_flight", to: "failed" },
-    ]);
+    expect(diff.statusChanged).toEqual([{ id: "th-t2yo", from: "active", to: "failed" }]);
     expect(diff.topologyStable).toBe(true);
   });
 
@@ -175,28 +174,21 @@ describe("versions that change the shape", () => {
     const diff = step(V.patPlanned);
     expect(diff.addedNodes).toEqual(["th-gk0l", "th-0s7c"]);
     expect(diff.addedEdges).toEqual([
-      { from: "th-gk0l", to: "th-0s7c", on: null },
-      { from: "th-0s7c", to: "th-ymld", on: "satisfied" },
+      { from: "th-gk0l", to: "th-0s7c", guard: null },
+      { from: "th-0s7c", to: "th-ymld", guard: "on:satisfied" },
     ]);
-    expect(diff.statusChanged).toEqual([
-      { id: "th-1ppl", from: "active", to: "dropped" },
-    ]);
+    expect(diff.statusChanged).toEqual([{ id: "th-1ppl", from: "inactive", to: "withdrawn" }]);
     expect(diff.outcomeAdded).toEqual(["th-1ppl"]);
   });
 
-  test("a supersede with no replacement shows up as a drop, not as a supersede", () => {
-    // That version supersedes `th-1ppl` with no `by`, so `superseded_by` stays null
-    // and the only trace in the graph is the status going `dropped`. Reporting it under
-    // `superseded` would mean inventing a replacement that the log does not name.
+  test("a supersede with no replacement shows up as a withdrawal, not a replacement", () => {
     const diff = step(V.patPlanned);
     expect(diff.superseded).toEqual([]);
-    expect(folded(V.patPlanned).graph.activities.get("th-1ppl")?.provenance.superseded_by).toBe(
-      null,
-    );
+    expect(folded(V.patPlanned).graph.nodes.get("th-1ppl")?.provenance.superseded_by).toBeNull();
     expect(diff.statusChanged).toContainEqual({
       id: "th-1ppl",
-      from: "active",
-      to: "dropped",
+      from: "inactive",
+      to: "withdrawn",
     });
   });
 });
@@ -204,17 +196,17 @@ describe("versions that change the shape", () => {
 describe("supersede, on its own", () => {
   test("a supersede alone unsticks the layout, though it adds nothing", () => {
     const before = folded(V.samRefers).graph;
-    const retired = before.activities.get("th-ahf6");
-    expect(retired?.status.state).toBe("done");
+    const retired = before.nodes.get("th-ahf6");
+    expect(retired?.status?.state).toBe("completed");
     expect(retired?.provenance.superseded_by).toBe(null);
 
-    // The supersede version with its own `add_activity` taken away: the roster step retired in
+    // The supersede version with its own `add_node` taken away: the roster step retired in
     // favour of the eligibility check the version before had just added, which already exists
     // here — so the replacement is real without the batch having to create it.
     const after = applied(before, [
       {
-        op: "supersede_activity",
-        activity: "th-ahf6",
+        op: "supersede_node",
+        node: "th-ahf6",
         by: "th-etsk",
       },
     ]);
@@ -222,52 +214,40 @@ describe("supersede, on its own", () => {
     const diff = diffGraphs(before, after);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);
-    // Already `done`, so §6.4 leaves the status alone — superseding does not un-send an
+    // Already `completed`, so §6.4 leaves the status alone — superseding does not un-send an
     // email. `superseded` is the only field that carries the change at all...
     expect(diff.statusChanged).toEqual([]);
     expect(diff.outcomeAdded).toEqual([]);
-    expect(diff.superseded).toEqual([
-      { id: "th-ahf6", by: "th-etsk" },
-    ]);
+    expect(diff.superseded).toEqual([{ id: "th-ahf6", by: "th-etsk" }]);
     // ...so it alone has to re-run dagre. The replacement must be drawn beside the activity it
     // replaces with the chain between them, and leaving this stable would lay one on top of
     // the other.
     expect(diff.topologyStable).toBe(false);
   });
 
-  test("a bare supersede retires a branch without moving the picture", () => {
+  test("a bare supersede retires a branch without a replacement", () => {
     const before = folded(6).graph;
-    expect(before.activities.get("th-1ppl")?.status.state).toBe("active");
+    expect(before.nodes.get("th-1ppl")?.status?.state).toBe("inactive");
 
-    // No `by` — what v7 does to Priya's wait once her address bounces. §6.4: `superseded_by`
-    // stays null because no replacement was named, and the activity stops being work instead.
-    const after = applied(before, [{ op: "supersede_activity", activity: "th-1ppl" }]);
-    expect(after.activities.get("th-1ppl")?.provenance.superseded_by).toBe(null);
+    const after = applied(before, [{ op: "supersede_node", node: "th-1ppl" }]);
+    expect(after.nodes.get("th-1ppl")?.provenance.superseded_by).toBeNull();
 
     const diff = diffGraphs(before, after);
-    // These two answers are consistent, not contradictory. `superseded` is empty because
-    // there is no replacement to name, and `topologyStable` is true because nothing was added
-    // and nothing has to be laid out beside anything — re-running dagre here would be exactly
-    // the tick rule 2 forbids. The retirement is not lost: `statusChanged` carries it, and
-    // that is what lets the timeline say a branch was retired rather than "status only".
     expect(diff.superseded).toEqual([]);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);
-    expect(diff.statusChanged).toEqual([
-      { id: "th-1ppl", from: "active", to: "dropped" },
-    ]);
+    expect(diff.statusChanged).toEqual([{ id: "th-1ppl", from: "inactive", to: "withdrawn" }]);
     expect(diff.topologyStable).toBe(true);
   });
 });
 
 describe("status ticks", () => {
-  test("a reservation moves one task to `sending` and nothing else", () => {
+  test("a reservation moves one task to `active` and nothing else", () => {
     const diff = step(V.priyaReserved);
-    // `sending` is not terminal: the intent is fsynced and nobody knows the answer yet.
+    // `active` is not terminal: the intent is fsynced and nobody knows the answer yet.
     // Priya's stays exactly here for four versions, which is what makes it renderable.
-    expect(diff.statusChanged).toEqual([
-      { id: "th-t2yo", from: "active", to: "in_flight" },
-    ]);
+    // A claim takes it OFF the frontier, so the transition reads `ready` -> `active`.
+    expect(diff.statusChanged).toEqual([{ id: "th-t2yo", from: "ready", to: "active" }]);
     expect(diff.addedNodes).toEqual([]);
     expect(diff.addedEdges).toEqual([]);
     expect(diff.superseded).toEqual([]);
@@ -278,11 +258,11 @@ describe("status ticks", () => {
 
   test("Dana's refusal is recorded against an unchanged shape", () => {
     const diff = step(V.danaDeclines);
-    expect(diff.statusChanged).toEqual([{ id: "th-es9m", from: "active", to: "done" }]);
+    expect(diff.statusChanged).toEqual([{ id: "th-es9m", from: "ready", to: "completed" }]);
     expect(diff.outcomeAdded).toEqual(["th-es9m"]);
     expect(diff.topologyStable).toBe(true);
-    // `declined` closes the wait, so the activity is `done`. It did not fail; somebody answered.
-    expect(folded(V.danaDeclines).graph.activities.get("th-es9m")?.status.outcome?.verdict).toBe(
+    // `declined` closes the wait, so the activity is `completed`. It did not fail; somebody answered.
+    expect(folded(V.danaDeclines).graph.nodes.get("th-es9m")?.status?.outcome?.verdict).toBe(
       "declined",
     );
   });
@@ -326,13 +306,7 @@ describe("diffs across more than one version", () => {
     const diff = diffGraphs(folded(V.plan).graph, folded(V.patReserved).graph);
     expect(diff.fromVersion).toBe(V.plan);
     expect(diff.toVersion).toBe(V.patReserved);
-    expect(diff.addedNodes).toEqual([
-      "th-etsk",
-      "th-9xi1",
-      "th-five",
-      "th-gk0l",
-      "th-0s7c",
-    ]);
+    expect(diff.addedNodes).toEqual(["th-etsk", "th-9xi1", "th-five", "th-gk0l", "th-0s7c"]);
     expect(diff.addedEdges).toHaveLength(4);
     expect(diff.superseded).toEqual([
       {
@@ -340,18 +314,18 @@ describe("diffs across more than one version", () => {
         by: "th-five",
       },
     ]);
-    // Priya went active -> sending -> failed across three separate versions; the diff
+    // Priya went ready -> active -> failed across three separate versions; the diff
     // reports the endpoints, which is the whole point of collapsing a range.
     expect(diff.statusChanged).toContainEqual({
       id: "th-t2yo",
-      from: "active",
+      from: "ready",
       to: "failed",
     });
     // Dana's two commits collapse the same way.
     expect(diff.statusChanged).toContainEqual({
       id: "th-nhwd",
-      from: "active",
-      to: "done",
+      from: "ready",
+      to: "completed",
     });
     expect(diff.outcomeAdded).toEqual(["th-es9m", "th-ocwr", "th-1ppl"]);
   });
@@ -359,9 +333,9 @@ describe("diffs across more than one version", () => {
 
 describe("nothing is ever removed", () => {
   test("every id present at a version is still present at head", () => {
-    const head = new Set(folded().graph.activities.keys());
+    const head = new Set(folded().graph.nodes.keys());
     for (const v of VERSIONS) {
-      for (const id of folded(v).graph.activities.keys()) {
+      for (const id of folded(v).graph.nodes.keys()) {
         expect(head.has(id)).toBe(true);
       }
     }
@@ -372,9 +346,9 @@ describe("nothing is ever removed", () => {
     let edges = 0;
     for (const v of [0, ...VERSIONS]) {
       const graph = folded(v).graph;
-      expect(graph.activities.size).toBeGreaterThanOrEqual(activities);
+      expect(graph.nodes.size).toBeGreaterThanOrEqual(activities);
       expect(graph.edges.length).toBeGreaterThanOrEqual(edges);
-      activities = graph.activities.size;
+      activities = graph.nodes.size;
       edges = graph.edges.length;
     }
     expect(activities).toBe(14);
@@ -388,25 +362,25 @@ describe("edge keys", () => {
     expect(edgeKey(edge)).toEqual({
       from: "th-nhwd",
       to: "th-es9m",
-      on: null,
+      guard: null,
     });
   });
 
   test("a conditional edge carries its condition into the key", () => {
     const edges = folded().graph.edges;
     const edge = edgeBetween(edges, "th-9xi1", "th-ymld");
-    expect(edge.condition).toEqual({ on: "accept" });
+    expect(edge.guard).toEqual({ on: "accept" });
     expect(edgeKey(edge)).toEqual({
       from: "th-9xi1",
       to: "th-ymld",
-      on: "accept",
+      guard: "on:accept",
     });
   });
 
   test("the condition is part of the identity, so the same pair keys differently", () => {
     const pair = { from: "th-es9m", to: "th-ymld" } as const;
-    expect(edgeKeyString({ ...pair, on: null })).not.toBe(
-      edgeKeyString({ ...pair, on: "satisfied" }),
+    expect(edgeKeyString({ ...pair, guard: null })).not.toBe(
+      edgeKeyString({ ...pair, guard: "on:satisfied" }),
     );
   });
 
@@ -421,11 +395,11 @@ describe("edge keys", () => {
       .graph.edges.filter((edge) => edge.to === "th-ymld")
       .map((edge) => edgeKeyString(edgeKey(edge)));
     expect(into).toEqual([
-      "th-es9m>th-ymld#satisfied",
-      "th-ocwr>th-ymld#satisfied",
-      "th-1ppl>th-ymld#satisfied",
-      "th-9xi1>th-ymld#accept",
-      "th-0s7c>th-ymld#satisfied",
+      "th-es9m>th-ymld#on:satisfied",
+      "th-ocwr>th-ymld#on:satisfied",
+      "th-1ppl>th-ymld#on:satisfied",
+      "th-9xi1>th-ymld#on:accept",
+      "th-0s7c>th-ymld#on:satisfied",
     ]);
   });
 });

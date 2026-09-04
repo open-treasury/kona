@@ -32,7 +32,10 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
   // filled in here. The executor passes it straight to `kona effect record`.
   const resolved = result.brief;
   if (resolved.activity.spec.effect !== undefined) {
-    resolved.effect_key = effectKey(resolved.activity.id, resolved.activity.provenance.created_by_version);
+    resolved.effect_key = effectKey(
+      resolved.activity.id,
+      resolved.activity.provenance.created_by_version,
+    );
   }
 
   if (options.json) {
@@ -59,7 +62,7 @@ export async function runBrief(io: Io, options: BriefOptions): Promise<number> {
     io.out("");
     io.out("  depends on");
     for (const up of resolved.subgraph.upstream) {
-      const on = up.condition === undefined ? "" : ` [on:${up.condition}]`;
+      const on = up.guard === undefined ? "" : ` [guard:${JSON.stringify(up.guard)}]`;
       io.out(`    ${up.state.padEnd(8)} ${up.id}${on}`);
     }
   }

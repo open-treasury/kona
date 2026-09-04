@@ -17,23 +17,47 @@ import { harness, type Harness } from "./harness.ts";
 let h: Harness;
 
 const NODE = [
+  { op: "add_node", name: "Start", type: "initial", spec: {} },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Ask Dana",
-    type: "task",
-    spec: { instruction: "Email Dana.", effect_class: "pure" },
+    type: "action",
+    spec: {
+      instruction: "Email Dana.",
+      outputs: [{ name: "result", type: "string" }],
+      effect_class: "pure",
+    },
   },
+  { op: "add_node", name: "Finished", type: "final", spec: {} },
+  { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$1", to: "$2" },
 ];
 // The activity id is minted, so this is a function evaluated inside a test.
 const FINISH = () => [
-  { op: "set_status", activity: h.id("ask-dana"), status: "done", evidence_ref: "e" },
+  { op: "set_status", node: h.id("ask-dana"), status: "completed", evidence_ref: "e" },
 ];
 
-async function mutate(ops: unknown[], base: number, why: string, ...extra: string[]): Promise<number> {
+async function mutate(
+  ops: unknown[],
+  base: number,
+  why: string,
+  ...extra: string[]
+): Promise<number> {
   h.reset();
   const path = h.writeOps(`ops-${Math.abs(base)}-${why.length}.json`, ops);
   return await run(
-    ["mutate", "--ops", path, "--base-version", String(base), "--why", why, "--reason-code", "OTHER", ...extra],
+    [
+      "mutate",
+      "--ops",
+      path,
+      "--base-version",
+      String(base),
+      "--why",
+      why,
+      "--reason-code",
+      "OTHER",
+      ...extra,
+    ],
     h.io,
   );
 }
@@ -79,22 +103,23 @@ describe("what gets remembered", () => {
   });
 
   test("the batch is kept AS AUTHORED, refs and all — it never got normalised", async () => {
-    const authored = [
-      { op: "add_edge", from: "$0", to: h.id("ask-dana") },
-      ...NODE,
-    ];
+    const authored = [{ op: "add_edge", from: "$0", to: h.id("ask-dana") }, ...NODE];
     expect(await mutate(authored, 2, "wire it backwards")).toBe(1);
     expect(JSON.stringify(refusals()[0]?.ops)).toContain("$0");
   });
 
   test("a malformed batch is remembered too, even though it never reached the graph", async () => {
-    expect(await mutate([{ op: "delete_node", activity: h.id("ask-dana") }], 2, "just remove it")).toBe(1);
+    expect(await mutate([{ op: "delete_node", node: h.id("ask-dana") }], 2, "just remove it")).toBe(
+      1,
+    );
     expect(refusals()[0]?.rejection.reason).toBe("MALFORMED_OPS");
     expect(refusals()[0]?.rationale?.why).toBe("just remove it");
   });
 
   test("an unauthorised actor is remembered with its identity", async () => {
-    expect(await mutate(NODE, 2, "sneak one in", "--actor-kind", "subagent", "--actor-id", "exec-1")).toBe(1);
+    expect(
+      await mutate(NODE, 2, "sneak one in", "--actor-kind", "subagent", "--actor-id", "exec-1"),
+    ).toBe(1);
     expect(refusals()[0]?.rejection.reason).toBe("UNAUTHORIZED_ACTOR");
     expect(refusals()[0]?.actor).toEqual({ kind: "subagent", id: "exec-1" });
   });
@@ -108,9 +133,37 @@ describe("what gets remembered", () => {
 
 describe("what is deliberately NOT remembered", () => {
   test("a successful commit writes nothing here", async () => {
-    expect(await mutate([{ op: "record_output", activity: h.id("ask-dana"), output_name: "x", value: 1, evidence_ref: "e" }], 2, "ok")).not.toBe(0);
+    expect(
+      await mutate(
+        [
+          {
+            op: "record_output",
+            node: h.id("ask-dana"),
+            output_name: "x",
+            value: 1,
+            evidence_ref: "e",
+          },
+        ],
+        2,
+        "ok",
+      ),
+    ).not.toBe(0);
     const afterFailure = refusals().length;
-    expect(await mutate(NODE, 2, "another activity")).toBe(0);
+    expect(
+      await mutate(
+        [
+          {
+            op: "record_output",
+            node: h.id("ask-dana"),
+            output_name: "result",
+            value: "ok",
+            evidence_ref: "e",
+          },
+        ],
+        2,
+        "record the result",
+      ),
+    ).toBe(0);
     expect(refusals()).toHaveLength(afterFailure);
   });
 

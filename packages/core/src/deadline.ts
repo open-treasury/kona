@@ -1,14 +1,14 @@
 /**
  * Deadline evaluation (§6.2, §6.5). Pure: the clock is an argument, never a call.
  *
- * §6.2 makes a `deadline` and an `on_timeout` mandatory on every wait, and calls it "the
+ * §6.2 makes a `deadline` mandatory on every accept-event, and calls it "the
  * schema rule that most directly prevents a silent multi-day hang". This is the half that
  * makes the rule mean something: a message sitting in someone's spam folder is *sent* —
  * no bounce, no reply, no error — so the only thing that ever ends that wait is the clock.
  */
 
 import type { Deadline, MutationRecord } from "./schema.ts";
-import type { Graph, Activity } from "./graph.ts";
+import { isNodeLive, type AcceptEventNode, type ActivityNode, type Graph } from "./graph.ts";
 import { isTerminal } from "./vocab.ts";
 
 const UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
@@ -32,7 +32,7 @@ export function parseDuration(duration: string): number | null {
 export function settledAt(records: readonly MutationRecord[], nodeId: string): string | null {
   for (const record of records.toReversed()) {
     for (const op of record.ops) {
-      if (op.op === "set_status" && op.activity === nodeId && isTerminal(op.status)) {
+      if (op.op === "set_status" && op.node === nodeId && isTerminal(op.status)) {
         return record.occurred_at;
       }
     }
@@ -85,27 +85,31 @@ export function effectiveDeadline(
 }
 
 /** A wait that is still armed: live, unresolved, and holding something up. */
-export function armedWaits(graph: Graph): Activity[] {
-  return [...graph.activities.values()].filter(
-    (activity) =>
-      activity.type === "wait" &&
-      activity.status.state === "active" &&
-      activity.provenance.superseded_by === null,
+export function armedWaits(graph: Graph): AcceptEventNode[] {
+  return [...graph.nodes.values()].filter(
+    (activity): activity is AcceptEventNode =>
+      activity.type === "accept_event" &&
+      // An armed wait is one in `ready`: its dependencies are met and nothing may claim it,
+      // because D2 keeps an accept_event out of the dispatch list entirely. Under the old
+      // vocabulary this read `active`, which ALSO matched a claimed node — so claiming a wait
+      // silently disarmed it and its deadline never fired.
+      activity.status.state === "ready" &&
+      isNodeLive(activity),
   );
 }
 
 export interface WaitStatus {
-  activity: Activity;
+  activity: ActivityNode;
   deadline: EffectiveDeadline;
   overdue: boolean;
 }
 
 export function waitStatus(
   records: readonly MutationRecord[],
-  activity: Activity,
+  activity: ActivityNode,
   now: string,
 ): WaitStatus {
-  if (activity.spec.deadline === undefined) {
+  if (activity.type !== "accept_event") {
     return { activity, deadline: { at: null, basis: "no deadline" }, overdue: false };
   }
   const deadline = effectiveDeadline(records, activity.spec.deadline);

@@ -5,10 +5,10 @@ import { logOf, record } from "./fixtures.ts";
 const GENESIS = record(0, []);
 const ADD_A = record(1, [
   {
-    op: "add_activity",
+    op: "add_node",
     id: "ask-dana",
     name: "Ask Dana",
-    type: "task",
+    type: "action",
     spec: {
       instruction: "email dana",
       inputs: [],
@@ -19,10 +19,10 @@ const ADD_A = record(1, [
 ]);
 const ADD_B = record(2, [
   {
-    op: "add_activity",
+    op: "add_node",
     id: "chase-dana",
     name: "Chase Dana",
-    type: "task",
+    type: "action",
     spec: { instruction: "chase", inputs: [], outputs: [], effect_class: "pure" },
   },
   { op: "add_edge", from: "ask-dana", to: "chase-dana" },
@@ -39,7 +39,7 @@ describe("fold is deterministic", () => {
 
   test("activity order is insertion order and edge order is append order", () => {
     const projection = projectGraph(foldLog(LOG).graph);
-    expect(projection.activities.map((n) => n.id)).toEqual(["ask-dana", "chase-dana"]);
+    expect(projection.nodes.map((n) => n.id)).toEqual(["ask-dana", "chase-dana"]);
     expect(projection.edges).toEqual([{ from: "ask-dana", to: "chase-dana" }]);
   });
 
@@ -55,7 +55,7 @@ describe("fold is deterministic", () => {
 
   test("an empty log folds to an empty graph rather than throwing", () => {
     const folded = foldLog("");
-    expect(folded.graph.activities.size).toBe(0);
+    expect(folded.graph.nodes.size).toBe(0);
     expect(folded.records).toHaveLength(0);
     expect(folded.damaged).toEqual([]);
   });
@@ -99,7 +99,7 @@ describe("a torn final line is the expected shape of a crash", () => {
 
   test("everything before it still folds", () => {
     const folded = foldLog(`${LOG}{"v":3,`);
-    expect(folded.graph.activities.size).toBe(2);
+    expect(folded.graph.nodes.size).toBe(2);
     expect(folded.records).toHaveLength(3);
   });
 
@@ -138,7 +138,7 @@ describe("the loader is partial-tolerant: it reports rather than dies", () => {
 
   test("a record whose ops cannot apply is reported with the op's own reason", () => {
     const folded = foldLog(
-      logOf(GENESIS, record(1, [{ op: "set_status", activity: "ghost", status: "done", evidence_ref: "e" }])),
+      logOf(GENESIS, record(1, [{ op: "set_status", node: "ghost", status: "completed", evidence_ref: "e" }])),
     );
     expect(folded.damaged[0]?.reason).toBe("UNKNOWN_ACTIVITY");
     expect(folded.graph.version).toBe(0);
@@ -152,11 +152,11 @@ describe("the loader is partial-tolerant: it reports rather than dies", () => {
 describe("read-only time travel", () => {
   test("upToVersion stops the fold there", () => {
     expect(foldLog(LOG, { upToVersion: 1 }).graph.version).toBe(1);
-    expect(foldLog(LOG, { upToVersion: 1 }).graph.activities.size).toBe(1);
+    expect(foldLog(LOG, { upToVersion: 1 }).graph.nodes.size).toBe(1);
   });
 
   test("version 0 is the empty graph the pursuit started from", () => {
-    expect(foldLog(LOG, { upToVersion: 0 }).graph.activities.size).toBe(0);
+    expect(foldLog(LOG, { upToVersion: 0 }).graph.nodes.size).toBe(0);
   });
 
   test("a version beyond head folds everything, rather than erroring", () => {

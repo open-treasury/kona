@@ -24,8 +24,8 @@ import { MARKER_SIZE, ACTIVITY_SIZE } from "../src/layout/dagre.ts";
 import { edgeHandles } from "../src/layout/handles.ts";
 
 const BOXES = [
-  ["task", ACTIVITY_SIZE.task],
-  ["wait", ACTIVITY_SIZE.wait],
+  ["action", ACTIVITY_SIZE.action],
+  ["accept_event", ACTIVITY_SIZE.accept_event],
   ["marker", MARKER_SIZE],
 ] as const;
 

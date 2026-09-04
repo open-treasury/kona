@@ -10,7 +10,16 @@
 import { describe, expect, test } from "bun:test";
 import type { CommittedOp, Graph } from "../src/index.ts";
 import { applyOps } from "../src/index.ts";
-import { commit, seeded, task, activityAt, slugOf, resolveSlugs, nid } from "./fixtures.ts";
+import {
+  commit,
+  seeded,
+  action,
+  workedAt,
+  activityAt,
+  slugOf,
+  resolveSlugs,
+  nid,
+} from "./fixtures.ts";
 
 function refuses(graph: Graph, ops: CommittedOp[], version = graph.version + 1) {
   const result = applyOps(graph, resolveSlugs(graph, ops) as CommittedOp[], version);
@@ -25,14 +34,20 @@ function applies(graph: Graph, ops: CommittedOp[], version = graph.version + 1):
   return result.value;
 }
 
-const PAIR = seeded([task("A"), task("B")]);
+const PAIR = seeded([action("A"), action("B")]);
 
 describe("refusals name the activity and the op", () => {
   test.each([
-    ["set_status", { op: "set_status", activity: "ghost", status: "done", evidence_ref: "e" }],
-    ["record_outcome", { op: "record_outcome", activity: "ghost", verdict: "confirmed", evidence_ref: "e" }],
-    ["record_output", { op: "record_output", activity: "ghost", output_name: "r", value: 1, evidence_ref: "e" }],
-    ["supersede_activity", { op: "supersede_activity", activity: "ghost" }],
+    ["set_status", { op: "set_status", node: "ghost", status: "completed", evidence_ref: "e" }],
+    [
+      "record_outcome",
+      { op: "record_outcome", node: "ghost", verdict: "confirmed", evidence_ref: "e" },
+    ],
+    [
+      "record_output",
+      { op: "record_output", node: "ghost", output_name: "r", value: 1, evidence_ref: "e" },
+    ],
+    ["supersede_node", { op: "supersede_node", node: "ghost" }],
   ])("%s against a missing activity", (_name, op) => {
     const r = refuses(PAIR, [op as CommittedOp]);
     expect(r.reason).toBe("UNKNOWN_ACTIVITY");
@@ -64,43 +79,56 @@ describe("refusals name the activity and the op", () => {
   test("a duplicate activity id", () => {
     // A committed op carries its own id, so this one collides with the activity already there.
     const r = refuses(PAIR, [
-      { op: "add_activity", id: nid(PAIR, "a"), name: "A", type: "task", spec: { instruction: "x", inputs: [], outputs: [], effect_class: "pure" } },
+      {
+        op: "add_node",
+        id: nid(PAIR, "a"),
+        name: "A",
+        type: "action",
+        spec: { instruction: "x", inputs: [], outputs: [], effect_class: "pure" },
+      },
     ]);
     expect(r.message).toContain("already exists");
   });
 
   test("an undeclared output names both the activity and the output", () => {
-    expect(refuses(PAIR, [{ op: "record_output", activity: "a", output_name: "ghost", value: 1, evidence_ref: "e" }]).message)
-      .toContain("declares no output named 'ghost'");
+    expect(
+      refuses(PAIR, [
+        { op: "record_output", node: "a", output_name: "ghost", value: 1, evidence_ref: "e" },
+      ]).message,
+    ).toContain("declares no output named 'ghost'");
   });
 
   test("a self-supersede and a missing replacement are different errors", () => {
-    expect(refuses(PAIR, [{ op: "supersede_activity", activity: "a", by: "a" }]).message).toContain(
+    expect(refuses(PAIR, [{ op: "supersede_node", node: "a", by: "a" }]).message).toContain(
       "cannot supersede itself",
     );
-    expect(refuses(PAIR, [{ op: "supersede_activity", activity: "a", by: "ghost" }]).message).toBe(
+    expect(refuses(PAIR, [{ op: "supersede_node", node: "a", by: "ghost" }]).message).toBe(
       "replacement activity 'ghost' does not exist",
     );
   });
 
   test("the reported op index is the authored one, even after cancellations are reordered", () => {
-    // `supersede_activity` runs last, but it was authored first.
-    expect(refuses(PAIR, [{ op: "supersede_activity", activity: "ghost" }, { op: "add_edge", from: "a", to: "b" }]).op_index)
-      .toBe(0);
+    // `supersede_node` runs last, but it was authored first.
+    expect(
+      refuses(PAIR, [
+        { op: "supersede_node", node: "ghost" },
+        { op: "add_edge", from: "a", to: "b" },
+      ]).op_index,
+    ).toBe(0);
   });
 });
 
 describe("optional fields are absent, not present-and-undefined", () => {
-  test("an edge with no condition has no condition key", () => {
+  test("an edge with no guard has no guard key", () => {
     const graph = applies(PAIR, [{ op: "add_edge", from: "a", to: "b" }]);
     expect(Object.keys(graph.edges[0] ?? {})).toEqual(["from", "to"]);
   });
 
   test("an outcome with no attrs has no attrs key", () => {
     const graph = applies(PAIR, [
-      { op: "record_outcome", activity: "a", verdict: "confirmed", evidence_ref: "e" },
+      { op: "record_outcome", node: "a", verdict: "confirmed", evidence_ref: "e" },
     ]);
-    expect(Object.keys(activityAt(graph, "a")?.status.outcome ?? {})).toEqual([
+    expect(Object.keys(workedAt(graph, "a").status.outcome ?? {})).toEqual([
       "verdict",
       "evidence_ref",
       "at_version",
@@ -112,6 +140,7 @@ describe("optional fields are absent, not present-and-undefined", () => {
       "created_by_version",
       "supersedes",
       "superseded_by",
+      "retired",
     ]);
   });
 });
@@ -119,20 +148,25 @@ describe("optional fields are absent, not present-and-undefined", () => {
 describe("a new activity starts empty", () => {
   test("no conditions, no effect log, no outcome, no output", () => {
     const activity = activityAt(PAIR, "a");
-    expect(activity?.status.conditions).toEqual([]);
-    expect(activity?.status.effect_log).toEqual([]);
-    expect(activity?.status.outcome).toBeNull();
-    expect(activity?.status.output).toBeNull();
+    expect(activity?.status?.conditions).toEqual([]);
+    expect(activity?.status?.effect_log).toEqual([]);
+    expect(activity?.status?.outcome).toBeNull();
+    expect(activity?.status?.output).toBeNull();
   });
 });
 
 /** An activity carrying the two arrays an op must copy rather than share. */
 function withHistory(): Graph {
-  const graph = seeded([task("Send")]);
+  const graph = seeded([action("Send")]);
   const activity = activityAt(graph, "send");
   if (activity === undefined) throw new Error("fixture");
-  activity.status.conditions.push({ type: "conflict", status: "open", reason: "overlaps", at: "2026-08-21T10:00:00.000Z" });
-  activity.status.effect_log.push({
+  activity.status?.conditions.push({
+    type: "conflict",
+    status: "open",
+    reason: "overlaps",
+    at: "2026-08-21T10:00:00.000Z",
+  });
+  activity.status?.effect_log.push({
     effect_key: "ek_1",
     payload_hash: "h1",
     attempted_at: "2026-08-21T10:00:00.000Z",
@@ -146,18 +180,31 @@ function withHistory(): Graph {
 describe("cloning preserves what an op did not touch", () => {
   test("an unrelated op carries conditions, effect_log and provenance through untouched", () => {
     const before = withHistory();
-    const after = applies(before, [{ op: "set_status", activity: "send", status: "done", evidence_ref: "e" }], 2);
+    const after = applies(
+      before,
+      [{ op: "set_status", node: "send", status: "completed", evidence_ref: "e" }],
+      2,
+    );
     const activity = activityAt(after, "send");
-    expect(activity?.status.conditions).toEqual(activityAt(before, "send")?.status.conditions ?? []);
-    expect(activity?.status.effect_log).toEqual(activityAt(before, "send")?.status.effect_log ?? []);
-    expect(activity?.provenance).toEqual({ created_by_version: 1, supersedes: null, superseded_by: null });
+    expect(activity?.status?.conditions).toEqual(workedAt(before, "send").status.conditions ?? []);
+    expect(activity?.status?.effect_log).toEqual(workedAt(before, "send").status.effect_log ?? []);
+    expect(activity?.provenance).toEqual({
+      created_by_version: 1,
+      supersedes: null,
+      superseded_by: null,
+      retired: false,
+    });
   });
 
   test("the copies are independent: writing through the result does not reach head", () => {
     const before = withHistory();
-    const after = applies(before, [{ op: "set_status", activity: "send", status: "done", evidence_ref: "e" }], 2);
+    const after = applies(
+      before,
+      [{ op: "set_status", node: "send", status: "completed", evidence_ref: "e" }],
+      2,
+    );
     const activity = activityAt(after, "send");
-    activity?.status.effect_log.push({
+    activity?.status?.effect_log.push({
       effect_key: "ek_2",
       payload_hash: "h2",
       attempted_at: "2026-08-21T11:00:00.000Z",
@@ -165,19 +212,28 @@ describe("cloning preserves what an op did not touch", () => {
       outcome: null,
       message_id: null,
     });
-    activity?.status.conditions.push({ type: "x", status: "open", reason: "y", at: "2026-08-21T11:00:00.000Z" });
+    activity?.status?.conditions.push({
+      type: "x",
+      status: "open",
+      reason: "y",
+      at: "2026-08-21T11:00:00.000Z",
+    });
     if (activity !== undefined) activity.provenance.superseded_by = "someone-else";
 
-    expect(activityAt(before, "send")?.status.effect_log).toHaveLength(1);
-    expect(activityAt(before, "send")?.status.conditions).toHaveLength(1);
+    expect(workedAt(before, "send").status.effect_log).toHaveLength(1);
+    expect(workedAt(before, "send").status.conditions).toHaveLength(1);
     expect(slugOf(activityAt(before, "send")?.provenance.superseded_by)).toBeNull();
   });
 
   test("an effect log entry is copied, not shared", () => {
     const before = withHistory();
-    const after = applies(before, [{ op: "set_status", activity: "send", status: "done", evidence_ref: "e" }], 2);
-    const entry = activityAt(after, "send")?.status.effect_log[0];
+    const after = applies(
+      before,
+      [{ op: "set_status", node: "send", status: "completed", evidence_ref: "e" }],
+      2,
+    );
+    const entry = workedAt(after, "send").status.effect_log[0];
     if (entry !== undefined) entry.message_id = "<forged>";
-    expect(activityAt(before, "send")?.status.effect_log[0]?.message_id).toBeNull();
+    expect(workedAt(before, "send").status.effect_log[0]?.message_id).toBeNull();
   });
 });

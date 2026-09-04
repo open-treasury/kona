@@ -34,12 +34,7 @@ function hasStringField<K extends string>(
   );
 }
 
-function resolveRef(
-  raw: string,
-  scope: RefScope,
-  opIndex: number,
-  field: string,
-): Result<string> {
+function resolveRef(raw: string, scope: RefScope, opIndex: number, field: string): Result<string> {
   if (!isOpRef(raw)) {
     if (!scope.committed.has(raw)) {
       return refuse("UNKNOWN_ACTIVITY", `${field} references '${raw}', which does not exist`, {
@@ -70,30 +65,16 @@ function resolveRef(
 }
 
 /** Every position in an activity spec that may hold a reference. Listed, not traversed. */
-function normalizeSpec<S extends object>(
-  spec: S,
-  scope: RefScope,
-  opIndex: number,
-): Result<S> {
+function normalizeSpec<S extends object>(spec: S, scope: RefScope, opIndex: number): Result<S> {
   const draft: Record<string, unknown> = { ...(spec as Record<string, unknown>) };
 
-  const simpleRefs: [string, string][] = [
-    ["compensates", "spec.compensates"],
-    ["on_timeout", "spec.on_timeout"],
-  ];
+  const simpleRefs: [string, string][] = [["compensates", "spec.compensates"]];
   for (const [key, field] of simpleRefs) {
     const raw = draft[key];
     if (typeof raw !== "string") continue;
     const resolved = resolveRef(raw, scope, opIndex, field);
     if (!resolved.ok) return resolved;
     draft[key] = resolved.value;
-  }
-
-  const obviated = draft["obviated_if"];
-  if (hasStringField(obviated, "wait")) {
-    const resolved = resolveRef(obviated.wait, scope, opIndex, "spec.obviated_if.wait");
-    if (!resolved.ok) return resolved;
-    draft["obviated_if"] = { ...obviated, wait: resolved.value };
   }
 
   // Only the `{after, duration}` deadline shape carries a reference; `{at}` and `{expr}`
@@ -117,21 +98,21 @@ export function normalizeBatch(
   version: number,
 ): Result<CommittedOp[]> {
   const scope: RefScope = {
-    committed: new Set(graph.activities.keys()),
+    committed: new Set(graph.nodes.keys()),
     minted: new Map(),
-    taken: new Set(graph.activities.keys()),
+    taken: new Set(graph.nodes.keys()),
   };
   const committed: CommittedOp[] = [];
 
   for (const [opIndex, op] of ops.entries()) {
     switch (op.op) {
-      case "add_activity": {
+      case "add_node": {
         const spec = normalizeSpec(op.spec, scope, opIndex);
         if (!spec.ok) return spec;
-        const id = mintActivityId(prefix, op.name, version, opIndex, scope.taken);
+        const id = mintActivityId(prefix, op.name ?? op.type, version, opIndex, scope.taken);
         scope.taken.add(id);
         scope.minted.set(`$${opIndex}`, id);
-        committed.push({ ...op, id, spec: spec.value });
+        committed.push({ ...op, id, spec: spec.value } as CommittedOp);
         break;
       }
       case "add_edge": {
@@ -142,22 +123,22 @@ export function normalizeBatch(
         committed.push({ ...op, from: from.value, to: to.value });
         break;
       }
-      case "supersede_activity": {
-        const activity = resolveRef(op.activity, scope, opIndex, "activity");
+      case "supersede_node": {
+        const activity = resolveRef(op.node, scope, opIndex, "node");
         if (!activity.ok) return activity;
         if (op.by === undefined) {
-          committed.push({ ...op, activity: activity.value });
+          committed.push({ ...op, node: activity.value });
           break;
         }
         const by = resolveRef(op.by, scope, opIndex, "by");
         if (!by.ok) return by;
-        committed.push({ ...op, activity: activity.value, by: by.value });
+        committed.push({ ...op, node: activity.value, by: by.value });
         break;
       }
       default: {
-        const activity = resolveRef(op.activity, scope, opIndex, "activity");
+        const activity = resolveRef(op.node, scope, opIndex, "node");
         if (!activity.ok) return activity;
-        committed.push({ ...op, activity: activity.value });
+        committed.push({ ...op, node: activity.value });
         break;
       }
     }

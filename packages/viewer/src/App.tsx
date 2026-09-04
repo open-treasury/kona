@@ -1,14 +1,13 @@
 /**
  * The whole application, and deliberately the only stateful thing in it.
  *
- * There are exactly four pieces of state here: the text of the log (owned by the feed), the
- * wall clock, and two pieces of pure UI — which activity is selected and whether the timeline is
- * open. Everything else on screen is a pure function of those. That is what "the viewer holds
+ * The log and wall clock are inputs; selection, history position, expanded groups and panel
+ * visibility are presentation state. Everything else on screen is a pure function of those. That is what "the viewer holds
  * zero authoritative state" means operationally: kill the process, restart it, and the view is
  * identical, because there was never anything here to lose.
  *
- * There is no version to be "at". The canvas shows head and only head — the timeline is read,
- * not operated (see `Timeline.tsx`).
+ * History mode folds a prefix for read-only inspection. Returning to head discards no records and
+ * performs no mutation.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +16,7 @@ import { useLogFeed } from "./feed/useLog.ts";
 import { useNow } from "./feed/useNow.ts";
 import { buildPursuit } from "./model/pursuit.ts";
 import { buildGraphView } from "./model/view.ts";
+import { collapseForks, reconcileSelection } from "./model/collapse.ts";
 import { createLayoutCache } from "./layout/dagre.ts";
 import { Canvas } from "./graph/Canvas.tsx";
 import { freshFromDiff, useFresh } from "./graph/useFresh.ts";
@@ -53,21 +53,31 @@ export function App(): React.ReactElement {
   // click away rather than in front of you. The header button is worded rather than a bare
   // icon so that the click is at least advertised.
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [viewedVersion, setViewedVersion] = useState<number | null>(null);
+  const [expandedForks, setExpandedForks] = useState<Set<string>>(() => new Set());
 
   // Structure is memoized on the log text and the view on the clock, separately. Re-folding a
   // whole log once a second to move a countdown would be this viewer's own version of Burr
   // #834: the right answer at the wrong cost, and it would first be felt at the fan-out.
-  const shown = useMemo(() => buildPursuit(feed.text), [feed.text]);
-
-  const view = useMemo(
-    () => buildGraphView(shown.graph, shown.completionTime, now),
-    [shown, now],
+  const head = useMemo(() => buildPursuit(feed.text), [feed.text]);
+  const shown = useMemo(
+    () => (viewedVersion === null ? head : buildPursuit(feed.text, viewedVersion)),
+    [feed.text, head, viewedVersion],
   );
+  const collapsed = useMemo(
+    () => collapseForks(shown.graph, expandedForks),
+    [shown, expandedForks],
+  );
+
+  const view = useMemo(() => buildGraphView(shown.graph, shown.completionTime, now), [shown, now]);
 
   // One cache for the process lifetime. §6.10 rule 2: the layout is recomputed when the
   // topology signature changes and at no other time, so a status tick cannot move an activity.
   const layoutCache = useRef(createLayoutCache());
-  const layout = useMemo(() => layoutCache.current(shown.graph), [shown]);
+  const layout = useMemo(
+    () => layoutCache.current(collapsed.graph, new Set(collapsed.regions.keys())),
+    [collapsed],
+  );
 
   const target = useMemo<ReadonlyMap<string, Point>>(() => {
     const points = new Map<string, Point>();
@@ -81,30 +91,37 @@ export function App(): React.ReactElement {
   const positions = useTweenedPositions(target);
 
   const shownEntry = useMemo(
-    () => shown.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
-    [shown],
+    () => head.timeline.find((entry) => entry.version === shown.graph.version) ?? null,
+    [head, shown.graph.version],
   );
   const flash = useFresh(shownEntry?.diff ?? null);
 
   // A pin outranks the flash. `useFresh` answers "what just arrived" and decays; a pinned
   // version answers "what did v8 touch" and has to stay put while the reader looks from the
   // row to the canvas. The canvas takes one highlight set and does not care which it is.
-  const pinnedDiff = useMemo(
-    () => shown.timeline.find((entry) => entry.version === pinnedVersion)?.diff ?? null,
-    [shown, pinnedVersion],
-  );
+  const pinnedDiff = useMemo(() => {
+    if (pinnedVersion === null || pinnedVersion > shown.graph.version) return null;
+    return head.timeline.find((entry) => entry.version === pinnedVersion)?.diff ?? null;
+  }, [head, pinnedVersion, shown.graph.version]);
   const fresh = pinnedDiff === null ? flash : freshFromDiff(pinnedDiff);
 
   // A pinned version can be scrolled off the end of a truncated timeline, or belong to a log
   // that has since been replaced. Drop the pin rather than highlight nothing and look broken.
   useEffect(() => {
-    if (pinnedVersion !== null && pinnedDiff === null) setPinnedVersion(null);
-  }, [pinnedVersion, pinnedDiff]);
+    if (
+      pinnedVersion !== null &&
+      (pinnedVersion > shown.graph.version ||
+        !head.timeline.some((entry) => entry.version === pinnedVersion))
+    ) {
+      setPinnedVersion(null);
+    }
+  }, [head.timeline, pinnedVersion, shown.graph.version]);
 
   // An activity can be selected and then time-travelled out of existence.
   useEffect(() => {
-    if (selected !== null && !view.byId.has(selected)) setSelected(null);
-  }, [view, selected]);
+    const next = reconcileSelection(selected, collapsed);
+    if (next !== selected) setSelected(next);
+  }, [collapsed, selected]);
 
   const selectedView = selected === null ? null : (view.byId.get(selected) ?? null);
   // ONE right rail, with two sections in it rather than two rails side by side. A second
@@ -114,13 +131,17 @@ export function App(): React.ReactElement {
   // inspector would make selecting a card silently close the differentiator.
   const railOpen = timelineOpen || selectedView !== null;
   const damaged = shown.damaged;
+  const headVersion = head.graph.version;
+  const firstVersion = head.records[0]?.v ?? 0;
 
   return (
     <TooltipProvider>
       <div
         className={cn(
           "grid h-full grid-rows-[44px_minmax(0,1fr)]",
-          railOpen ? "grid-cols-[minmax(0,1fr)_380px]" : "grid-cols-[minmax(0,1fr)]",
+          railOpen
+            ? "grid-cols-[minmax(0,1fr)_380px] max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[44px_minmax(0,1fr)_minmax(220px,40vh)]"
+            : "grid-cols-[minmax(0,1fr)]",
         )}
       >
         <header className="col-span-full flex items-center gap-4 border-b border-border bg-background px-4 shadow-nav">
@@ -155,6 +176,35 @@ export function App(): React.ReactElement {
           <span className="font-mono text-[11px] text-muted-foreground">
             v<b className="font-semibold text-foreground">{shown.graph.version}</b>
           </span>
+
+          <label className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+            <span className="sr-only">Read-only version history</span>
+            <input
+              aria-label="Read-only version history"
+              type="range"
+              min={firstVersion}
+              max={headVersion}
+              value={shown.graph.version}
+              onChange={(event) => {
+                const version = Number(event.currentTarget.value);
+                setViewedVersion(version === headVersion ? null : version);
+                setPinnedVersion(null);
+                setSelected(null);
+              }}
+              className="w-24 accent-primary max-sm:w-16"
+            />
+            {viewedVersion === null ? (
+              <span className="uppercase">head</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setViewedVersion(null)}
+                className="rounded-sm border border-border px-1.5 py-0.5 uppercase hover:bg-accent"
+              >
+                return to head
+              </button>
+            )}
+          </label>
 
           {/*
             A word and nothing else. §6.10 rule 5 calls this panel "the differentiator", and a
@@ -206,12 +256,19 @@ export function App(): React.ReactElement {
           )}
           <div className="min-h-0 flex-1">
             <Canvas
-              graph={shown.graph}
+              graph={collapsed.graph}
               view={view}
               positions={positions}
               fresh={fresh}
               selected={selected}
               onSelect={setSelected}
+              collapsedRegions={collapsed.regions}
+              collapsedEdgeStates={collapsed.edgeStates}
+              onToggleGroup={(id) => {
+                setExpandedForks((current) => new Set(current).add(id));
+              }}
+              onCollapseAll={() => setExpandedForks(new Set())}
+              canCollapse={expandedForks.size > 0}
             />
           </div>
         </main>
@@ -223,9 +280,9 @@ export function App(): React.ReactElement {
           see, which is state the viewer is not supposed to have.
         */}
         {railOpen && (
-          <aside className="flex min-h-0 min-w-0 flex-col bg-background">
+          <aside className="flex min-h-0 min-w-0 flex-col bg-background max-md:col-start-1 max-md:row-start-3 max-md:border-t max-md:border-border">
             {/* The selected activity on top, because it is what the reader just asked for. It is
-                capped rather than halved: a task with no wait and no outcome is six rows, and
+            capped rather than halved: an action with no event wait or outcome is six rows, and
                 giving it half the rail would be six rows of data over a field of white. */}
             {selectedView !== null && (
               <div
@@ -246,9 +303,10 @@ export function App(): React.ReactElement {
             {timelineOpen && (
               <div className="flex min-h-0 flex-1 flex-col">
                 <Timeline
-                  entries={shown.timeline}
-                  headVersion={shown.graph.version}
+                  entries={head.timeline}
+                  headVersion={head.graph.version}
                   pinnedVersion={pinnedVersion}
+                  visibleVersion={shown.graph.version}
                   onPin={setPinnedVersion}
                 />
               </div>

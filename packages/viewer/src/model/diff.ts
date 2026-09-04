@@ -15,7 +15,7 @@
  *
  * **There are no removals, and there is no code here for them.** The ops vocabulary has six
  * verbs, and `delete_node` and `rollback` are named among the forbidden ones; nothing is ever
- * taken out of a Kona graph. An activity leaves play by becoming `dropped` or by being superseded,
+ * taken out of a Kona graph. An activity leaves play by becoming `withdrawn` or `terminated`, or by being superseded,
  * and both are facts about its status and its provenance, not about the graph's shape. A
  * `removedNodes` field would be a field that is always empty and a branch that is never
  * taken — dead code standing in for a case the store forbids.
@@ -23,6 +23,7 @@
 
 import type { Edge, Graph } from "@kona/core";
 import type { EdgeKey, GraphDiff } from "./types.ts";
+import { guardKey } from "./guard.ts";
 
 /**
  * An edge has no identity of its own (§6.2) — `{from, to, condition}` is all there is, and
@@ -30,7 +31,7 @@ import type { EdgeKey, GraphDiff } from "./types.ts";
  * the tween both need a stable key, and this is the only honest one.
  */
 export function edgeKey(edge: Edge): EdgeKey {
-  return { from: edge.from, to: edge.to, on: edge.condition?.on ?? null };
+  return { from: edge.from, to: edge.to, guard: guardKey(edge) || null };
 }
 
 /**
@@ -42,7 +43,7 @@ export function edgeKey(edge: Edge): EdgeKey {
  * alike would make one of them invisible to the diff.
  */
 export function edgeKeyString(key: EdgeKey): string {
-  return key.on === null ? `${key.from}>${key.to}` : `${key.from}>${key.to}#${key.on}`;
+  return key.guard === null ? `${key.from}>${key.to}` : `${key.from}>${key.to}#${key.guard}`;
 }
 
 /**
@@ -61,21 +62,27 @@ export function diffGraphs(before: Graph | null, after: Graph): GraphDiff {
 
   // Iterating `after` in map order means every list below comes out in insertion order,
   // which is the order rule 7 pins visual order to. Sorting would unpin it.
-  for (const [id, activity] of after.activities) {
-    const was = before?.activities.get(id);
+  for (const [id, activity] of after.nodes) {
+    const was = before?.nodes.get(id);
     if (was === undefined) {
       addedNodes.push(id);
       continue;
     }
-    if (was.status.state !== activity.status.state) {
-      statusChanged.push({ id, from: was.status.state, to: activity.status.state });
+    // Control nodes have no status, so they can never appear in a status diff — which is
+    // right: the timeline reports what CHANGED about the work, and a diamond has nothing to
+    // report. Under the shared shape this had to be remembered; now it cannot be forgotten.
+    if (was.status !== undefined && activity.status !== undefined) {
+      if (was.status.state !== activity.status.state) {
+        statusChanged.push({ id, from: was.status.state, to: activity.status.state });
+      }
+      if (activity.status.outcomes.length > was.status.outcomes.length) {
+        outcomeAdded.push(id);
+      }
     }
     // `outcomes` and not `outcome`: the array is append-only (§6.7) and a `tentative` or
     // `late` record lands in it without ever becoming the resolving one. Both are things
     // that happened, and the inspector has to be told so it can show them.
-    if (activity.status.outcomes.length > was.status.outcomes.length) {
-      outcomeAdded.push(id);
-    }
+
     if (was.provenance.superseded_by !== activity.provenance.superseded_by) {
       superseded.push({ id, by: activity.provenance.superseded_by });
     }
@@ -100,7 +107,6 @@ export function diffGraphs(before: Graph | null, after: Graph): GraphDiff {
     // one case where "nothing was added" and "nothing moved" come apart, and filing a
     // supersede under status ticks would leave the replacement laid out on top of the activity it
     // replaced.
-    topologyStable:
-      addedNodes.length === 0 && addedEdges.length === 0 && superseded.length === 0,
+    topologyStable: addedNodes.length === 0 && addedEdges.length === 0 && superseded.length === 0,
   };
 }

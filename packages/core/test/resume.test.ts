@@ -19,7 +19,19 @@ import {
   settledAt,
   waitStatus,
 } from "../src/index.ts";
-import { commit, record, rostered, seeded, task, wait, activityAt, slugOf, slugOps, nid } from "./fixtures.ts";
+import {
+  commit,
+  record,
+  rostered,
+  seeded,
+  action,
+  acceptEvent,
+  workedAt,
+  activityAt,
+  slugOf,
+  slugOps,
+  nid,
+} from "./fixtures.ts";
 
 const T0 = "2026-08-21T12:00:00.000Z";
 const LATER = "2026-08-25T12:00:00.000Z";
@@ -30,12 +42,9 @@ function activityOf(graph: Graph, id: string) {
   return activity;
 }
 
-/** `escalate` (task) then `gate` (wait) pointing its timeout at it. */
+/** `escalate` (action) then `gate` (acceptEvent) pointing its timeout at it. */
 function gated(deadline: unknown): Graph {
-  return seeded([
-    task("Escalate"),
-    wait("Gate", { on_timeout: "$0", deadline }),
-  ]);
+  return seeded([action("Escalate"), acceptEvent("Gate", { deadline })]);
 }
 
 function stampedRecord(v: number, ops: MutationRecord["ops"], at: string): MutationRecord {
@@ -64,22 +73,34 @@ describe("settledAt reads the time from the log, not the graph", () => {
   test("returns the occurred_at of the record that made an activity terminal", () => {
     const records = [
       stampedRecord(0, [], T0),
-      stampedRecord(1, [{ op: "set_status", activity: "a", status: "done", evidence_ref: "e" }], LATER),
+      stampedRecord(
+        1,
+        [{ op: "set_status", node: "a", status: "completed", evidence_ref: "e" }],
+        LATER,
+      ),
     ];
     expect(settledAt(records, "a")).toBe(LATER);
   });
 
   test("a non-terminal status does not count as settling", () => {
     const records = [
-      stampedRecord(1, [{ op: "set_status", activity: "a", status: "in_flight", evidence_ref: "e" }], LATER),
+      stampedRecord(
+        1,
+        [{ op: "set_status", node: "a", status: "active", evidence_ref: "e" }],
+        LATER,
+      ),
     ];
     expect(settledAt(records, "a")).toBeNull();
   });
 
   test("the LAST terminal transition wins", () => {
     const records = [
-      stampedRecord(1, [{ op: "set_status", activity: "a", status: "failed", evidence_ref: "e" }], T0),
-      stampedRecord(2, [{ op: "set_status", activity: "a", status: "dropped", evidence_ref: "e" }], LATER),
+      stampedRecord(1, [{ op: "set_status", node: "a", status: "failed", evidence_ref: "e" }], T0),
+      stampedRecord(
+        2,
+        [{ op: "set_status", node: "a", status: "terminated", evidence_ref: "e" }],
+        LATER,
+      ),
     ];
     expect(settledAt(records, "a")).toBe(LATER);
   });
@@ -96,7 +117,11 @@ describe("the three deadline shapes (§6.2)", () => {
 
   test("{after, duration} is measured from when the anchor settled", () => {
     const records = [
-      stampedRecord(1, [{ op: "set_status", activity: "invite", status: "done", evidence_ref: "e" }], T0),
+      stampedRecord(
+        1,
+        [{ op: "set_status", node: "invite", status: "completed", evidence_ref: "e" }],
+        T0,
+      ),
     ];
     const deadline = effectiveDeadline(records, { after: "invite", duration: "48h" });
     expect(deadline.at).toBe("2026-08-23T12:00:00.000Z");
@@ -111,7 +136,11 @@ describe("the three deadline shapes (§6.2)", () => {
 
   test("a malformed duration yields unknown rather than a wrong instant", () => {
     const records = [
-      stampedRecord(1, [{ op: "set_status", activity: "invite", status: "done", evidence_ref: "e" }], T0),
+      stampedRecord(
+        1,
+        [{ op: "set_status", node: "invite", status: "completed", evidence_ref: "e" }],
+        T0,
+      ),
     ];
     expect(effectiveDeadline(records, { after: "invite", duration: "soon" }).at).toBeNull();
   });
@@ -131,16 +160,16 @@ describe("the three deadline shapes (§6.2)", () => {
 });
 
 describe("overdue detection fails SAFE", () => {
-  test("a wait past its instant is overdue", () => {
+  test("a acceptEvent past its instant is overdue", () => {
     const graph = gated({ at: T0 });
     expect(waitStatus([], activityOf(graph, "gate"), LATER).overdue).toBe(true);
   });
 
-  test("a wait exactly at its instant is overdue", () => {
+  test("a acceptEvent exactly at its instant is overdue", () => {
     expect(waitStatus([], activityOf(gated({ at: T0 }), "gate"), T0).overdue).toBe(true);
   });
 
-  test("a wait one millisecond early is not", () => {
+  test("a acceptEvent one millisecond early is not", () => {
     const graph = gated({ at: LATER });
     const justBefore = new Date(Date.parse(LATER) - 1).toISOString();
     expect(waitStatus([], activityOf(graph, "gate"), justBefore).overdue).toBe(false);
@@ -148,7 +177,7 @@ describe("overdue detection fails SAFE", () => {
 
   test("an UNCOMPUTABLE deadline is not an expired one", () => {
     // Treating "cannot tell" as "expired" would fire a timeout branch — and possibly a
-    // pivot — on a wait whose anchor simply has not run yet.
+    // pivot — on a acceptEvent whose anchor simply has not run yet.
     // `$0` and not `escalate`: within one batch an activity is addressed by its op index,
     // because the id has not been minted yet at the moment the ref is resolved.
     const graph = gated({ after: "$0", duration: "48h" });
@@ -161,23 +190,32 @@ describe("overdue detection fails SAFE", () => {
 describe("armed waits are live waits only", () => {
   const graph = gated({ at: T0 });
 
-  test("a task is never an armed wait, however overdue anything is", () => {
+  test("a action is never an armed acceptEvent, however overdue anything is", () => {
     expect(armedWaits(graph).map((n) => slugOf(n.id))).toEqual(["gate"]);
   });
 
-  test.each(["done", "failed", "dropped", "in_flight"])("a '%s' wait is not armed", (state) => {
+  // `withdrawn` is absent because it is the store's to write, never an author's — the
+  // supersede test below is where an armed acceptEvent meets it. `terminated` is the authorable
+  // half of the split.
+  test.each(["completed", "failed", "terminated"])("a '%s' acceptEvent is not armed", (state) => {
     const resolved = commit(graph, [
-      { op: "set_status", activity: "gate", status: state, evidence_ref: "e" },
+      { op: "set_status", node: "gate", status: state, evidence_ref: "e" },
     ]);
     expect(armedWaits(resolved)).toEqual([]);
   });
 
-  test("a superseded wait is not armed", () => {
+  test("an acceptEvent cannot be claimed", () => {
+    expect(() =>
+      commit(graph, [{ op: "set_status", node: "gate", status: "active", evidence_ref: "e" }]),
+    ).toThrow("polled, not claimed");
+  });
+
+  test("a superseded acceptEvent is not armed", () => {
     const superseded = commit(graph, [
-      wait("Gate prime", { on_timeout: "escalate", deadline: { at: T0 } }),
-      { op: "supersede_activity", activity: "gate", by: "$0" },
+      acceptEvent("Gate prime", { deadline: { at: T0 } }),
+      { op: "supersede_node", node: "gate", by: "$0" },
     ]);
-    expect(activityAt(superseded, "gate")?.status.state).toBe("dropped");
+    expect(workedAt(superseded, "gate").status.state).toBe("withdrawn");
     expect(armedWaits(superseded).map((n) => slugOf(n.id))).toEqual(["gate-prime"]);
   });
 
@@ -191,10 +229,16 @@ describe("the resume plan", () => {
   test("reports state counts, the frontier and armed waits", () => {
     const graph = gated({ at: LATER });
     const plan = planResume([], graph, T0);
-    expect(plan.report.counts).toEqual({ active: 2 });
+    expect(plan.report.counts).toEqual({ ready: 2 });
     expect(plan.report.frontier.map(slugOf)).toEqual(["escalate", "gate"]);
     expect(plan.report.waits).toEqual([
-      { activity_id: nid(graph, "gate"), name: "Gate", deadline: LATER, basis: "fixed instant", overdue: false },
+      {
+        activity_id: nid(graph, "gate"),
+        name: "Gate",
+        deadline: LATER,
+        basis: "fixed instant",
+        overdue: false,
+      },
     ]);
   });
 
@@ -202,64 +246,49 @@ describe("the resume plan", () => {
     expect(planResume([], gated({ at: LATER }), T0).repairs).toEqual([]);
   });
 
-  test("firing a timeout resolves the wait AND materialises its escape route", () => {
-    // `on_timeout` is a declaration, not an edge. Without the edge, a timed-out wait
-    // resolves into nothing and §6.2's reason for demanding on_timeout evaporates.
+  test("firing a timeout records only the outcome and completion", () => {
     const plan = planResume([], gated({ at: T0 }), LATER);
     expect(plan.repairs.map(slugOps)).toEqual([
-      { op: "add_edge", from: "gate", to: "escalate", condition: { on: "timeout" } },
-      { op: "record_outcome", activity: "gate", verdict: "timed_out", evidence_ref: `deadline:${T0}` },
-      { op: "set_status", activity: "gate", status: "done", evidence_ref: `deadline:${T0}` },
-    ]);
-  });
-
-  test("the escape edge is not added twice", () => {
-    const graph = commit(gated({ at: T0 }), [
-      { op: "add_edge", from: "gate", to: "escalate", condition: { on: "timeout" } },
-    ]);
-    expect(planResume([], graph, LATER).repairs.map((op) => op.op)).toEqual([
-      "record_outcome",
-      "set_status",
+      { op: "record_outcome", node: "gate", verdict: "timed_out", evidence_ref: `deadline:${T0}` },
+      { op: "set_status", node: "gate", status: "completed", evidence_ref: `deadline:${T0}` },
     ]);
   });
 
   test("the repairs actually apply, and leave the escape route ready", () => {
     const plan = planResume([], gated({ at: T0 }), LATER);
     const repaired = commit(gated({ at: T0 }), plan.repairs);
-    expect(activityAt(repaired, "gate")?.status.state).toBe("done");
-    expect(activityAt(repaired, "gate")?.status.outcome?.verdict).toBe("timed_out");
+    expect(workedAt(repaired, "gate").status.state).toBe("completed");
+    expect(workedAt(repaired, "gate").status.outcome?.verdict).toBe("timed_out");
     expect(planResume([], repaired, LATER).repairs).toEqual([]);
   });
 
   test("the rationale names the waits, singular and plural", () => {
     expect(planResume([], gated({ at: T0 }), LATER).rationale).toContain("'Gate'");
-    const two = commit(gated({ at: T0 }), [
-      wait("Second gate", { on_timeout: "escalate", deadline: { at: T0 } }),
-    ]);
+    const two = commit(gated({ at: T0 }), [acceptEvent("Second gate", { deadline: { at: T0 } })]);
     expect(planResume([], two, LATER).rationale).toContain("2 waits");
   });
 });
 
 describe("a claimed PURE activity is returned to the frontier", () => {
-  // The other half of `in_flight`. An agent claims a pure activity, dies, and nothing left the
+  // The other half of a stale `active`. An agent claims a pure activity, dies, and nothing left the
   // machine — so unlike an open reservation there is nothing for a human to adjudicate, and
   // leaving it claimed would strand work no `kona next` would ever offer again.
-  const claimed = commit(seeded([task("Read the schemas", { effect_class: "pure" })]), [
+  const claimed = commit(seeded([action("Read the schemas", { effect_class: "pure" })]), [
     {
       op: "set_status",
-      activity: "read-the-schemas",
-      status: "in_flight",
+      node: "read-the-schemas",
+      status: "active",
       evidence_ref: "claim:agent-1",
     },
   ]);
 
-  test("it is repaired to active, and is NOT reported as an unknown send", () => {
+  test("it is released back to inactive, and is NOT reported as an unknown send", () => {
     const plan = planResume([], claimed, LATER);
     expect(plan.repairs.map(slugOps)).toEqual([
       {
         op: "set_status",
-        activity: "read-the-schemas",
-        status: "active",
+        node: "read-the-schemas",
+        status: "inactive",
         evidence_ref: "resume:stale-claim",
       },
     ]);
@@ -274,17 +303,20 @@ describe("a claimed PURE activity is returned to the frontier", () => {
 
 describe("resume NEVER repairs an open reservation", () => {
   const reserved = commit(
-    rostered(["dana"], [
-      task("Ask Dana", {
-        effect_class: "pivot",
-        effect: { channel: "email", recipient_ref: "roster#dana" },
-      }),
-    ]),
+    rostered(
+      ["dana"],
+      [
+        action("Ask Dana", {
+          effect_class: "pivot",
+          effect: { channel: "email", recipient_ref: "roster#dana" },
+        }),
+      ],
+    ),
     [
       {
         op: "set_status",
-        activity: "ask-dana",
-        status: "in_flight",
+        node: "ask-dana",
+        status: "active",
         evidence_ref: encodeReserveEvidence("ek_1", "sha256:aaa"),
       },
     ],
@@ -308,21 +340,21 @@ describe("resume NEVER repairs an open reservation", () => {
   });
 
   test("a completed send is not an unknown", () => {
-    expect(planResume([], seeded([task("A")]), LATER).report.unknown_sends).toEqual([]);
+    expect(planResume([], seeded([action("A")]), LATER).report.unknown_sends).toEqual([]);
   });
 
   test("damaged records are counted, so a partial graph says it is partial", () => {
-    expect(planResume([], seeded([task("A")]), LATER, 3).report.damaged).toBe(3);
+    expect(planResume([], seeded([action("A")]), LATER, 3).report.damaged).toBe(3);
   });
 });
 
 describe("the escape route must still be runnable", () => {
   test("no edge is added when the timeout target has already completed", () => {
     // Invariant 1 forbids a new blocking edge into a terminal activity. Insisting on the edge
-    // would make the entire repair 422, so a wait whose escalation already ran simply
+    // would make the entire repair 422, so a acceptEvent whose escalation already ran simply
     // resolves — there is nothing left to route to.
     const graph = commit(gated({ at: T0 }), [
-      { op: "set_status", activity: "escalate", status: "done", evidence_ref: "e" },
+      { op: "set_status", node: "escalate", status: "completed", evidence_ref: "e" },
     ]);
     expect(planResume([], graph, LATER).repairs.map((op) => op.op)).toEqual([
       "record_outcome",
@@ -332,30 +364,21 @@ describe("the escape route must still be runnable", () => {
 
   test("and the repair still applies cleanly", () => {
     const graph = commit(gated({ at: T0 }), [
-      { op: "set_status", activity: "escalate", status: "done", evidence_ref: "e" },
+      { op: "set_status", node: "escalate", status: "completed", evidence_ref: "e" },
     ]);
     const repaired = commit(graph, planResume([], graph, LATER).repairs);
-    expect(activityAt(repaired, "gate")?.status.outcome?.verdict).toBe("timed_out");
-  });
-
-  test("a timeout target that does not exist is skipped rather than invented", () => {
-    // Unreachable through the op path — a ref must resolve at commit time and activities are
-    // never deleted — so this is a defensive branch, constructed by hand. It matters
-    // because the alternative is an add_edge that fails the whole repair.
-    const orphan = gated({ at: T0 });
-    const gate = activityOf(orphan, "gate");
-    gate.spec.on_timeout = "never-existed";
-    expect(planResume([], orphan, LATER).repairs.map((op) => op.op)).toEqual([
-      "record_outcome",
-      "set_status",
-    ]);
+    expect(workedAt(repaired, "gate").status.outcome?.verdict).toBe("timed_out");
   });
 });
 
 describe("settledAt looks at the right activity", () => {
   test("another activity going terminal does not count", () => {
     const records = [
-      stampedRecord(1, [{ op: "set_status", activity: "other", status: "done", evidence_ref: "e" }], T0),
+      stampedRecord(
+        1,
+        [{ op: "set_status", node: "other", status: "completed", evidence_ref: "e" }],
+        T0,
+      ),
     ];
     expect(settledAt(records, "invite")).toBeNull();
   });
@@ -365,8 +388,8 @@ describe("settledAt looks at the right activity", () => {
       stampedRecord(
         1,
         [
-          { op: "set_status", activity: "other", status: "done", evidence_ref: "e" },
-          { op: "set_status", activity: "invite", status: "done", evidence_ref: "e" },
+          { op: "set_status", node: "other", status: "completed", evidence_ref: "e" },
+          { op: "set_status", node: "invite", status: "completed", evidence_ref: "e" },
         ],
         LATER,
       ),
@@ -376,7 +399,11 @@ describe("settledAt looks at the right activity", () => {
 
   test("a non-status op for the right activity does not count either", () => {
     const records = [
-      stampedRecord(1, [{ op: "record_outcome", activity: "invite", verdict: "confirmed", evidence_ref: "e" }], T0),
+      stampedRecord(
+        1,
+        [{ op: "record_outcome", node: "invite", verdict: "confirmed", evidence_ref: "e" }],
+        T0,
+      ),
     ];
     expect(settledAt(records, "invite")).toBeNull();
   });

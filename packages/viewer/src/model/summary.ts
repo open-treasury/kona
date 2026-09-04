@@ -1,7 +1,7 @@
 /**
  * What a version DID, in one line a person can read.
  *
- * The panel used to put the op list where this line goes — `add_edge`, `supersede_activity`, an activity
+ * The panel used to put the op list where this line goes — `add_edge`, `supersede_node`, an activity
  * id truncated at the panel's edge. That is the record, and it is not a summary: reading four
  * opcodes to work out that two steps were added is work the row should have done for you.
  *
@@ -12,7 +12,13 @@
 
 import type { GraphDiff, TimelineEntry } from "./types.ts";
 
-/** English plurals are irregular often enough that guessing with `+ "s"` is not worth it. */
+/**
+ * English plurals are irregular often enough that guessing with `+ "s"` is not worth it.
+ *
+ * `node` is regular and needs no override; `branch` is the one left that does. The noun rename
+ * took the irregular case away from this line, which is worth noticing rather than deleting the
+ * helper: `branch`/`branches` is still here and `+ "s"` is still wrong for it.
+ */
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${String(n)} ${n === 1 ? one : many}`;
 }
@@ -37,7 +43,7 @@ function conjoin(parts: readonly string[]): string {
  */
 function topologySegments(diff: GraphDiff): string[] {
   const added: string[] = [];
-  if (diff.addedNodes.length > 0) added.push(plural(diff.addedNodes.length, "activity", "activities"));
+  if (diff.addedNodes.length > 0) added.push(plural(diff.addedNodes.length, "node"));
   if (diff.addedEdges.length > 0) added.push(plural(diff.addedEdges.length, "edge"));
 
   const segments: string[] = [];

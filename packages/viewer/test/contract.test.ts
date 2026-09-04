@@ -10,15 +10,16 @@
  * wrote. Without it the viewer's read path could drift from the store's by a field, a default
  * or an ordering, and nobody would notice until the canvas quietly disagreed with the CLI.
  *
- * Everything here asserts against `fixtures/thursday.*` — real bytes from the real binary —
- * and against core's own frozen vocabularies, never against a restatement of either.
+ * Everything here asserts against `fixtures/thursday.*` — fixed migrated log bytes and the
+ * real binary's projection — and against core's own frozen vocabularies, never against a
+ * restatement of either.
  */
 
 import { describe, expect, test } from "bun:test";
-import type { MutationRecord, Activity } from "@kona/core";
+import type { MutationRecord, ActivityNode } from "@kona/core";
 import {
   MATCH_KINDS,
-  ACTIVITY_TYPES,
+  BEHAVIOUR_NODE_TYPES,
   REASON_CODES,
   STATUSES,
   foldLog,
@@ -42,14 +43,14 @@ function withoutLoaderReport(value: object): Record<string, unknown> {
 }
 
 function nodesOf(projection: Record<string, unknown>): Record<string, unknown>[] {
-  const activities = projection["activities"];
-  if (!Array.isArray(activities)) throw new Error("projection carries no `activities` array");
-  return activities as Record<string, unknown>[];
+  const nodes = projection["nodes"];
+  if (!Array.isArray(nodes)) throw new Error("projection carries no `nodes` array");
+  return nodes as Record<string, unknown>[];
 }
 
 function firstNodeOf(projection: Record<string, unknown>): Record<string, unknown> {
   const first = nodesOf(projection)[0];
-  if (first === undefined) throw new Error("projection carries no activities");
+  if (first === undefined) throw new Error("projection carries no nodes");
   return first;
 }
 
@@ -98,7 +99,7 @@ describe("A2 — folding the log reproduces `kona graph --json`", () => {
 
 describe("A2 — determinism and read-only time travel", () => {
   test("folding to head twice, and folding to head by ceiling, all stringify identically", () => {
-    // Activity order is Map insertion order and edge order is append order (core/graph.ts), so
+    // ActivityNode order is Map insertion order and edge order is append order (core/graph.ts), so
     // this is a property of the containers rather than of a sort applied afterwards. The
     // third form exercises the `upToVersion` path against the default one.
     const text = logText();
@@ -115,7 +116,7 @@ describe("A2 — determinism and read-only time travel", () => {
 
   test("every prefix folds to its own version and never loses an activity", () => {
     // Rule 6: time travel is read-only. A prefix is a shorter history, not an undone one, so
-    // the activity count can only ever grow as v advances — a fold that dropped activities would be a
+    // the activity count can only ever grow as v advances — a fold that dropped nodes would be a
     // revert, which is the one thing the scrubber must never look like.
     const text = logText();
     const head = headVersion();
@@ -126,17 +127,17 @@ describe("A2 — determinism and read-only time travel", () => {
       expect(at.graph.version).toBe(v);
       expect(at.records.length).toBe(v + 1);
       expect(at.records.at(-1)?.v).toBe(v);
-      expect(at.graph.activities.size).toBeGreaterThanOrEqual(previous);
-      previous = at.graph.activities.size;
+      expect(at.graph.nodes.size).toBeGreaterThanOrEqual(previous);
+      previous = at.graph.nodes.size;
     }
 
-    expect(previous).toBe(graphJson().activities.length);
+    expect(previous).toBe(graphJson().nodes.length);
   });
 });
 
 describe("the fixture is the pursuit context.md describes", () => {
   const records: readonly MutationRecord[] = folded().records;
-  const activities: Activity[] = [...folded().graph.activities.values()];
+  const nodes: ActivityNode[] = [...folded().graph.nodes.values()];
 
   test("fourteen records, v0..v13, contiguous", () => {
     // Contiguity is the property, not the count: `fold` requires versions to increment by
@@ -155,30 +156,42 @@ describe("the fixture is the pursuit context.md describes", () => {
     }
   });
 
-  test("head carries 14 activities and 11 edges", () => {
-    expect(activities.length).toBe(14);
+  test("head carries 14 nodes and 11 edges", () => {
+    expect(nodes.length).toBe(14);
     expect(folded().graph.edges.length).toBe(11);
   });
 
-  test("all five statuses are present at head", () => {
-    // Compared against core's frozen vocabulary rather than a list retyped here, so a status
-    // added upstream fails this test instead of slipping past it.
-    const present = [...new Set(activities.map((activity) => activity.status.state))].toSorted();
-    expect(present).toEqual([...STATUSES].toSorted());
+  test("every status it exercises is a real one, and it exercises all but `terminated`", () => {
+    // Compared against core's vocabulary rather than a list retyped here, so a status added
+    // upstream cannot slip past — the set below is derived, never spelled.
+    //
+    // This fixture reaches six of the seven. `terminated` needs a node stopped MID-WORK, and
+    // this pursuit has no such beat; `fixtures/goalie.*` does, and its own test pins it. The
+    // split is stated rather than papered over because "all statuses" was a real guarantee
+    // and something may have been built on it.
+    // Control nodes contribute nothing: they have no status, so filtering them out is the
+    // question this assertion is actually asking — which states does the WORK reach.
+    const present = [
+      ...new Set(nodes.flatMap((n) => (n.status === undefined ? [] : [n.status.state]))),
+    ].toSorted();
+    const expected = [...STATUSES].filter((status) => status !== "terminated").toSorted();
+    expect(present).toEqual(expected);
   });
 
   test("both activity types and all three match kinds are exercised", () => {
-    const types = [...new Set(activities.map((activity) => activity.type))].toSorted();
-    expect(types).toEqual([...ACTIVITY_TYPES].toSorted());
+    const types = [...new Set(nodes.map((activity) => activity.type))].toSorted();
+    expect(types).toEqual([...BEHAVIOUR_NODE_TYPES].toSorted());
 
-    const kinds = activities
-      .map((activity) => activity.spec.match?.kind)
+    const kinds = nodes
+      .map((activity) => (activity.type === "accept_event" ? activity.spec.match.kind : undefined))
       .filter((kind) => kind !== undefined);
     expect([...new Set(kinds)].toSorted()).toEqual([...MATCH_KINDS].toSorted());
   });
 
-  test("three groups: setup, goalies, marcus", () => {
-    const groups = [...new Set(activities.map((activity) => activity.provenance.group ?? "(ungrouped)"))];
-    expect(groups.toSorted()).toEqual(["goalies", "marcus", "setup"]);
+  test("nodes without an authored group remain ungrouped", () => {
+    const groups = [
+      ...new Set(nodes.map((activity) => activity.provenance.group ?? "(ungrouped)")),
+    ];
+    expect(groups).toEqual(["(ungrouped)"]);
   });
 });

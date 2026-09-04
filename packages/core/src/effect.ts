@@ -9,7 +9,7 @@
  * re-made at read time.
  */
 
-import type { EffectRecord, Graph, Activity } from "./graph.ts";
+import type { EffectRecord, Graph, ActivityNode } from "./graph.ts";
 
 /**
  * §6.6 — **payload-independent by design.** The key names the SLOT; `payload_hash` proves
@@ -94,8 +94,10 @@ export function parseEffectEvidence(evidenceRef: string): EffectEvidence | null 
  * have acted on. §6.6 keeps `attempted_at` distinct from `completed_at` precisely so this
  * state is nameable, and an attempt without a completion is human adjudication, not retry.
  */
-export function openEffect(activity: Activity): EffectRecord | null {
-  return activity.status.effect_log.find((entry) => entry.completed_at === null) ?? null;
+export function openEffect(activity: ActivityNode): EffectRecord | null {
+  // A control node has no effect log — it moves no bytes and never could. The empty default
+  // is the honest answer to every question in this file, not a shortcut around a null check.
+  return (activity.status?.effect_log ?? []).find((entry) => entry.completed_at === null) ?? null;
 }
 
 /**
@@ -104,17 +106,17 @@ export function openEffect(activity: Activity): EffectRecord | null {
  * testing for one would treat `550 user unknown` as bytes that reached somebody and close
  * the activity against the very retry the restart budget exists to allow.
  */
-export function hasSentEffect(activity: Activity): boolean {
-  return activity.status.effect_log.some((entry) => entry.outcome === "sent");
+export function hasSentEffect(activity: ActivityNode): boolean {
+  return (activity.status?.effect_log ?? []).some((entry) => entry.outcome === "sent");
 }
 
-export function effectByKey(activity: Activity, effectKey: string): EffectRecord | null {
-  return activity.status.effect_log.find((entry) => entry.effect_key === effectKey) ?? null;
+export function effectByKey(activity: ActivityNode, effectKey: string): EffectRecord | null {
+  return (activity.status?.effect_log ?? []).find((entry) => entry.effect_key === effectKey) ?? null;
 }
 
 /** §6.6 restart budget: attempts in a window, then escalate — never loop. */
-export function attemptCount(activity: Activity): number {
-  return activity.status.effect_log.length;
+export function attemptCount(activity: ActivityNode): number {
+  return (activity.status?.effect_log ?? []).length;
 }
 
 /**
@@ -129,6 +131,6 @@ export function attemptCount(activity: Activity): number {
  */
 export function effectsCommitted(graph: Graph): number {
   let total = 0;
-  for (const activity of graph.activities.values()) total += activity.status.effect_log.length;
+  for (const activity of graph.nodes.values()) total += (activity.status?.effect_log ?? []).length;
   return total;
 }

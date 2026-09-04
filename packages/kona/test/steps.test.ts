@@ -53,13 +53,16 @@ describe("--steps", () => {
     expect(await steps("Read the failing test", "Fix the parser")).toBe(0);
 
     const committed = records().at(-1)?.ops ?? [];
-    expect(committed).toHaveLength(3);
-    expect(committed.filter((op) => op.op === "add_activity")).toHaveLength(2);
+    // Eight: initial + two actions + final, three edges, and the readiness derivation
+    // lifting the first step to `ready`. `ready` is written at commit (§6.2.1), so any commit
+    // that leaves something dispatchable carries one op per node it unblocked.
+    expect(committed).toHaveLength(8);
+    expect(committed.filter((op) => op.op === "add_node")).toHaveLength(4);
 
     const edges = committed.filter((op) => op.op === "add_edge");
-    expect(edges).toHaveLength(1);
+    expect(edges).toHaveLength(3);
     // `from A to B` means B depends on A, so the chain reads in the order it was typed.
-    expect(edges[0]).toMatchObject({
+    expect(edges[1]).toMatchObject({
       from: h.id("read-the-failing-test"),
       to: h.id("fix-the-parser"),
     });
@@ -70,15 +73,16 @@ describe("--steps", () => {
     h.reset();
     expect(await run(["next", "--json"], h.io)).toBe(0);
 
-    const frontier = JSON.parse(h.out.join("\n")) as { activities: { id: string }[] };
-    expect(frontier.activities.map((activity) => activity.id)).toEqual([h.id("first")]);
+    const frontier = JSON.parse(h.out.join("\n")) as { nodes: { id: string }[] };
+    expect(frontier.nodes.map((activity) => activity.id)).toEqual([h.id("first")]);
   });
 
   test("a single step commits, with no edge to draw", async () => {
     expect(await steps("Just the one")).toBe(0);
     const committed = records().at(-1)?.ops ?? [];
-    expect(committed).toHaveLength(1);
-    expect(committed[0]).toMatchObject({ op: "add_activity", name: "Just the one" });
+    // Six: initial + action + final, two edges, and the readiness op.
+    expect(committed).toHaveLength(6);
+    expect(committed[1]).toMatchObject({ op: "add_node", name: "Just the one" });
   });
 
   test("the rationale is still required — sugar does not buy an exemption", async () => {
@@ -130,20 +134,20 @@ describe("--steps", () => {
 });
 
 describe("opsFromSteps", () => {
-  test("emits n activities and n-1 edges", () => {
-    expect(opsFromSteps(["a", "b", "c", "d"])).toHaveLength(7);
+  test("wraps n actions in initial/final nodes and a complete chain", () => {
+    expect(opsFromSteps(["a", "b", "c", "d"])).toHaveLength(11);
   });
 
   test("emits nothing for no steps, rather than an empty-batch commit", () => {
     expect(opsFromSteps([])).toEqual([]);
   });
 
-  test("the label is the instruction — no words are invented for the author", () => {
-    const [activity] = opsFromSteps(["Read the failing test"]);
+  test("the name is the instruction — no words are invented for the author", () => {
+    const activity = opsFromSteps(["Read the failing test"])[1];
     expect(activity).toMatchObject({
-      op: "add_activity",
+      op: "add_node",
       name: "Read the failing test",
-      type: "task",
+      type: "action",
       spec: { instruction: "Read the failing test", effect_class: "pure" },
     });
   });
@@ -151,8 +155,12 @@ describe("opsFromSteps", () => {
   test("every activity is pure — sugar can never author an effect", () => {
     // The whole point of the one-line path is that it cannot reach the world. Anything that
     // sends is a deliberate act through --ops, where the invariants have something to check.
-    const ops = opsFromSteps(["a", "b", "c"]) as { op: string; spec?: { effect_class: string } }[];
-    for (const op of ops.filter((candidate) => candidate.op === "add_activity")) {
+    const ops = opsFromSteps(["a", "b", "c"]) as {
+      op: string;
+      type?: string;
+      spec?: { effect_class: string };
+    }[];
+    for (const op of ops.filter((candidate) => candidate.type === "action")) {
       expect(op.spec?.effect_class).toBe("pure");
     }
   });

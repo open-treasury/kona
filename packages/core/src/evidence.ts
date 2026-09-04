@@ -66,7 +66,7 @@ export function evidencedKeys(graph: Graph): Set<string> {
     for (const entry of Object.values(value)) harvest(entry);
   };
 
-  for (const activity of graph.activities.values()) {
+  for (const activity of graph.nodes.values()) {
     // An output counts because `record_output` CANNOT be committed without an
     // `evidence_ref` — the schema makes it mandatory and non-empty, and `MutationRecordSchema`
     // re-parses every historical line on every fold, so the guarantee is retroactive too.
@@ -77,10 +77,10 @@ export function evidencedKeys(graph: Graph): Set<string> {
     // is the same mistake as storing a fact twice: the copies can only ever diverge, and the
     // second one reads as caution while being noise. `evidence.test.ts` pins the guarantee
     // instead, so a schema that relaxed would fail there rather than silently here.
-    harvest(activity.status.output);
+    harvest(activity.status?.output);
     // Outcomes carry an `evidence_ref` by the same rule, so their attrs are attested by
     // construction — and they are the half that makes a referral chain work.
-    for (const outcome of activity.status.outcomes) harvest(outcome.attrs);
+    for (const outcome of activity.status?.outcomes ?? []) harvest(outcome.attrs);
   }
 
   return keys;

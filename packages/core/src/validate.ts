@@ -12,7 +12,7 @@
  *   4.  apply      the AUTHORED batch, against a clone of head -> the interim graph
  *   4a. refuse an edge this batch adds that is already dead
  *   5.  derive     branch resolution, ONCE, expanded into explicit ops (§6.4)
- *   6.  invariant 1  op-delta against **pre-commit head**, over the expanded array
+ *   6.  invariant 1  sequential op-delta, seeded from **pre-commit head**, over the expanded array
  *   7.  apply      the EXPANDED batch -> the graph the log will fold to
  *   8.  invariant 2  a transition guard over pre and post
  *
@@ -39,38 +39,55 @@
 
 import type { Actor, AuthoredOp, CommittedOp } from "./schema.ts";
 import { AuthoredBatchSchema } from "./schema.ts";
+import type { ZodIssue } from "zod";
 import {
   type Edge,
   type Graph,
-  type Activity,
+  type ActivityNode,
   inEdges,
   isEdgeDead,
   isActivityTerminal,
+  isBehaviour,
+  isNodeLive,
 } from "./graph.ts";
 import { applyOps } from "./apply.ts";
 import { named, namedHere, namedIn } from "./named.ts";
 import { normalizeBatch } from "./normalize.ts";
-import { resolveBranches } from "./branch.ts";
+import { deriveReadiness, resolveBranches } from "./branch.ts";
 import { evidencedKeys, isEvidencedRecipient } from "./evidence.ts";
 import { MAX_ACTIVITY_ID_LENGTH, ACTIVITY_ID_PATTERN } from "./ids.ts";
-import { type Verdict, VERDICTS, isResolvingVerdict } from "./vocab.ts";
+import {
+  type Verdict,
+  NODE_ARITY,
+  VERDICTS,
+  DERIVED_STATUSES,
+  isAbandoned,
+  isDerivedStatus,
+  isResolvingVerdict,
+  isTerminal,
+} from "./vocab.ts";
 import { type Result, ok, refuse, violate } from "./result.ts";
 
 /** §6.7 — only the orchestrator may change the shape of the graph. */
-const TOPOLOGY_OPS = new Set(["add_activity", "add_edge", "supersede_activity"]);
+const TOPOLOGY_OPS = new Set(["add_node", "add_edge", "supersede_node"]);
+
+function flattenIssues(issues: readonly ZodIssue[]): ZodIssue[] {
+  return issues.flatMap((issue) =>
+    issue.code === "invalid_union"
+      ? issue.errors.flatMap((nested: ZodIssue[]) => flattenIssues(nested))
+      : [issue],
+  );
+}
 
 export function parseBatch(raw: unknown): Result<AuthoredOp[]> {
   const parsed = AuthoredBatchSchema.safeParse(raw);
   if (parsed.success) return ok(parsed.data);
-  const first = parsed.error.issues[0];
+  const issues = flattenIssues(parsed.error.issues);
+  const opIndex = parsed.error.issues[0]?.path[0];
   return refuse(
     "MALFORMED_OPS",
-    parsed.error.issues
-      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
-      .join("; "),
-    first?.path[0] !== undefined && typeof first.path[0] === "number"
-      ? { op_index: first.path[0] }
-      : {},
+    issues.map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`).join("; "),
+    opIndex !== undefined && typeof opIndex === "number" ? { op_index: opIndex } : {},
   );
 }
 
@@ -88,30 +105,31 @@ export function checkAuthority(actor: Actor, ops: readonly AuthoredOp[]): Result
 /**
  * Invariant 1 — terminal & effect protection.
  *
- * An **op-delta** predicate: each op is tested against **pre-commit head**, never against
- * post-commit state. The difference is the whole invariant. `{from: A, to: B}` means "B
+ * A sequential **op-delta** predicate: protection starts with every node terminal at
+ * **pre-commit head**, then follows terminal transitions through the batch. It is never a
+ * post-state scan. The difference is the whole invariant. `{from: A, to: B}` means "B
  * requires A", so B's dependency edges point *into* B and survive B completing — a
  * post-state reading of "no blocking edge into a terminal activity" would reject every commit
  * from the first completed activity onward. Existing edges into terminal activities are untouched;
  * they record how the activity became reachable.
  */
 export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
-  const terminalAtHead = new Set(
-    [...pre.activities.values()].filter(isActivityTerminal).map((activity) => activity.id),
+  // Grow this set in op order so a terminal transition cannot be followed by a reopen or a
+  // newly introduced dependency in the same atomic batch.
+  const terminal = new Set(
+    [...pre.nodes.values()].filter(isActivityTerminal).map((activity) => activity.id),
   );
 
   // A compensation is an added activity declaring which executed activity it offsets. The
   // direction matters: the NEW activity compensates the OLD one, never the reverse.
   const compensatedInBatch = new Set(
     ops.flatMap((op) =>
-      op.op === "add_activity" && typeof op.spec.compensates === "string"
-        ? [op.spec.compensates]
-        : [],
+      op.op === "add_node" && typeof op.spec.compensates === "string" ? [op.spec.compensates] : [],
     ),
   );
 
   for (const [index, op] of ops.entries()) {
-    if (op.op === "add_edge" && terminalAtHead.has(op.to)) {
+    if (op.op === "add_edge" && terminal.has(op.to)) {
       return violate(
         1,
         "TERMINAL_ACTIVITY_PROTECTED",
@@ -120,30 +138,32 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
       );
     }
 
-    if (op.op === "set_status" && terminalAtHead.has(op.activity)) {
+    if (op.op === "set_status" && terminal.has(op.node)) {
       return violate(
         1,
         "TERMINAL_ACTIVITY_PROTECTED",
-        `${namedIn(pre, op.activity)} is terminal; only supersede_activity, record_outcome and record_output may target it`,
-        { activity: op.activity, op_index: index },
+        `${namedIn(pre, op.node)} is terminal; only supersede_node, record_outcome and record_output may target it`,
+        { activity: op.node, op_index: index },
       );
     }
 
-    if (op.op === "supersede_activity") {
-      const activity = pre.activities.get(op.activity);
+    if (op.op === "supersede_node") {
+      const activity = pre.nodes.get(op.node);
       if (
         activity !== undefined &&
-        activity.status.effect_log.length > 0 &&
-        !compensatedInBatch.has(op.activity)
+        (activity.status?.effect_log.length ?? 0) > 0 &&
+        !compensatedInBatch.has(op.node)
       ) {
         return violate(
           1,
           "UNCOMPENSATED_SUPERSEDE",
-          `${namedIn(pre, op.activity)} has already moved bytes; superseding it requires a compensation in the same batch`,
-          { activity: op.activity, op_index: index },
+          `${namedIn(pre, op.node)} has already moved bytes; superseding it requires a compensation in the same batch`,
+          { activity: op.node, op_index: index },
         );
       }
     }
+
+    if (op.op === "set_status" && isTerminal(op.status)) terminal.add(op.node);
   }
 
   return ok(null);
@@ -153,45 +173,69 @@ export function checkInvariant1(pre: Graph, ops: readonly CommittedOp[]): Result
 // Parser-class refusals that zod cannot express (§6.7 "the parser first, free")
 // ---------------------------------------------------------------------------
 
-/** The declared type of an activity this batch can see: from head, or from an earlier op. */
-function activityTypeOf(pre: Graph, ops: readonly CommittedOp[], id: string): string | null {
-  const existing = pre.activities.get(id);
-  if (existing !== undefined) return existing.type;
-  for (const op of ops) {
-    if (op.op === "add_activity" && op.id === id) return op.type;
-  }
-  return null;
-}
-
 /**
  * A claim is exclusive, or it is only advice.
  *
- * `in_flight` takes an activity off the frontier so nobody else picks it up — but CAS does not
+ * `active` takes an activity off the frontier so nobody else picks it up — but CAS does not
  * enforce that, and it is worth being precise about why, because it looks like it should.
  * CAS rejects a commit written against a STALE head. A second agent reading AFTER the first
  * claim commits sees a perfectly current head, and its claim passes: measured, two claims on
  * one activity, both exit 0. The graph then cannot even say who holds it, because `evidence_ref`
  * lives in the op and not in the folded status.
  *
- * So the rule is a transition rule: **`active -> in_flight` is legal; `in_flight ->
- * in_flight` is not.** It `refuse()`s rather than `violate()`s — this is not a fourth
+ * So the rule is a transition rule: **an unclaimed -> `active` is legal; `active` ->
+ * `active` is not.** It `refuse()`s rather than `violate()`s — this is not a fourth
  * invariant, and the spec's three are three.
  *
- * Deliberately NOT extended to the other transitions out of `in_flight`: recording an
- * outcome, finishing, superseding, and `resume`'s repair back to `active` all stay legal, or
+ * Deliberately NOT extended to the other transitions out of `active`: recording an
+ * outcome, finishing, superseding, and `resume`'s repair back to `inactive` all stay legal, or
  * a claimed activity could never be released by anybody.
  */
 function checkClaimExclusivity(pre: Graph, ops: readonly CommittedOp[]): Result<null> {
+  const types = new Map([...pre.nodes].map(([id, node]) => [id, node.type]));
+  const states = new Map(
+    [...pre.nodes].flatMap(([id, node]) =>
+      node.status === undefined ? [] : [[id, node.status.state] as const],
+    ),
+  );
+
   for (const [index, op] of ops.entries()) {
-    if (op.op !== "set_status" || op.status !== "in_flight") continue;
-    if (pre.activities.get(op.activity)?.status.state !== "in_flight") continue;
-    return refuse(
-      "ALREADY_CLAIMED",
-      `${namedHere(pre, ops, op.activity)} is already in flight — somebody else claimed it and ` +
-      `has not finished. ` +
-        "Take another activity from `kona next`, or run `kona resume` if you believe the holder is gone",
-      { activity: op.activity, op_index: index },
-    );
+    if (op.op === "add_node") {
+      types.set(op.id, op.type);
+      if (op.type === "action" || op.type === "accept_event") states.set(op.id, "inactive");
+      continue;
+    }
+    if (op.op !== "set_status") continue;
+
+    const current = states.get(op.node);
+    if (op.status !== "active") {
+      states.set(op.node, op.status);
+      continue;
+    }
+    if (types.get(op.node) === "accept_event") {
+      return refuse(
+        "ACCEPT_EVENT_NOT_CLAIMABLE",
+        `${namedHere(pre, ops, op.node)} is polled, not claimed`,
+        { activity: op.node, op_index: index },
+      );
+    }
+    if (current !== undefined && isTerminal(current)) continue;
+    if (current === "active") {
+      return refuse(
+        "ALREADY_CLAIMED",
+        `${namedHere(pre, ops, op.node)} is already active — somebody else claimed it and has not finished. ` +
+          "Take another action from `kona next`, or run `kona resume` if you believe the holder is gone",
+        { activity: op.node, op_index: index },
+      );
+    }
+    if (current !== "ready") {
+      return refuse(
+        "NOT_READY",
+        `${namedHere(pre, ops, op.node)} is '${current ?? "unknown"}'; only a ready action may become active`,
+        { activity: op.node, op_index: index },
+      );
+    }
+    states.set(op.node, "active");
   }
   return ok(null);
 }
@@ -202,29 +246,10 @@ function checkClaimExclusivity(pre: Graph, ops: readonly CommittedOp[]): Result<
  *
  * Asserted in three places and enforced in none until now. It cannot be a zod rule:
  * `add_edge` carries `from` as an id, never the source's type, which lives in head or in an
- * earlier `add_activity` of the same batch. Branch resolution depends on it — an unconditioned
+ * earlier `add_node` of the same batch. Branch resolution depends on it — an unconditioned
  * out-edge of a wait has no resolution to compare against, so it is neither taken nor
  * untaken, and the arm behind it would silently survive its own gate.
  */
-function checkWaitEdgeConditions(
-  pre: Graph,
-  ops: readonly CommittedOp[],
-): Result<null> {
-  for (const [index, op] of ops.entries()) {
-    if (op.op !== "add_edge" || op.condition !== undefined) continue;
-    if (activityTypeOf(pre, ops, op.from) !== "wait") continue;
-    return refuse(
-      "UNCONDITIONED_WAIT_EDGE",
-      `edge ${namedHere(pre, ops, op.from)} -> ${namedHere(pre, ops, op.to)} leaves a wait ` +
-        `without a ` +
-        `condition; an ignored or ` +
-        `timed-out wait would clear it and fire the branch unapproved (§6.2)`,
-      { activity: op.from, op_index: index },
-    );
-  }
-  return ok(null);
-}
-
 /**
  * An edge this batch adds that is already dead against post-authored state.
  *
@@ -237,24 +262,21 @@ function checkWaitEdgeConditions(
  * It cannot become invariant 1's old state-predicate bug: it looks only at edges this batch
  * adds, so an unrelated later commit has nothing to test.
  */
-function checkDeadOnArrivalEdge(
-  interim: Graph,
-  ops: readonly CommittedOp[],
-): Result<null> {
+function checkDeadOnArrivalEdge(interim: Graph, ops: readonly CommittedOp[]): Result<null> {
   for (const [index, op] of ops.entries()) {
     if (op.op !== "add_edge") continue;
     const edge: Edge = {
       from: op.from,
       to: op.to,
-      ...(op.condition === undefined ? {} : { condition: op.condition }),
+      ...(op.guard === undefined ? {} : { guard: op.guard }),
     };
     if (!isEdgeDead(interim, edge)) continue;
-    const source = interim.activities.get(op.from);
+    const source = interim.nodes.get(op.from);
     const from = namedHere(interim, ops, op.from);
     const because =
-      source?.status.state === "dropped"
+      source?.status !== undefined && isAbandoned(source.status.state)
         ? `originates at ${from}, which is dropped`
-        : `is conditioned on '${op.condition?.on}', but ${from} has already resolved otherwise`;
+        : `has a guard that ${from} has already resolved against`;
     return refuse(
       "DEAD_ON_ARRIVAL_EDGE",
       `edge ${from} -> ${namedHere(interim, ops, op.to)} ${because}; it can never fire`,
@@ -304,7 +326,7 @@ function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<nul
   let evidenced: Set<string> | null = null;
 
   for (const [index, op] of ops.entries()) {
-    if (op.op !== "add_activity" || op.spec.effect === undefined) continue;
+    if (op.op !== "add_node" || op.spec.effect === undefined) continue;
     const raw = op.spec.effect.recipient_ref;
     const ref = parseRecipientRef(raw);
     if (ref !== null) {
@@ -363,11 +385,8 @@ function checkRecipientRefs(pre: Graph, ops: readonly CommittedOp[]): Result<nul
  */
 export type PredicateAttrs = Record<string, string | number | boolean>;
 
-export interface CountPredicate {
-  count: { verdict: Verdict; attrs?: PredicateAttrs };
-  op: ">=";
-  n: number;
-}
+export type { CountPredicate } from "./schema.ts";
+import type { CountPredicate } from "./schema.ts";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -402,7 +421,7 @@ export function parseCountPredicate(value: unknown): CountPredicate | null {
   const count = value["count"];
   if (!isPlainObject(count)) return null;
   const countKeys = Object.keys(count).toSorted();
-  if (countKeys.length > 2 || countKeys[0] !== "attrs" && countKeys[0] !== "verdict") return null;
+  if (countKeys.length > 2 || (countKeys[0] !== "attrs" && countKeys[0] !== "verdict")) return null;
   if (countKeys.some((key) => key !== "attrs" && key !== "verdict")) return null;
 
   const verdict = count["verdict"];
@@ -422,8 +441,8 @@ export function parseCountPredicate(value: unknown): CountPredicate | null {
 }
 
 /** The parseable predicate arms of a wait. §6.5's `conditions` is an or-group. */
-function predicateArms(activity: Activity): CountPredicate[] {
-  if (activity.type !== "wait" || activity.spec.match?.kind !== "predicate") return [];
+function predicateArms(activity: ActivityNode): CountPredicate[] {
+  if (activity.type !== "accept_event" || activity.spec.match.kind !== "predicate") return [];
   return activity.spec.match.conditions.flatMap((condition) => {
     const parsed = parseCountPredicate(condition.predicate);
     return parsed === null ? [] : [parsed];
@@ -432,7 +451,7 @@ function predicateArms(activity: Activity): CountPredicate[] {
 
 function checkPredicateGrammar(ops: readonly CommittedOp[]): Result<null> {
   for (const [index, op] of ops.entries()) {
-    if (op.op !== "add_activity" || op.type !== "wait") continue;
+    if (op.op !== "add_node" || op.type !== "accept_event") continue;
     if (op.spec.match?.kind !== "predicate") continue;
     if (!op.spec.match.conditions.some((condition) => condition.predicate !== undefined)) {
       return refuse(
@@ -460,7 +479,7 @@ function checkPredicateGrammar(ops: readonly CommittedOp[]): Result<null> {
 export interface PredicateCount {
   /** Distinct sources of the wait's blocking in-edges (§6.7). */
   population: number;
-  /** Of those, dropped — §6.4 excludes them: they neither satisfy nor block. */
+  /** Of those, abandoned — §6.4 excludes them: they neither satisfy nor block. */
   excluded: number;
   matching_confirmed: number;
   still_live: number;
@@ -481,23 +500,29 @@ function attrsMatch(recorded: Record<string, unknown> | undefined, want: Predica
  */
 export function countPredicate(
   graph: Graph,
-  wait: Activity,
+  wait: ActivityNode,
   predicate: CountPredicate,
 ): PredicateCount {
   // Deduped by source: `add_edge` refuses only an identical {from,to,condition} triple, so
   // one member wired both bare and conditioned is two legal edges and one member.
-  const members = [...new Set(inEdges(graph, wait.id).map((edge) => edge.from))].flatMap(
-    (id) => {
-      const activity = graph.activities.get(id);
-      return activity === undefined ? [] : [activity];
-    },
-  );
+  const pending = inEdges(graph, wait.id).map((edge) => edge.from);
+  const seen = new Set<string>();
+  const members = [];
+  while (pending.length > 0) {
+    const id = pending.pop();
+    if (id === undefined || seen.has(id)) continue;
+    seen.add(id);
+    const node = graph.nodes.get(id);
+    if (node === undefined) continue;
+    if (isBehaviour(node)) members.push(node);
+    else pending.push(...inEdges(graph, node.id).map((edge) => edge.from));
+  }
 
   let excluded = 0;
   let matching = 0;
   let live = 0;
   for (const member of members) {
-    if (member.status.state === "dropped") {
+    if (isAbandoned(member.status.state)) {
       excluded += 1;
       continue;
     }
@@ -513,11 +538,11 @@ export function countPredicate(
       }
       continue;
     }
-    // Unresolved. `active` and `sending` are live (§6.2: the world's answer is unknown, not
-    // absent), and so is `done`-without-a-verdict, because `set_status` then `record_outcome`
+    // Unresolved. `ready` and `active` are live (§6.2: the world's answer is unknown, not
+    // absent), and so is `completed`-without-a-verdict, because `set_status` then `record_outcome`
     // across two commits is legal and that window must not be a rejection window. `failed`
     // is not: it tried and did not work, and nothing further will arrive.
-    if (!isActivityTerminal(member) || member.status.state === "done") live += 1;
+    if (!isActivityTerminal(member) || member.status.state === "completed") live += 1;
   }
 
   return {
@@ -531,7 +556,7 @@ export function countPredicate(
 }
 
 function satisfiableAt(graph: Graph, waitId: string): boolean {
-  const activity = graph.activities.get(waitId);
+  const activity = graph.nodes.get(waitId);
   if (activity === undefined) return true;
   const arms = predicateArms(activity);
   // Nothing parseable to judge, or an or-group with one satisfiable arm (§6.5 first-wins).
@@ -543,17 +568,18 @@ function satisfiableAt(graph: Graph, waitId: string): boolean {
  * author is the store, which has no model to re-plan with, so refusing it would demand a
  * repair nothing in the loop can write.
  *
- * `set_status` to `done` counts, and it has to: resume writes the verdict and the status in
- * ONE batch — `record_outcome(timed_out)` plus `set_status(done)` — because a wait must be
- * terminal for its `on_timeout` arm to fire. It is also safe by construction, since `done`
- * cannot reduce satisfiability: a `done` member with no outcome is still live, and one with
- * an outcome was already counted by that outcome. `dropped` is deliberately absent — an
- * author dropping a member is a choice, and the store's own drops are matched structurally.
+ * `set_status` to `completed` counts, and it has to: resume writes the verdict and the status
+ * in ONE batch — `record_outcome(timed_out)` plus `set_status(completed)` — because an
+ * accept-event must be terminal for its decision's timeout arm to fire. It is also safe by construction, since
+ * `completed` cannot reduce satisfiability: a `completed` member with no outcome is still live,
+ * and one with an outcome was already counted by that outcome. `terminated` is deliberately
+ * absent — an author abandoning a member is a choice, and the store's own drops are matched
+ * structurally.
  */
 function isMechanicalClosure(op: CommittedOp, derived: ReadonlySet<CommittedOp>): boolean {
   if (derived.has(op)) return true;
   if (op.op === "record_outcome") return op.verdict === "timed_out" || op.verdict === "bounced";
-  if (op.op === "set_status") return op.status === "failed" || op.status === "done";
+  if (op.op === "set_status") return op.status === "failed" || op.status === "completed";
   return false;
 }
 
@@ -584,15 +610,15 @@ export function checkInvariant2(
   const derived = new Set(derivedOps);
   if (ops.every((op) => isMechanicalClosure(op, derived))) return ok(null);
 
-  for (const wait of pre.activities.values()) {
+  for (const wait of pre.nodes.values()) {
     if (isActivityTerminal(wait)) continue;
     // Terminal by the END of this batch — including when the store's own cascade dropped it.
     // A closed wait is not a broken one, and demanding a repair for it would leave `resume`
     // no legal batch at all.
-    const after = post.activities.get(wait.id);
+    const after = post.nodes.get(wait.id);
     if (after !== undefined && isActivityTerminal(after)) continue;
-    if (wait.status.outcome !== null) continue;
-    if (wait.provenance.superseded_by !== null) continue;
+    if (wait.status?.outcome != null) continue;
+    if (!isNodeLive(wait)) continue;
     const [arm] = predicateArms(wait);
     if (arm === undefined) continue;
 
@@ -606,9 +632,9 @@ export function checkInvariant2(
     if (
       ops.some(
         (op) =>
-          (op.op === "supersede_activity" && op.activity === wait.id) ||
+          (op.op === "supersede_node" && op.node === wait.id) ||
           (op.op === "record_outcome" &&
-            op.activity === wait.id &&
+            op.node === wait.id &&
             (op.verdict === "timed_out" || op.verdict === "bounced")),
       )
     ) {
@@ -616,7 +642,7 @@ export function checkInvariant2(
     }
 
     const counted = countPredicate(post, wait, arm);
-    const killed = derivedOps.flatMap((op) => (op.op === "set_status" ? [op.activity] : []));
+    const killed = derivedOps.flatMap((op) => (op.op === "set_status" ? [op.node] : []));
     return violate(
       2,
       "PREDICATE_UNSATISFIABLE",
@@ -626,7 +652,7 @@ export function checkInvariant2(
         (killed.length > 0
           ? `; branch resolution dropped ${killed.map((id) => namedIn(pre, id)).join(", ")}`
           : "") +
-        `; add a live member in this batch, or supersede the wait`,
+        `; add a live member in this batch, or supersede the accept_event`,
       { activity: wait.id },
     );
   }
@@ -657,10 +683,275 @@ export interface ValidateOutput {
   /** The subset of `ops` the store derived (§6.4). Always a suffix of `ops`. */
   derived: CommittedOp[];
   /**
-   * Activities on an untaken branch the store refused to rewrite — `sending`, or bytes already
+   * Activities on an untaken branch the store refused to rewrite — `active`, or bytes already
    * moved. Not a rejection: the commit stands and each of these is a human's decision.
    */
   withheld: string[];
+}
+
+// ---------------------------------------------------------------------------
+// S1-S7 — structure, in two tiers
+// ---------------------------------------------------------------------------
+
+/**
+ * The LIVE subgraph (D5): superseded nodes, and edges with a superseded endpoint, are
+ * invisible to every rule below.
+ *
+ * This is not tidiness — it is what makes the graph growable. `action` is 1-in/1-out, S2
+ * demands every node reach a terminator, and there is no edge-removal op and never will be.
+ * So extending a branch that already ends means superseding its terminator, adding the work,
+ * and adding a new one. Without this rule that batch is refused and the only way to grow a
+ * plan would be a seventh op.
+ */
+function liveSubgraph(graph: Graph): { nodes: ActivityNode[]; edges: Edge[] } {
+  const nodes = [...graph.nodes.values()].filter(isNodeLive);
+  const ids = new Set(nodes.map((n) => n.id));
+  return { nodes, edges: graph.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) };
+}
+
+/**
+ * Tier 2 — local shape. Refuses (exit 1): the author wrote an op wrong.
+ *
+ * Every rule here is a property of one node or one edge and its immediate neighbours, which is
+ * what separates it from the whole-graph tier below. S4 is the one that matters most: it is
+ * §6.2's "every out-edge of a wait must carry a condition, otherwise an ignored or timed-out
+ * wait clears a plain edge and a pivot fires unapproved" — turned from a rule you can forget
+ * to check into a shape the graph cannot hold.
+ */
+/**
+ * §6.2.1 — `ready` and `withdrawn` are the store's to write, and an author may not assert them.
+ *
+ * Both are statements the GRAPH makes: one says every dependency is satisfied, the other says
+ * the flow went elsewhere. An agent asserting either is asserting a fact it has not checked,
+ * and the store would then hold two answers to one question — which is the housekeeping
+ * problem §6.4 was written to remove, reappearing one vocabulary down.
+ *
+ * Checked against the AUTHORED batch only. The derived ops are appended after this runs, which
+ * is exactly what makes the distinction cheap: provenance is position.
+ */
+function checkAuthoredStatus(ops: readonly CommittedOp[]): Result<null> {
+  for (const [index, op] of ops.entries()) {
+    if (op.op !== "set_status" || !isDerivedStatus(op.status)) continue;
+    return refuse(
+      "DERIVED_STATUS",
+      `'${op.status}' is derived by the store and may not be authored — ${DERIVED_STATUSES.join(" and ")} are the store's to write`,
+      { activity: op.node, op_index: index },
+    );
+  }
+  return ok(null);
+}
+
+function outOfBounds(
+  count: number,
+  [min, max]: readonly [number, number | null],
+  side: string,
+): string | null {
+  const plural = (n: number) => `${n} ${side}-edge${n === 1 ? "" : "s"}`;
+  if (count < min) return `needs at least ${plural(min)}, and has ${count}`;
+  if (max !== null && count > max) return `takes at most ${plural(max)}, and has ${count}`;
+  return null;
+}
+
+function checkStructure(graph: Graph): Result<null> {
+  const { nodes, edges } = liveSubgraph(graph);
+
+  for (const node of nodes) {
+    const arity = NODE_ARITY[node.type];
+    const ins = edges.filter((e) => e.to === node.id).length;
+    const outs = edges.filter((e) => e.from === node.id).length;
+
+    const problem = outOfBounds(ins, arity.in, "in") ?? outOfBounds(outs, arity.out, "out");
+    if (problem !== null) {
+      return refuse("ARITY", `a ${node.type} ${problem} — ${named(node)}`, { activity: node.id });
+    }
+
+    // S3 — a decision must be able to route whatever arrives, so every arm is guarded and
+    // exactly one is the fallback. Without the fallback a resolution nobody anticipated
+    // silently stops the flow, which is the hang this whole model exists to make impossible.
+    if (node.type === "decision") {
+      const outEdges = edges.filter((e) => e.from === node.id);
+      const unguarded = outEdges.filter((e) => e.guard === undefined);
+      if (unguarded.length > 0) {
+        return refuse(
+          "NO_ELSE_ARM",
+          `${named(node)} has an unguarded arm — every decision edge must carry a guard (S3)`,
+          {
+            activity: node.id,
+          },
+        );
+      }
+      const elseArms = outEdges.filter((e) => e.guard === "else");
+      if (elseArms.length === 0) {
+        return refuse("NO_ELSE_ARM", `${named(node)} has no explicit else arm (S3)`, {
+          activity: node.id,
+        });
+      }
+      if (elseArms.length > 1) {
+        return refuse(
+          "AMBIGUOUS_ELSE",
+          `${named(node)} has ${elseArms.length} else arms; exactly one is allowed (S3)`,
+          { activity: node.id },
+        );
+      }
+    }
+
+    // S4 — a wait may not fire anything directly. Its one out-edge goes to a decision, so the
+    // resolution is always routed by a visible guard.
+    if (node.type === "accept_event") {
+      for (const edge of edges.filter((e) => e.from === node.id)) {
+        const target = graph.nodes.get(edge.to);
+        if (target?.type !== "decision") {
+          return refuse(
+            "WAIT_MUST_ROUTE",
+            `${named(node)} routes to ${namedIn(graph, edge.to)}, which is not a decision — a wait's resolution must be routed by a guard (S4)`,
+            { activity: node.id },
+          );
+        }
+      }
+    }
+  }
+
+  // S5 — a guard is how a decision chooses. Anywhere else it is a second, invisible branch
+  // point, which is the thing §3 says this redesign exists to remove.
+  for (const edge of edges) {
+    if (edge.guard === undefined) continue;
+    const source = graph.nodes.get(edge.from);
+    if (source === undefined || source.type === "decision") continue;
+    return refuse(
+      "GUARD_OUTSIDE_DECISION",
+      `the edge from ${named(source)} carries a guard, and only a decision's out-edges may (S5)`,
+      { activity: source.id },
+    );
+  }
+
+  for (const edge of edges) {
+    if (edge.guard === undefined || edge.guard === "else" || !("count" in edge.guard)) continue;
+    if (parseCountPredicate(edge.guard) !== null) continue;
+    return refuse(
+      "MALFORMED_PREDICATE",
+      `predicate guard from ${namedIn(graph, edge.from)} is invalid`,
+      {
+        activity: edge.from,
+      },
+    );
+  }
+
+  for (const node of nodes) {
+    if (node.type !== "accept_event" || !("after" in node.spec.deadline)) continue;
+    const anchor = graph.nodes.get(node.spec.deadline.after);
+    if (anchor !== undefined && isBehaviour(anchor)) continue;
+    return refuse("DEADLINE_ANCHOR", `${named(node)} anchors its deadline to a control node`, {
+      activity: node.id,
+    });
+  }
+
+  return ok(null);
+}
+
+/**
+ * Tier 3 — whole-graph shape. Violates (exit 4): the graph this batch would make is unsound.
+ *
+ * S1 and S2 are what make the orphan and the dead end DECIDABLE, which `prd.md` §15 R4 had to
+ * concede was "a logged judgment call". Without an initial node there is no definition of
+ * reachable; without a terminator there is none of terminating.
+ */
+/** Everything walkable from `from` along `next`, `from` included. */
+function reach(from: string, next: Map<string, string[]>): Set<string> {
+  const seen = new Set<string>([from]);
+  const stack = [from];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (id === undefined) continue;
+    for (const to of next.get(id) ?? []) {
+      if (!seen.has(to)) {
+        seen.add(to);
+        stack.push(to);
+      }
+    }
+  }
+  return seen;
+}
+
+function checkGraphShape(graph: Graph): Result<null> {
+  const { nodes, edges } = liveSubgraph(graph);
+  const initials = nodes.filter((n) => n.type === "initial");
+  if (initials.length !== 1) {
+    return violate(
+      undefined,
+      "INITIAL_NODE",
+      `an activity has exactly one initial node, and this one has ${initials.length} (S1)`,
+    );
+  }
+
+  const out = new Map<string, string[]>();
+  const into = new Map<string, string[]>();
+  for (const edge of edges) {
+    out.set(edge.from, [...(out.get(edge.from) ?? []), edge.to]);
+    into.set(edge.to, [...(into.get(edge.to) ?? []), edge.from]);
+  }
+
+  const startId = initials[0]?.id ?? "";
+  const reachable = reach(startId, out);
+  const orphan = nodes.find((n) => !reachable.has(n.id));
+  if (orphan !== undefined) {
+    return violate(
+      undefined,
+      "UNREACHABLE_NODE",
+      `${named(orphan)} is not reachable from the initial node (S1)`,
+      {
+        activity: orphan.id,
+      },
+    );
+  }
+
+  const terminators = nodes.filter((n) => n.type === "final" || n.type === "flow_final");
+  const grounded = new Set<string>();
+  for (const terminator of terminators)
+    for (const id of reach(terminator.id, into)) grounded.add(id);
+  const deadEnd = nodes.find((n) => !grounded.has(n.id));
+  if (deadEnd !== undefined) {
+    return violate(undefined, "DEAD_END", `${named(deadEnd)} reaches no final or flow_final (S2)`, {
+      activity: deadEnd.id,
+    });
+  }
+
+  // S6 — the subset is acyclic. Iteration is expressed by ADDING nodes, not by routing
+  // backwards: we do not loop, we grow. A cycle would also make S2 vacuously satisfiable.
+  const cycle = firstCycle(nodes, out);
+  if (cycle !== null) {
+    return violate(
+      undefined,
+      "CYCLE",
+      `${namedIn(graph, cycle)} is on a cycle, and the subset is acyclic (S6)`,
+      {
+        activity: cycle,
+      },
+    );
+  }
+
+  return ok(null);
+}
+
+/** The first node found on a cycle, by colouring depth-first. */
+function firstCycle(nodes: readonly ActivityNode[], out: Map<string, string[]>): string | null {
+  const state = new Map<string, "open" | "closed">();
+  const walk = (id: string): string | null => {
+    const mark = state.get(id);
+    if (mark === "open") return id;
+    if (mark === "closed") return null;
+    state.set(id, "open");
+    for (const to of out.get(id) ?? []) {
+      const found = walk(to);
+      if (found !== null) return found;
+    }
+    state.set(id, "closed");
+    return null;
+  };
+  for (const node of nodes) {
+    const found = walk(node.id);
+    if (found !== null) return found;
+  }
+  return null;
 }
 
 export function validate(input: ValidateInput): Result<ValidateOutput> {
@@ -675,8 +966,8 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
 
   // Parser-class, but graph-dependent, so it cannot live in zod: `add_edge` carries `from`
   // as an id and never the source's type, which is in head or in an earlier op of this batch.
-  const conditioned = checkWaitEdgeConditions(input.graph, normalized.value);
-  if (!conditioned.ok) return conditioned;
+  const authoredStatus = checkAuthoredStatus(normalized.value);
+  if (!authoredStatus.ok) return authoredStatus;
 
   const claims = checkClaimExclusivity(input.graph, normalized.value);
   if (!claims.ok) return claims;
@@ -698,9 +989,30 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
   const arrivals = checkDeadOnArrivalEdge(interim.value, normalized.value);
   if (!arrivals.ok) return arrivals;
 
+  // Tier 2 — local shape, against the graph this batch would make. Refuses (exit 1).
+  const structure = checkStructure(interim.value);
+  if (!structure.ok) return structure;
+
   // §6.4 — derive ONCE, here, and expand into explicit ops. `fold` stays a dumb replay.
   const resolution = resolveBranches(input.graph, interim.value);
-  const ops = [...normalized.value, ...resolution.drops];
+  const routed = [...normalized.value, ...resolution.drops];
+
+  // §6.2.1 — readiness, SECOND. A node on an arm this commit just withdrew must not be lifted
+  // to `ready` and corrected after; the intermediate op would say the store offered work on a
+  // branch nobody took. So routing settles first, and readiness reads the graph it produced.
+  const withdrawn = applyOps(input.graph, routed, input.version);
+  if (!withdrawn.ok) return withdrawn;
+
+  // Held in a named binding rather than inlined, because these ops are DERIVED and every
+  // consumer that distinguishes authored from derived has to be told so. Inlining them cost
+  // exactly that: invariant 2's mechanical-closure exemption asks whether every op in the
+  // batch is either a closure or store-derived, and a readiness op that was in `ops` but not
+  // in `derived` failed the test — so any mechanical batch that ALSO unblocked a node lost
+  // its exemption. `kona resume` then wrote a batch its own validator refused, with a message
+  // demanding a repair resume cannot author. There is no model in that loop to notice.
+  const readiness = deriveReadiness(withdrawn.value);
+  const derived = [...resolution.drops, ...readiness];
+  const ops = [...routed, ...readiness];
 
   // Over the EXPANDED array. Derived ops are `set_status` against activities non-terminal in the
   // interim graph, so they cannot trip the terminal clause themselves; and because authored
@@ -713,19 +1025,17 @@ export function validate(input: ValidateInput): Result<ValidateOutput> {
   const applied = applyOps(input.graph, ops, input.version);
   if (!applied.ok) return applied;
 
-  const invariant2 = checkInvariant2(
-    input.graph,
-    applied.value,
-    input.actor,
-    ops,
-    resolution.drops,
-  );
+  const invariant2 = checkInvariant2(input.graph, applied.value, input.actor, ops, derived);
   if (!invariant2.ok) return invariant2;
+
+  // Tier 3 — whole-graph shape, against the graph the log will fold to. Violates (exit 4).
+  const shape = checkGraphShape(applied.value);
+  if (!shape.ok) return shape;
 
   return ok({
     ops,
     graph: applied.value,
-    derived: resolution.drops,
+    derived,
     withheld: resolution.withheld,
   });
 }

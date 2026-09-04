@@ -16,7 +16,7 @@ export interface Harness {
   err: string[];
   writeOps: (name: string, ops: unknown) => string;
   /**
-   * The minted id of the activity whose label slugs to `slug`.
+   * The minted id of the activity whose name slugs to `slug`.
    *
    * `brief`, `effect reserve` and `effect record` take an activity id as a positional argument, so
    * the ops-file resolver never sees it. Same translation, different doorway.
@@ -29,10 +29,10 @@ export interface Harness {
 }
 
 /**
- * Translate the label-slugs a test writes into the ids the store actually minted.
+ * Translate the name-slugs a test writes into the ids the store actually minted.
  *
  * Ids are hashes, so an ops file cannot name an activity literally. Every fixture still builds
- * activities from labels, and the name a test uses is the slug that label would have made — so
+ * activities from names, and the handle a test uses is the slug that name would have made — so
  * this reads the live log, folds it, and rewrites the id-valued fields against what is there.
  *
  * `$N` refs are left alone: they are batch-local and the normalizer owns them. So is any
@@ -49,14 +49,14 @@ function resolveAgainstStore(dir: string, ops: unknown): unknown {
     return ops;
   }
   const resolve = (value: unknown): unknown => {
-    if (typeof value !== "string" || value.startsWith("$") || graph.activities.has(value)) return value;
-    for (const [id, activity] of graph.activities) if (slugify(activity.name) === value) return id;
+    if (typeof value !== "string" || value.startsWith("$") || graph.nodes.has(value)) return value;
+    for (const [id, activity] of graph.nodes) if (slugify(activity.name) === value) return id;
     return value;
   };
   const resolveSpec = (spec: unknown): unknown => {
     if (spec === null || typeof spec !== "object") return spec;
     const draft: Record<string, unknown> = { ...(spec as Record<string, unknown>) };
-    for (const field of ["on_timeout", "compensates"]) {
+    for (const field of ["compensates"]) {
       if (field in draft) draft[field] = resolve(draft[field]);
     }
     const inputs = draft["inputs"];
@@ -89,7 +89,7 @@ function resolveAgainstStore(dir: string, ops: unknown): unknown {
   return ops.map((op: unknown) => {
     if (op === null || typeof op !== "object") return op;
     const draft: Record<string, unknown> = { ...(op as Record<string, unknown>) };
-    for (const field of ["activity", "from", "to", "by"]) {
+    for (const field of ["node", "from", "to", "by"]) {
       if (field in draft) draft[field] = resolve(draft[field]);
     }
     if ("spec" in draft) draft["spec"] = resolveSpec(draft["spec"]);
@@ -118,10 +118,8 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
       err: (line) => err.push(line),
     },
     id: (slug) => {
-      const graph = foldLog(
-        readFileSync(join(dir, ".kona", "mutations.jsonl"), "utf8"),
-      ).graph;
-      for (const [id, activity] of graph.activities) if (slugify(activity.name) === slug) return id;
+      const graph = foldLog(readFileSync(join(dir, ".kona", "mutations.jsonl"), "utf8")).graph;
+      for (const [id, activity] of graph.nodes) if (slugify(activity.name) === slug) return id;
       // Unresolvable on purpose in the tests that probe the not-found path.
       return slug;
     },
@@ -140,9 +138,9 @@ export function harness(now = "2026-08-21T12:00:00.000Z"): Harness {
 
 export const ASK_DANA = [
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Ask Dana to play Thursday",
-    type: "task",
+    type: "action",
     spec: {
       instruction: "Email Dana asking if she can play in goal Thursday.",
       outputs: [{ name: "reply", type: "string" }],
@@ -151,18 +149,25 @@ export const ASK_DANA = [
     },
   },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Wait for Dana",
-    type: "wait",
+    type: "accept_event",
     spec: {
       instruction: "Await Dana's reply.",
       effect_class: "pure",
       deadline: { at: "2026-08-22T17:00:00.000Z" },
-      on_timeout: "$0",
       match: { kind: "event", conditions: [{ kind: "reply", on: "satisfied" }] },
     },
   },
+  { op: "add_node", name: "Route Dana reply", type: "decision", spec: {} },
+  { op: "add_node", name: "Dana replied", type: "final", spec: {} },
+  { op: "add_node", name: "Dana timed out", type: "flow_final", spec: {} },
+  { op: "supersede_node", node: "roster-recorded", by: "$3" },
+  { op: "add_edge", from: "roster-on-file", to: "$0" },
   { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$1", to: "$2" },
+  { op: "add_edge", from: "$2", to: "$3", guard: { on: "satisfied" } },
+  { op: "add_edge", from: "$2", to: "$4", guard: "else" },
 ];
 
 /**
@@ -180,20 +185,34 @@ export const ASK_DANA = [
  */
 export async function seedRoster(h: Harness, names: readonly string[]): Promise<number> {
   const plan = h.writeOps("seed-roster-plan.json", [
+    { op: "add_node", name: "Start", type: "initial", spec: {} },
     {
-      op: "add_activity",
+      op: "add_node",
       name: "Roster on file",
-      type: "task",
+      type: "action",
       spec: {
         instruction: "The roster as it stands, read from the club sheet.",
         outputs: [{ name: "members", type: "string[]" }],
         effect_class: "pure",
       },
     },
+    { op: "add_node", name: "Roster recorded", type: "final", spec: {} },
+    { op: "add_edge", from: "$0", to: "$1" },
+    { op: "add_edge", from: "$1", to: "$2" },
   ]);
   expect(
     await run(
-      ["mutate", "--ops", plan, "--base-version", "0", "--why", "who is on the roster", "--reason-code", "MISSING_STEP"],
+      [
+        "mutate",
+        "--ops",
+        plan,
+        "--base-version",
+        "0",
+        "--why",
+        "who is on the roster",
+        "--reason-code",
+        "MISSING_STEP",
+      ],
       h.io,
     ),
   ).toBe(0);
@@ -201,18 +220,33 @@ export async function seedRoster(h: Harness, names: readonly string[]): Promise<
   const record = h.writeOps("seed-roster-record.json", [
     {
       op: "record_output",
-      activity: "roster-on-file",
+      node: "roster-on-file",
       output_name: "members",
       value: [...names],
       evidence_ref: "roster.csv#v3",
     },
     // Finished, so it leaves the frontier: the roster HAS been read, and a seed that
     // lingered in `kona next` would show up in every readiness assertion downstream.
-    { op: "set_status", activity: "roster-on-file", status: "done", evidence_ref: "roster.csv#v3" },
+    {
+      op: "set_status",
+      node: "roster-on-file",
+      status: "completed",
+      evidence_ref: "roster.csv#v3",
+    },
   ]);
   expect(
     await run(
-      ["mutate", "--ops", record, "--base-version", "1", "--why", "read the club sheet", "--reason-code", "OTHER"],
+      [
+        "mutate",
+        "--ops",
+        record,
+        "--base-version",
+        "1",
+        "--why",
+        "read the club sheet",
+        "--reason-code",
+        "OTHER",
+      ],
       h.io,
     ),
   ).toBe(0);

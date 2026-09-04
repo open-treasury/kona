@@ -12,7 +12,8 @@
 
 import type { AuthoredOp, MutationRecord } from "./schema.ts";
 import { named } from "./named.ts";
-import { type Graph, type Activity, isActivityTerminal, outEdges, readyFrontier } from "./graph.ts";
+import { INITIAL_STATUS } from "./vocab.ts";
+import { type Graph, type ActivityNode, readyFrontier } from "./graph.ts";
 import { openEffect } from "./effect.ts";
 import { type WaitStatus, armedWaits, overdueWaits, waitStatus } from "./deadline.ts";
 
@@ -20,7 +21,7 @@ import { type WaitStatus, armedWaits, overdueWaits, waitStatus } from "./deadlin
  * An activity whose send was reserved and never resolved.
  *
  * §6.6's crash table calls window 2 "safe to retry" and window 3 "must ask a human", but
- * they leave IDENTICAL bytes — a `sending` activity with `completed_at: null`. Nothing in the
+ * they leave IDENTICAL bytes — an `active` activity with `completed_at: null`. Nothing in the
  * log distinguishes "fsynced but never sent" from "sent but never recorded", so resume
  * reports every one of them and repairs none. Guessing here sends a second email.
  */
@@ -58,8 +59,12 @@ export interface ResumePlan {
 
 function countByState(graph: Graph): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const activity of graph.activities.values()) {
-    counts[activity.status.state] = (counts[activity.status.state] ?? 0) + 1;
+  for (const activity of graph.nodes.values()) {
+    // Control nodes are absent from the count on purpose: `kona resume` reports what a human
+    // may have to act on, and a diamond never is.
+    const state = activity.status?.state;
+    if (state === undefined) continue;
+    counts[state] = (counts[state] ?? 0) + 1;
   }
   return counts;
 }
@@ -67,10 +72,10 @@ function countByState(graph: Graph): Record<string, number> {
 /**
  * A claim nobody is holding any more.
  *
- * `in_flight` covers two different facts, and the difference is the whole reason resume can
+ * `active` covers two different facts, and the difference is the whole reason resume can
  * repair one and must not touch the other. An activity with an OPEN EFFECT is an unknown send:
  * bytes may have left, the log cannot say, and a human decides — that is `unknownSends`.
- * An activity in `in_flight` with NO open effect is a *pure* activity an agent claimed and never came
+ * An activity in `active` with NO open effect is a *pure* activity an agent claimed and never came
  * back to, and nothing left the machine, so the honest repair is to put it back on the
  * frontier for whoever picks the pursuit up next.
  *
@@ -78,14 +83,14 @@ function countByState(graph: Graph): Record<string, number> {
  * that matters: a `pure` activity cannot have one, and an activity that *declares* an effect but never
  * reserved it never moved a byte either.
  */
-function staleClaims(graph: Graph): Activity[] {
-  return [...graph.activities.values()].filter(
-    (activity) => activity.status.state === "in_flight" && openEffect(activity) === null,
+function staleClaims(graph: Graph): ActivityNode[] {
+  return [...graph.nodes.values()].filter(
+    (activity) => activity.status?.state === "active" && openEffect(activity) === null,
   );
 }
 
 function unknownSends(graph: Graph): UnknownSend[] {
-  return [...graph.activities.values()].flatMap((activity) => {
+  return [...graph.nodes.values()].flatMap((activity) => {
     const open = openEffect(activity);
     if (open === null) return [];
     return [
@@ -102,34 +107,15 @@ function unknownSends(graph: Graph): UnknownSend[] {
 }
 
 /**
- * Firing a timeout resolves the wait AND makes its escape route reachable.
- *
- * `on_timeout` is a declaration, not an edge, so the store materialises the edge when the
- * timeout actually fires — the same "when the housekeeping is derivable, the store does
- * it" rule that governs branch drops. Without it a timed-out wait resolves into nothing
- * and §6.2's whole reason for demanding `on_timeout` evaporates.
+ * Firing a timeout resolves the accept-event. Its existing decision successor routes the
+ * `timeout` guard; resume never mutates topology.
  */
-function timeoutRepair(graph: Graph, activity: Activity, at: string): AuthoredOp[] {
+function timeoutRepair(activity: ActivityNode, at: string): AuthoredOp[] {
   const evidence = `deadline:${at}`;
-  const ops: AuthoredOp[] = [];
-
-  // Only route to an escape that can still run. Invariant 1 forbids a new blocking edge
-  // into a terminal activity, and rightly: if the escalation has already happened, there is
-  // nothing to route to, and insisting on the edge would make the whole repair 422.
-  const escape = activity.spec.on_timeout;
-  const target = escape === undefined ? undefined : graph.activities.get(escape);
-  if (escape !== undefined && target !== undefined && !isActivityTerminal(target)) {
-    const alreadyRouted = outEdges(graph, activity.id).some(
-      (edge) => edge.to === escape && edge.condition?.on === "timeout",
-    );
-    if (!alreadyRouted) {
-      ops.push({ op: "add_edge", from: activity.id, to: escape, condition: { on: "timeout" } });
-    }
-  }
-
-  ops.push({ op: "record_outcome", activity: activity.id, verdict: "timed_out", evidence_ref: evidence });
-  ops.push({ op: "set_status", activity: activity.id, status: "done", evidence_ref: evidence });
-  return ops;
+  return [
+    { op: "record_outcome", node: activity.id, verdict: "timed_out", evidence_ref: evidence },
+    { op: "set_status", node: activity.id, status: "completed", evidence_ref: evidence },
+  ];
 }
 
 export function planResume(
@@ -141,15 +127,17 @@ export function planResume(
   const overdue = overdueWaits(records, graph, now);
   const stale = staleClaims(graph);
   const repairs = [
-    ...overdue.flatMap(({ activity, deadline }) => timeoutRepair(graph, activity, deadline.at ?? now)),
-    ...stale.map(
-      (activity): AuthoredOp => ({
-        op: "set_status",
-        activity: activity.id,
-        status: "active",
-        evidence_ref: "resume:stale-claim",
-      }),
-    ),
+    ...overdue.flatMap(({ activity, deadline }) => timeoutRepair(activity, deadline.at ?? now)),
+    // Release the claim to `inactive` and let the SAME commit's readiness derivation lift it
+    // back to `ready` if its dependencies still hold. Writing `ready` here would assert a fact
+    // this function has not checked, and the graph may well have moved while the claim was
+    // held — which is the exact situation resume exists for.
+    ...stale.map((activity): AuthoredOp => ({
+      op: "set_status",
+      node: activity.id,
+      status: INITIAL_STATUS,
+      evidence_ref: "resume:stale-claim",
+    })),
   ];
 
   const waits: ResumeReport["waits"] = armedWaits(graph)

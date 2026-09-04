@@ -15,11 +15,11 @@ import { edgeKeyString } from "../model/diff.ts";
 const FLASH_MS = 1500;
 
 export interface Fresh {
-  activities: ReadonlySet<string>;
+  nodes: ReadonlySet<string>;
   edges: ReadonlySet<string>;
 }
 
-const EMPTY: Fresh = { activities: new Set(), edges: new Set() };
+const EMPTY: Fresh = { nodes: new Set(), edges: new Set() };
 
 /**
  * `diff` is the change the newest version made. It is compared by version rather than by
@@ -39,7 +39,7 @@ export function useFresh(diff: GraphDiff | null, holdMs: number = FLASH_MS): Fre
     }
 
     setFresh({
-      activities: new Set(diff.addedNodes),
+      nodes: new Set(diff.addedNodes),
       edges: new Set(diff.addedEdges.map(edgeKeyString)),
     });
 
@@ -69,7 +69,7 @@ export function useFresh(diff: GraphDiff | null, holdMs: number = FLASH_MS): Fre
  */
 export function freshFromDiff(diff: GraphDiff): Fresh {
   return {
-    activities: new Set([
+    nodes: new Set([
       ...diff.addedNodes,
       ...diff.statusChanged.map((change) => change.id),
       ...diff.outcomeAdded,

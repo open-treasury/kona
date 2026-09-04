@@ -16,10 +16,10 @@ export function named(activity: { id: string; name?: string }): string {
  * UNKNOWN_ACTIVITY case, where there is no name to give and the id is the whole point.
  */
 export function namedIn(
-  graph: { activities: Map<string, { id: string; name: string }> },
+  graph: { nodes: Map<string, { id: string; name: string }> },
   id: string,
 ): string {
-  const activity = graph.activities.get(id);
+  const activity = graph.nodes.get(id);
   return activity === undefined ? `'${id}'` : named(activity);
 }
 
@@ -28,17 +28,17 @@ export function namedIn(
  *
  * A refusal often concerns an activity the author added in this very batch, which is not in head
  * yet — so a head-only lookup falls back to the bare id at exactly the moment the author most
- * wants to be told which of their new steps is wrong. They just wrote the label; use it.
+ * wants to be told which of their new steps is wrong. They just wrote the name; use it.
  */
 export function namedHere(
-  graph: { activities: Map<string, { id: string; name: string }> },
+  graph: { nodes: Map<string, { id: string; name: string }> },
   ops: readonly { op: string; id?: string; name?: string }[],
   id: string,
 ): string {
-  const committed = graph.activities.get(id);
+  const committed = graph.nodes.get(id);
   if (committed !== undefined) return named(committed);
   for (const op of ops) {
-    if (op.op === "add_activity" && op.id === id && op.name !== undefined) return named({ id, name: op.name });
+    if (op.op === "add_node" && op.id === id && op.name !== undefined) return named({ id, name: op.name });
   }
   return `'${id}'`;
 }

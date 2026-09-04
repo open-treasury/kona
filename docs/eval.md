@@ -7,7 +7,7 @@
 > (marked `est.`, with the arithmetic shown so it can be checked). Nothing here has been
 > measured yet — that is the point of the document.
 
-> **v4 — a PoC, not a study.** v1 made *interruption survival* the headline; it is not the claim,
+> **v4 — a PoC, not a study.** v1 made _interruption survival_ the headline; it is not the claim,
 > and it is demoted to §6. v2 fixed the axis to **task length**, waiting or not. v3 took the model as
 > given — **DeepSeek only**. v4 takes the scale as given: **one cheap model, a handful of tasks, a
 > couple of hours.** What that buys and what it cannot buy is stated in §4 before anything else.
@@ -31,7 +31,7 @@ Three things the DeepSeek decision changes, none of them about price:
 
 1. **Kona is a Claude Code plugin, and Claude Code does not run DeepSeek.** The Kona arm must be
    rebuilt on a model-agnostic harness first. This is the only real cost in the PoC — and it is
-   ~1 day, not 4, because ⚖ *the binary never calls a model* (§2).
+   ~1 day, not 4, because ⚖ _the binary never calls a model_ (§2).
 2. **DeepSeek V4 is not a weak model.** Terminal-Bench 2.1: **V4-Flash 82.7**, **V4-Pro-0813 87.9**;
    SWE-bench Verified **80.6%** for V4-Pro-Max. Good for external validity, bad for headroom — a
    model that loses the thread less often has less thread for Kona to hold. It also **kills the
@@ -39,14 +39,14 @@ Three things the DeepSeek decision changes, none of them about price:
 3. **Task selection is the whole game at this scale.** With 5 tasks you cannot average your way out
    of a bad draw. §4 gives the selection rule, and it is the single highest-leverage decision here.
 
-| | Tier | Measures | Cost `est.` | Build | Wall-clock |
-|---|---|---|---|---|---|
-| **T0** | **Port the Kona loop to Terminus-2** — gates everything | nothing yet; unblocks it all | **$0** | ~1 d | — |
-| **T1** | **The PoC** — 5 LHTB tasks, paired A/B | direction, and that the rig runs | **~$7** | 0.5 d | 1–2 h |
-| **T2** | **Redo rate + loop count** over T1's trajectories | *why* it moved or didn't | **$0 extra** | 0.5 d | — |
-| — | *if and only if T1+T2 point somewhere* | | | | |
-| **T3** | Widen to ~15 tasks × 3 seeds | a number with an interval | ~$35 | — | ~6 h |
-| **T4** | **Resume conformance** — six published properties | durability, comparably | **0 tokens** | 1–2 d | — |
+|        | Tier                                                    | Measures                         | Cost `est.`  | Build | Wall-clock |
+| ------ | ------------------------------------------------------- | -------------------------------- | ------------ | ----- | ---------- |
+| **T0** | **Port the Kona loop to Terminus-2** — gates everything | nothing yet; unblocks it all     | **$0**       | ~1 d  | —          |
+| **T1** | **The PoC** — 5 LHTB tasks, paired A/B                  | direction, and that the rig runs | **~$7**      | 0.5 d | 1–2 h      |
+| **T2** | **Redo rate + loop count** over T1's trajectories       | _why_ it moved or didn't         | **$0 extra** | 0.5 d | —          |
+| —      | _if and only if T1+T2 point somewhere_                  |                                  |              |       |            |
+| **T3** | Widen to ~15 tasks × 3 seeds                            | a number with an interval        | ~$35         | —     | ~6 h       |
+| **T4** | **Resume conformance** — six published properties       | durability, comparably           | **0 tokens** | 1–2 d | —          |
 
 **Order: T0 → T1+T2 → stop and look.** T4 is model-independent and free of this budget entirely;
 do it whenever there is an idle day, not as part of the PoC.
@@ -57,27 +57,27 @@ do it whenever there is an idle day, not as part of the PoC.
 
 **Kona should help more as tasks get longer, and roughly not at all when they are short.**
 
-A statement about a *slope*, not a level — the sharpest version of the thesis, because it is the one
+A statement about a _slope_, not a level — the sharpest version of the thesis, because it is the one
 that can fail. A scaffold that helps uniformly at every length is not a long-horizon story; it is a
 better prompt. So the primary result is an **interaction between arm and length**, and a flat
-improvement across all lengths should be reported as a *negative* for the PRD's specific claim even
+improvement across all lengths should be reported as a _negative_ for the PRD's specific claim even
 if the average looks good.
 
 Waiting is not required. A 300-step refactor with no counterparty, no deadline and no email
-exercises the same mechanism: the plan is durable and external, the frontier is computed rather than
-remembered, and every decision carries the reason it was made. `spec.md` already makes effect-free
+exercises the same mechanism: the plan is durable and external, readiness is derived and logged rather
+than remembered by the agent, and every decision carries the reason it was made. `spec.md` already makes effect-free
 work first-class — `effect_class: "pure"` — so a pursuit with zero sends is a normal Kona pursuit.
 
 The instrument names the failure mode better than the PRD does. **Long-Horizon Terminal-Bench:**
 
-> *"The model does not lack the knowledge. It loses the thread: state drifts, earlier decisions are
-> forgotten, exploration turns into looping."*
+> _"The model does not lack the knowledge. It loses the thread: state drifts, earlier decisions are
+> forgotten, exploration turns into looping."_
 
-| Failure mode (LHTB's words) | Kona's mechanism | Counted as |
-|---|---|---|
-| *state drifts* | the graph is a fold over the log, not a memory | constraint-retention probe (§4) |
-| *earlier decisions are forgotten* | `--why` on every mutation; `kona brief` re-reads it | decision-retention probe |
-| *exploration turns into looping* | `kona next` computes the frontier; done is terminal | **redo rate**, loop count |
+| Failure mode (LHTB's words)       | Kona's mechanism                                                      | Counted as                      |
+| --------------------------------- | --------------------------------------------------------------------- | ------------------------------- |
+| _state drifts_                    | the graph is a fold over the log, not a memory                        | constraint-retention probe (§4) |
+| _earlier decisions are forgotten_ | `--why` on every mutation; `kona brief` re-reads it                   | decision-retention probe        |
+| _exploration turns into looping_  | `kona next` queries recorded `ready` actions; `completed` is terminal | **redo rate**, loop count       |
 
 ---
 
@@ -89,7 +89,7 @@ A/B here.** Both arms must move to a harness that speaks to DeepSeek.
 
 **Use Terminus-2 for both arms.** It is LHTB's own harness — their 21-model table is all Terminus-2
 at a 90-minute budget — it ships inside the modified Harbor bundled in the LHTB repo, and Harbor
-routes through LiteLLM, which speaks DeepSeek. So the baseline arm is *stock Terminus-2*, and its
+routes through LiteLLM, which speaks DeepSeek. So the baseline arm is _stock Terminus-2_, and its
 numbers are interpretable against 21 published models for free.
 
 **The Kona arm is then: Terminus-2 + the `kona` binary in the container + the plugin's verb
@@ -97,8 +97,8 @@ instructions transplanted into the system prompt.** Nothing else differs. That i
 attribution as this design admits, and it is what AgentSpec's controlled-composition method asks
 for: hold the model fixed, vary one scaffold component.
 
-**The port is cheap for a reason worth stating.** ⚖ *the `kona` binary never calls a language
-model* — so there is no model-specific logic inside it to port. Terminus-2 is a bash-only agent and
+**The port is cheap for a reason worth stating.** ⚖ _the `kona` binary never calls a language
+model_ — so there is no model-specific logic inside it to port. Terminus-2 is a bash-only agent and
 `kona` is a CLI; the agent simply runs `kona next`, `kona brief`, `kona mutate` as bash commands.
 The determinism law, written for testability, turns out to be what makes Kona portable to a model
 Claude Code cannot host. **That is a finding for the spec, not just a convenience.**
@@ -107,7 +107,7 @@ Claude Code cannot host. **That is a finding for the spec, not just a convenienc
 the task image and add one paragraph to the Terminus-2 system prompt: the nine verbs, the
 `--why` requirement, and "read `kona next` before choosing your next action." That is the whole
 arm. Fidelity to the shipped plugin is a question for after the PoC says whether the idea has legs —
-and if a paragraph is *not* enough for the model to use Kona at all, that is itself the finding, and
+and if a paragraph is _not_ enough for the model to use Kona at all, that is itself the finding, and
 it arrives on day one instead of day four.
 
 `mini-SWE-agent` is the alternative substrate — ~100 lines, bash-only, LiteLLM-pluggable, >74% on
@@ -117,16 +117,16 @@ SWE-bench Verified, and Harbor-native. Prefer Terminus-2 anyway, for comparabili
 
 ## 3. The instrument: LHTB, and why the alternatives fell away
 
-| Benchmark | Why / why not, **given DeepSeek** |
-|---|---|
+| Benchmark                                                                                                                                                                        | Why / why not, **given DeepSeek**                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **LHTB** — 46 tasks, 9 categories, **69–93 min** and **120–320 steps** each, **9.9M tokens/run avg**, Terminus-2 at a 90-min budget, **continuous 0→1 reward** (solved at ≥0.95) | **The instrument.** Built around our failure mode. Wide open: best model (Grok 4.5) **0.51 avg, 13/46 solved**, **29/46 never passed by anyone**. Open source ([repo](https://github.com/zli12321/LHTB), HF dataset, community leaderboard). Bundles a modified Harbor, so DeepSeek is a config line |
-| **Terminal-Bench 2.0** — 89 tasks with **human time labels** (expert <1 h 48.6%, 1–24 h 47.3%, 1–7 d 4.1%) | **Dropped.** v2 wanted this for a METR-style horizon fit, but DeepSeek V4-Flash scores **82.7 on TB 2.1** — saturated. A ceiling has no slope to measure |
-| **Frontier-Bench v0.1** (Terminal-Bench 3.0), 74 tasks | **Not now.** Unsaturated, but **binary** scoring at a ~42.7% ceiling wastes most of an expensive run, and LHTB exists specifically because of that |
-| **DeepSWE** — long-horizon engineering tasks | **Secondary.** DeepSeek publishes on it (**Flash 54.4, Pro 62.7**), so there is a ready reference point — unsaturated, worth a look after T1 |
-| **HCAST** (METR) | Canonical length labels, but public repo is a subset, needs METR contact for the rest, and runs on Inspect rather than Harbor |
-| **TheAgentCompany** | Good scoring design (checkpoints + partial credit, +50% completion bonus); tasks are long in scope but only ~27 steps |
-| **Vending-Bench 2** · **Gaia2/ARE** | >20M tokens/run; and Gaia2's distinctive axis is time-sensitivity — v1's demoted axis |
-| **AgentSpec** | Methodology, not an instrument: decompose the scaffold, hold the model fixed, recombine, attribute. Warns module effects are **not additive** |
+| **Terminal-Bench 2.0** — 89 tasks with **human time labels** (expert <1 h 48.6%, 1–24 h 47.3%, 1–7 d 4.1%)                                                                       | **Dropped.** v2 wanted this for a METR-style horizon fit, but DeepSeek V4-Flash scores **82.7 on TB 2.1** — saturated. A ceiling has no slope to measure                                                                                                                                             |
+| **Frontier-Bench v0.1** (Terminal-Bench 3.0), 74 tasks                                                                                                                           | **Not now.** Unsaturated, but **binary** scoring at a ~42.7% ceiling wastes most of an expensive run, and LHTB exists specifically because of that                                                                                                                                                   |
+| **DeepSWE** — long-horizon engineering tasks                                                                                                                                     | **Secondary.** DeepSeek publishes on it (**Flash 54.4, Pro 62.7**), so there is a ready reference point — unsaturated, worth a look after T1                                                                                                                                                         |
+| **HCAST** (METR)                                                                                                                                                                 | Canonical length labels, but public repo is a subset, needs METR contact for the rest, and runs on Inspect rather than Harbor                                                                                                                                                                        |
+| **TheAgentCompany**                                                                                                                                                              | Good scoring design (checkpoints + partial credit, +50% completion bonus); tasks are long in scope but only ~27 steps                                                                                                                                                                                |
+| **Vending-Bench 2** · **Gaia2/ARE**                                                                                                                                              | >20M tokens/run; and Gaia2's distinctive axis is time-sensitivity — v1's demoted axis                                                                                                                                                                                                                |
+| **AgentSpec**                                                                                                                                                                    | Methodology, not an instrument: decompose the scaffold, hold the model fixed, recombine, attribute. Warns module effects are **not additive**                                                                                                                                                        |
 
 ---
 
@@ -138,7 +138,7 @@ SWE-bench Verified, and Harbor-native. Prefer Terminus-2 anyway, for comparabili
   same cap. A strawman baseline invalidates the whole thing.
 - **Model:** **`deepseek-v4-flash`**, **off-peak** — peak is 01:00–04:00 and 06:00–10:00 UTC and
   costs double. No V4-Pro cell in the PoC; that is a question for after there is something to check.
-- **Cap:** 20 minutes per task. LHTB is *time*-budgeted, not step-budgeted, and sets
+- **Cap:** 20 minutes per task. LHTB is _time_-budgeted, not step-budgeted, and sets
   `continue_until_timeout = true` on **30 of 46** tasks — the agent keeps working past its own
   declaration of done — so lowering the per-task timeout is a supported config change, not a hack.
   Reduced-timeout runs are not leaderboard-comparable; irrelevant here, this is a paired A/B.
@@ -161,7 +161,7 @@ Reading that table costs one page-load and is worth more than doubling the seed 
   this scale the sign pattern is the result — four or five consistent signs is a reason to spend
   more; a 3–2 split is noise wearing a number.
 - **Secondary:** the progress shape — reward at 5 / 10 / 20 minutes. The thesis predicts a
-  *widening* gap; a gap that appears immediately and stays flat is a prompt effect, not a
+  _widening_ gap; a gap that appears immediately and stays flat is a prompt effect, not a
   long-horizon one.
 
 > **The one question that could cut a wider run's cost by ~5×:** can LHTB's dense-reward grader
@@ -173,13 +173,13 @@ Reading that table costs one page-load and is worth more than doubling the seed 
 Over T1's existing trajectories. No new model calls, no LLM judge, and — at PoC scale — only the two
 probes that need no instrumentation:
 
-| Probe | Definition | Prediction if the thesis holds |
-|---|---|---|
-| **Redo rate** | fraction of actions repeating an already-completed action (same command, same write) | lower with Kona — `kona next` never offers a done activity |
-| **Loop count** | repeated (state, action) cycles of length ≥2 | lower with Kona |
+| Probe          | Definition                                                                           | Prediction if the thesis holds                                  |
+| -------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| **Redo rate**  | fraction of actions repeating an already-completed action (same command, same write) | lower with Kona — `kona next` never offers a `completed` action |
+| **Loop count** | repeated (state, action) cycles of length ≥2                                         | lower with Kona                                                 |
 
-*(Constraint- and decision-retention probes need scripted instrumentation in the tasks; they belong
-to T3, not the PoC.)*
+_(Constraint- and decision-retention probes need scripted instrumentation in the tasks; they belong
+to T3, not the PoC.)_
 
 This is the cheapest falsification available and it may well be the PoC's most useful output: a
 reward delta on five tasks is weak evidence, but **redo rate is a direct measurement of the
@@ -218,7 +218,7 @@ state — ⚖ the binary never calls a model), plus **FD/FI**, an open question 
 
 `demo/script/kill-resume.ts` already sends a real `SIGKILL` to a detached process group at eight
 offsets and resumes in a fresh process; what it lacks is the published vocabulary that makes the
-result *comparable*. Output: a conformance row beside LangGraph 1.2.9 (violates FD and CV across
+result _comparable_. Output: a conformance row beside LangGraph 1.2.9 (violates FD and CV across
 five versions), CrewAI (re-executes completed work), LlamaIndex Workflows, pydantic-graph, AutoGen.
 **Model-independent, so the DeepSeek constraint does not touch it at all.**
 
@@ -241,7 +241,7 @@ bits. The statistical argument built on "one bit per run" collapses with it.
 
 **A paired A/B needs no published baseline at all.** Both arms are run by us, on the same tasks,
 with the same model — the missing DeepSeek row is irrelevant to the comparison. It was only ever
-relevant to *task selection*, which is a smaller problem with a cheap fix.
+relevant to _task selection_, which is a smaller problem with a cheap fix.
 
 ### It is v3, and the task metadata proves it
 
@@ -249,12 +249,12 @@ relevant to *task selection*, which is a smaller problem with a cheap fix.
 `# Dataset manifest for terminal-bench/terminal-bench-3`. The difficulty metadata confirms it
 independently — parsed from all 70 `task.toml` files:
 
-| | |
-|---|---|
-| `expert_time_estimate_hours` | **min 0.75 · median 4 · max 60** |
-| agent `timeout_sec` | 1800, 2500, 3600, 5400, 7200, 9000, 10800, 14400, 18000, 28800 |
-| categories | Software 20 · Science 15 · ML 12 · Operations 9 · Security 5 · Hardware 5 · Media 4 |
-| GPU tasks (avoid) | `fp8-rmsnorm-gemm`, `math-eval-grader`, `exam-pdf-eval`, `jax-speedrun-gpu` |
+|                              |                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `expert_time_estimate_hours` | **min 0.75 · median 4 · max 60**                                                    |
+| agent `timeout_sec`          | 1800, 2500, 3600, 5400, 7200, 9000, 10800, 14400, 18000, 28800                      |
+| categories                   | Software 20 · Science 15 · ML 12 · Operations 9 · Security 5 · Hardware 5 · Media 4 |
+| GPU tasks (avoid)            | `fp8-rmsnorm-gemm`, `math-eval-grader`, `exam-pdf-eval`, `jax-speedrun-gpu`         |
 
 Terminal-Bench 2.0 had 48.6% of tasks under an hour for an expert. Here the **minimum** is 45
 minutes and **half are 4 hours or more**. This is not the saturated 75–84% board.
@@ -281,19 +281,19 @@ comes from the dollar cap, not the VM.
 
 **THE CONFIG — 6 tasks, 12 containers, ~70 minutes, 48–64 GB / 20 vCPU, ~$6–20** `est.`
 
-Harbor exposes only `--agent-timeout-multiplier`, a *multiplier*, so a uniform absolute cap is not
+Harbor exposes only `--agent-timeout-multiplier`, a _multiplier_, so a uniform absolute cap is not
 expressible — a single multiplier gives a 30-minute task 15 minutes and a 120-minute task 60. The
 way out is better than the thing it replaces: **take only tasks whose native budget already fits**,
 and run at multiplier **1.0**.
 
-| Native budget | Task | Verifier | Mem | vCPU | Expert | Category |
-|---|---|---|---|---|---|---|
-| 30 m | `bun-sourcemap-leak` | 10 m | 2 GB | 1 | 1.5 h | Software |
-| 42 m | `cli-2ph-simplex` | 10 m | 2 GB | 1 | 2 h | Software |
-| 60 m | `layout-config-recreation` | 3 m | 4 GB | 2 | 2 h | Media |
-| 60 m | `cargo-flight-dispatch` | 10 m | 4 GB | 2 | 2.5 h | Operations |
-| 60 m | `production-planning` | 2 m | 4 GB | 2 | 4 h | Operations |
-| 60 m | `kv-live-surgery` | 0 m | 4 GB | 2 | 4 h | Software |
+| Native budget | Task                       | Verifier | Mem  | vCPU | Expert | Category   |
+| ------------- | -------------------------- | -------- | ---- | ---- | ------ | ---------- |
+| 30 m          | `bun-sourcemap-leak`       | 10 m     | 2 GB | 1    | 1.5 h  | Software   |
+| 42 m          | `cli-2ph-simplex`          | 10 m     | 2 GB | 1    | 2 h    | Software   |
+| 60 m          | `layout-config-recreation` | 3 m      | 4 GB | 2    | 2 h    | Media      |
+| 60 m          | `cargo-flight-dispatch`    | 10 m     | 4 GB | 2    | 2.5 h  | Operations |
+| 60 m          | `production-planning`      | 2 m      | 4 GB | 2    | 4 h    | Operations |
+| 60 m          | `kv-live-surgery`          | 0 m      | 4 GB | 2    | 4 h    | Software   |
 
 **Every task runs exactly as its author intended — nothing is truncated**, so "you crippled the
 tasks" is not available as an objection to whatever the result turns out to be. Wall-clock is
@@ -309,10 +309,10 @@ Per-run cost is **$0.5 with good prompt caching and $1.7 without**, a 3.4× spre
 whether 6 tasks costs $6 or $20. The arithmetic, from LHTB's measured 9.9M tokens per 85-minute
 run ⇒ ~7M tokens for 60 minutes:
 
-| | Input | Output | Total |
-|---|---|---|---|
+|               | Input                                         | Output               | Total     |
+| ------------- | --------------------------------------------- | -------------------- | --------- |
 | 85% cache hit | 1.0M miss × $0.22 + 5.9M hit × $0.007 = $0.27 | 0.3M × $0.66 = $0.20 | **$0.47** |
-| no caching | 6.9M × $0.22 = $1.52 | $0.20 | **$1.72** |
+| no caching    | 6.9M × $0.22 = $1.52                          | $0.20                | **$1.72** |
 
 Cache-hit rate depends on whether the harness re-sends a byte-identical prefix each step; if it
 truncates or rewrites history, the rate collapses. **Do not guess it — measure it.** A single
@@ -332,20 +332,20 @@ verifiers without spending model tokens or a run slot.
 
 **The honest risk, once:** on a v3 task a cheap model may score 0 in both arms, and paired zeroes
 demo nothing. The three full-budget tasks are the mitigation — a zero there is a real result about
-the model, not an artifact of our cap. Fallback: on LHTB the same model is *measured* at 0.43–0.60
+the model, not an artifact of our cap. Fallback: on LHTB the same model is _measured_ at 0.43–0.60
 on five pinned tasks (§10).
 
 ### Cost of the full thing, for reference
 
 Ranges span the caching spread above ($0.5–1.7 per 60-minute run).
 
-| | Runs | Cost `est.` | Wall-clock |
-|---|---|---|---|
-| **This demo — 6 tasks** | 12 | **$6–20** | 70 m |
-| Calibration probe (1 task, 10-min cap) | 2 | **~$0.30** | 10 m |
-| All 70 tasks, 60-min cap, both arms | 140 | $70–240 | 2–3 waves ≈ 3–4.5 h on 64 GB |
-| All 70 tasks, full author budgets | 140 | ~$660+ | ≥8 h — the longest task's own budget |
-| Leaderboard protocol (k=5) | 700 | ~$3,300 | days |
+|                                        | Runs | Cost `est.` | Wall-clock                           |
+| -------------------------------------- | ---- | ----------- | ------------------------------------ |
+| **This demo — 6 tasks**                | 12   | **$6–20**   | 70 m                                 |
+| Calibration probe (1 task, 10-min cap) | 2    | **~$0.30**  | 10 m                                 |
+| All 70 tasks, 60-min cap, both arms    | 140  | $70–240     | 2–3 waves ≈ 3–4.5 h on 64 GB         |
+| All 70 tasks, full author budgets      | 140  | ~$660+      | ≥8 h — the longest task's own budget |
+| Leaderboard protocol (k=5)             | 700  | ~$3,300     | days                                 |
 
 ---
 
@@ -353,7 +353,7 @@ Ranges span the caching spread above ($0.5–1.7 per 60-minute run).
 
 Still worth measuring, still cheap, no longer the headline. `SIGKILL` costs nothing and
 `demo/mailbox/clock.ts` already lets a three-day deadline elapse in milliseconds. Fold it into T1 as
-a **third cell** — same tasks, same budget, plus *k* forced restarts — not a tier of its own. Two
+a **third cell** — same tasks, same budget, plus _k_ forced restarts — not a tier of its own. Two
 properties fall out: completion under restart, and duplicate-effect rate, which invariant 3(a) and
 the outbox should hold at **0** where a scratch-file baseline has no guarantee.
 
@@ -362,29 +362,29 @@ the outbox should hold at **0** where a scratch-file baseline has no guarantee.
 ## 7. Metrics that would come out green for the wrong reason
 
 `demo/script/assertions.ts` already argues that a test passing for a reason unrelated to the claim
-is *worse than no test* — it certifies the objection. Same discipline here.
+is _worse than no test_ — it certifies the objection. Same discipline here.
 
 - **`--why` coverage** and **"the plan is visible."** Kona scores 100% and ~0 by construction. These
   measure the schema, not the behaviour. **Excluded.**
-- **A uniform improvement across all task lengths.** Reads as a win; is evidence *against* the PRD's
+- **A uniform improvement across all task lengths.** Reads as a win; is evidence _against_ the PRD's
   specific claim (§1). Report the interaction, not the average.
 - **The weak-model caveat has inverted, and that is good news.** v2 planned to buy signal with a
   weak model and discount it afterwards. DeepSeek V4 is at or above the frontier on terminal agentic
-  work (TB 2.1: 82.7 / 87.9), so an effect measured here is *harder* to dismiss — and *harder to
-  find*. Expect a smaller effect than a weak-model sweep would show, and treat a null result as
+  work (TB 2.1: 82.7 / 87.9), so an effect measured here is _harder_ to dismiss — and _harder to
+  find_. Expect a smaller effect than a weak-model sweep would show, and treat a null result as
   correspondingly weaker evidence of absence: it says "not on V4-Flash," not "not for agents."
 - **Budget gaming, and the PoC cannot rule it out.** A scaffold that front-loads cheap progress wins
   at a 20-minute cap and would lose at 90. The progress shape (reward at 5/10/20 min) is the only
   hedge available at PoC scale; the actual mitigation — a full-budget cell — lives in T3. Any T1
   write-up must carry this caveat explicitly rather than in a footnote.
 - **Single-vendor, single-model, five tasks.** Say all three in the result line. A PoC reports a
-  *direction*; the cross-vendor and cross-length claims are out of scope at this budget and stay
+  _direction_; the cross-vendor and cross-length claims are out of scope at this budget and stay
   out of the sentence.
 
 **Statistical hygiene, in one paragraph:** pair every run (same task, same seed, same budget, both
 arms) and analyse the paired difference — paired designs need far fewer runs for the same power,
 which is the only reason this fits. Prefer the continuous outcome over the binary one for the same
-reason; LHTB's own line is *"a benchmark that scores everyone 0 ranks no one."* Pre-register metrics
+reason; LHTB's own line is _"a benchmark that scores everyone 0 ranks no one."_ Pre-register metrics
 and the stopping rule in `plans/active/kona-eval/plan.md` before the first run, or the first pass
 becomes a hypothesis generator wearing a result's clothes. Report negatives: "Kona does not extend
 the horizon on DeepSeek V4" belongs in the spec, not a drawer.
@@ -407,7 +407,7 @@ the horizon on DeepSeek V4" belongs in the spec, not a drawer.
    URL surfaced. If unreleased, T3 becomes "implement six probes from the definitions" — still zero
    tokens, ~2 days instead of ~1.
 6. **FD/FI have no obvious Kona mapping.** Kona has no fork-vs-retry discriminator because it has no
-   replay — `supersede_activity` plus compensation is the whole story. Arguably a conformance gap,
+   replay — `supersede_node` plus compensation is the whole story. Arguably a conformance gap,
    arguably out of scope by design. Needs an answer in the spec's voice before the row is published.
 7. **Confirm pricing and model IDs at run time** against [deepseek.ai/pricing](https://deepseek.ai/pricing).
    The rates in §4 came from an August 2026 snapshot; the peak/off-peak split makes scheduling worth
@@ -415,9 +415,9 @@ the horizon on DeepSeek V4" belongs in the spec, not a drawer.
 
 ## 9. Where the rig lives
 
-**Not a package.** §6.12 already settles the category: `demo/` is *"throwaway scripts — a directory,
-not a package"*, and the eval rig is the same thing — it drives `kona` as a subprocess exactly as
-`demo/` does. The package graph exists to enforce three properties of the *product* (the viewer
+**Not a package.** §6.12 already settles the category: `demo/` is _"throwaway scripts — a directory,
+not a package"_, and the eval rig is the same thing — it drives `kona` as a subprocess exactly as
+`demo/` does. The package graph exists to enforce three properties of the _product_ (the viewer
 cannot import the store; exactly one package calls `writeFile`; `core` stays pure). A measurement
 rig has no business inside a graph whose job is to constrain what ships.
 
@@ -430,11 +430,11 @@ Two further reasons it could not be a workspace even if we wanted it to:
 
 So:
 
-| Where | What | Tracked? |
-|---|---|---|
-| `eval/` — a directory beside `demo/`, not in `packages/` | the container layer, the trajectory analysis, the Kona system-prompt paragraph | yes |
-| outside the repo (or ignored) | the forked Harbor checkout, task images, run artifacts | no |
-| `plans/active/kona-eval/` | working task docs — **already ignored** by `.gitignore` | no |
+| Where                                                    | What                                                                           | Tracked? |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------ | -------- |
+| `eval/` — a directory beside `demo/`, not in `packages/` | the container layer, the trajectory analysis, the Kona system-prompt paragraph | yes      |
+| outside the repo (or ignored)                            | the forked Harbor checkout, task images, run artifacts                         | no       |
+| `plans/active/kona-eval/`                                | working task docs — **already ignored** by `.gitignore`                        | no       |
 
 **The real risk here is not packaging, it is prompt drift.** If the Kona arm's system-prompt
 paragraph is an independent transcription of `plugin/skills/run/SKILL.md`, then editing the plugin
@@ -455,7 +455,7 @@ rig that needs a gate.
 **Primary read.** Paired per-task reward difference (Kona − baseline), and the **sign pattern**
 across the five tasks. At this scale the sign pattern is the result.
 
-**Secondary reads.** Progress shape (reward at 5/10/20 min — the thesis predicts a *widening* gap;
+**Secondary reads.** Progress shape (reward at 5/10/20 min — the thesis predicts a _widening_ gap;
 immediate-then-flat is a prompt effect, not a long-horizon one) · redo rate · loop count.
 
 **Task selection rule.** From the per-task rewards published for 21 models on the LHTB leaderboard,
@@ -472,7 +472,7 @@ a null result may be the port's fault rather than the idea's. (2) A 20-minute ca
 that front-loads cheap progress. (3) `deepseek-v4-flash` scores 82.7 on Terminal-Bench 2.1 — a
 strong model has less thread to lose, so a null means "not on V4-Flash," not "not for agents."
 
-*Amendments:*
+_Amendments:_
 
 - **2026-08-22 — invariant coverage on effect-free pursuits is 1 of 3, measured.** A five-activity pure
   pursuit run through the real binary shows: invariant 1 (terminal protection) **fires** on pure
@@ -483,22 +483,53 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
   test therefore narrows to **terminal protection plus a durable frontier**, which is what the
   redo-rate probe already measures. The expected effect is correspondingly smaller, and no write-up
   of this PoC may quote the PRD's three-invariant claim as though all three were live on these
-  tasks. *(Recorded before run 1; evidence in `plans/active/kona-eval/context.md` → Q1.)*
+  tasks. _(Recorded before run 1; evidence in `plans/active/kona-eval/context.md` → Q1.)_
 - **2026-08-22 — the Kona arm requires a stub identity.** `brief` returns `NO_IDENTITY`
   unconditionally, before any effect check, so the task image must ship a `config.json` naming a
   fictional mailbox and authority and run `kona init --config` before authoring. This is a declared
   deviation from how the plugin is used in production, and it counts as part of the port's
   fidelity gap, not as a neutral setup step.
 
+- **2026-08-28 — the tool changed vocabulary mid-experiment, so pre-break and post-break Kona
+  runs are NOT poolable.** The activity model landed: nine node types, a seven-state lifecycle,
+  renamed ops and a `schema_version` bump from 5 to 6. Four consequences for this rig, in
+  descending order of how much they cost.
+
+  **(1) The Kona arm's skill text changed, so the three recorded zero-adoption results are
+  spent.** `eval/skills/kona/SKILL.md` now teaches fork/join rather than a chain, which is the
+  independent variable those runs were measuring. They stand as a record of the old tool and
+  cannot be pooled with anything run after 2026-08-28.
+
+  **(2) Node counts inflate and are not comparable across the break.** Measured on the one real
+  Kona-arm graph this rig has produced: the same work goes from 20 nodes / 26 edges to 33 / 39
+  — **+65% and +50%** — because a fan-out that was two edges is now a fork, a join and a
+  terminator per arm. Any metric of the form "how much plan did the agent author" is a
+  different quantity on either side of this line, and reporting them together would show a
+  jump the agent did not make.
+
+  **(3) The primary read is UNAFFECTED, which is the point of having pre-registered it.**
+  `analyze/paired.ts` reads Harbor rewards and CTRF only, and touches no graph structure. The
+  go/no-go bar in §10 stands exactly as frozen on 2026-08-22.
+
+  **(4) There is now an instrument for the thing §7 R1 asserted without one.** `analyze/shape.ts`
+  reports chain ratio, node counts by family, widest fan, and whether a run expressed branching
+  or concurrency at all. Measured on the two fixtures: 0.69 for the fork/join pursuit against
+  0.93 for the pre-redesign one. It reports the SIGN — this run branched more than that one —
+  rather than an absolute threshold nobody could defend.
+
+  **What this amendment does not do: re-baseline.** That needs a paid run against the benchmark,
+  and it has not happened. Until it does, there is no post-break Kona-arm measurement of any
+  kind, and nothing in this document should be read as if there were.
+
 - **2026-08-22 — the selection rule as written was wrong, and here is the correction.** The rule
   said "mid-band mean reward and high across-model variance." Applied to the published per-task
-  table (26 models × 46 tasks, 1,196 rows), it returns tasks that discriminate *between models* —
+  table (26 models × 46 tasks, 1,196 rows), it returns tasks that discriminate _between models_ —
   but this experiment holds the model fixed, and on four of its top five the baseline model already
   scores ≥0.99. A task the baseline solves cannot show an improvement. **Headroom must be measured
   on the baseline model, not across models.** Corrected rule, and the one actually used:
 
   > `score = across_model_sd × (1 − 2·|baseline_reward − 0.5|)`, over tasks where the baseline's
-  > own reward is in (0.05, 0.95). Centrality gives room to gain *and* a foothold to build on;
+  > own reward is in (0.05, 0.95). Centrality gives room to gain _and_ a foothold to build on;
   > sd is evidence the task separates agents at all rather than being a coin flip.
 
   Recorded rather than silently swapped, because the failure mode is instructive: an
@@ -507,13 +538,13 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
 - **2026-08-22 — THE FIVE TASKS, pinned. No further changes.** Baseline is
   `DeepSeek V4 Flash` at the published 90-minute budget.
 
-  | Task | Baseline reward | Across-model sd | Score |
-  |---|---|---|---|
-  | `unknown-config-semantics` | 0.500 | 0.329 | 0.329 |
-  | `sokoban` | 0.597 | 0.334 | 0.269 |
-  | `matpower-opf-regression` | 0.583 | 0.296 | 0.246 |
-  | `sudoku-recovery` | 0.571 | 0.259 | 0.222 |
-  | `apex-openroad-ibex-signoff` | 0.590 | 0.210 | 0.172 |
+  | Task                         | Baseline reward | Across-model sd | Score |
+  | ---------------------------- | --------------- | --------------- | ----- |
+  | `unknown-config-semantics`   | 0.500           | 0.329           | 0.329 |
+  | `sokoban`                    | 0.597           | 0.334           | 0.269 |
+  | `matpower-opf-regression`    | 0.583           | 0.296           | 0.246 |
+  | `sudoku-recovery`            | 0.571           | 0.259           | 0.222 |
+  | `apex-openroad-ibex-signoff` | 0.590           | 0.210           | 0.172 |
 
   All five sit between 0.43 and 0.60 for the baseline — real headroom in both directions — and
   span config exploration, puzzle search, power-systems regression, puzzle recovery and hardware
@@ -528,7 +559,7 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
   on it would test nothing. §4's V4-Pro line is superseded by this amendment.
 
 - **2026-08-22 — interim grading exists, and the progress curve is nearly free.** LHTB grades at
-  checkpoints (`LHTB_CHECKPOINT_INTERVAL_SEC`, default 1800) *and* at timeout, not only on final
+  checkpoints (`LHTB_CHECKPOINT_INTERVAL_SEC`, default 1800) _and_ at timeout, not only on final
   state. So the reward-vs-budget curve comes from **one run**, not one run per budget point — the
   ~5× lever named in §4 is real. Set the interval to **300 s** under the 20-minute cap for four
   curve points per run. Open question 2 is closed.
@@ -540,7 +571,7 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
   documented fallback if the model scores zero in both arms.
 
   **THE SIX TASKS, pinned. No further changes.** Selected by a rule that supersedes the earlier
-  one, for a reason worth stating: Harbor offers only a timeout *multiplier*, so a uniform cap is
+  one, for a reason worth stating: Harbor offers only a timeout _multiplier_, so a uniform cap is
   not expressible — therefore take only tasks whose **native** agent budget is ≤60 minutes and run
   at multiplier 1.0. Eight of 70 qualify; two are excluded for verifier length.
 
@@ -559,7 +590,7 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
   producing a negative.** Registered before any result existed, because it is an analysis rule and
   adding one after seeing data is precisely what this section exists to prevent.
 
-  The Kona arm *offers* the skill: Terminus-2 advertises it in an `<available_skills>` block and
+  The Kona arm _offers_ the skill: Terminus-2 advertises it in an `<available_skills>` block and
   the model decides whether to read and use it. Nothing compels it. If it never invokes `kona`,
   the arm is the baseline plus an unused binary, both arms score alike, and the run looks like
   "Kona does not help" while actually showing "Kona was never used" — opposite findings with
@@ -580,18 +611,18 @@ strong model has less thread to lose, so a null means "not on V4-Flash," not "no
 
 ## 11. Adoption — the void, and the mechanism behind it
 
-§10 anticipated this: *"a void result is a finding about discoverability — the skill's
-`description:` is what the model sees first."* That is what happened, and the mechanism turned
+§10 anticipated this: _"a void result is a finding about discoverability — the skill's
+`description:` is what the model sees first."_ That is what happened, and the mechanism turned
 out to be legible in the transcripts rather than a matter of speculation.
 
 ### The result
 
 Offered the skill and told nothing else, **neither model ever invoked `kona`.**
 
-| run | model | mutations beyond genesis |
-|---|---|---|
-| `probe-kona` | `deepseek/deepseek-v4-flash` | 0 |
-| `probe-kona-sonnet` | `anthropic/claude-sonnet-5` | 0 |
+| run                 | model                        | mutations beyond genesis |
+| ------------------- | ---------------------------- | ------------------------ |
+| `probe-kona`        | `deepseek/deepseek-v4-flash` | 0                        |
+| `probe-kona-sonnet` | `anthropic/claude-sonnet-5`  | 0                        |
 
 Both stores hold exactly one line. By the §10 gate the arm is **VOID** — not evidence that the
 state layer fails to help, evidence that it was never used. **It is not a DeepSeek trait**; a
@@ -602,20 +633,20 @@ frontier model on the identical task behaved identically.
 DeepSeek never opened the file. It read the `<available_skills>` block and reasoned its way out
 in the response body:
 
-> *"'Available skills kona' not necessary. … Let's consider if we need to use `/opt/kona`
+> _"'Available skills kona' not necessary. … Let's consider if we need to use `/opt/kona`
 > skills? Not really. The instruction says read before tasks need >5 steps; we didn't. But not
-> mandatory? It says should. But final can ignore."*
+> mandatory? It says should. But final can ignore."_
 
 Sonnet ran `cat /opt/kona/skills/kona/SKILL.md`, read all 115 lines, then immediately ran
 `find /app` and never mentioned it again.
 
-So one model declined on the description and the other declined *after full information*.
+So one model declined on the description and the other declined _after full information_.
 "The model did not know it was there" is dead, and the two paths need two different fixes.
 
 ### Four hypotheses, ranked by evidence
 
-1. **Our own gating clause handed it the exit.** The `description:` opened with *"Read this
-   before you start work on any task needing more than about five steps."* That asks for an
+1. **Our own gating clause handed it the exit.** The `description:` opened with _"Read this
+   before you start work on any task needing more than about five steps."_ That asks for an
    ex-ante estimate of an ex-post quantity, at the one moment the model knows least about the
    task — and every task looks like three steps before you start it. DeepSeek quoted the clause
    back as its reason. Best-evidenced of the four, because the model stated it in words, and
@@ -625,13 +656,13 @@ So one model declined on the description and the other declined *after full info
    `plan` string every turn. The agent is therefore already emitting a plan continuously, for
    free, with no tool call and no way to skip it. Kona was not competing against no-plan; it was
    competing against a mandatory plan that costs nothing. Evidenced by the same trajectory
-   (*"plan as string. commands empty."*), and it plausibly explains Sonnet's decline-after-
+   (_"plan as string. commands empty."_), and it plausibly explains Sonnet's decline-after-
    reading, which hypothesis 1 does not.
 
 3. **The blank page.** Authoring a graph from zero means committing to the whole decomposition
    at the moment of least information; maintaining one is incremental. Instructed but unseeded,
    the models authored nothing; handed a five-activity skeleton they extended it to twenty in a
-   single commit. The cost is *starting*, not *using*.
+   single commit. The cost is _starting_, not _using_.
 
 4. **Deferred payoff under a clock.** 1800s timeout, binary reward: tokens spent on the plan are
    tokens not spent on the task, and the payoff arrives late or never. Rational discounting, not
@@ -642,17 +673,17 @@ So one model declined on the description and the other declined *after full info
 
 All three edits are to `eval/skills/kona/SKILL.md` only. The shipped plugin skills
 (`plugin/skills/{plan,run}`) are **unchanged and did not need changing** — those are invoked by a
-human typing `/kona:plan`, so a trigger describing when a *user* should reach for them is doing
+human typing `/kona:plan`, so a trigger describing when a _user_ should reach for them is doing
 its job. The defect is specific to the autonomous-adoption path.
 
-| # | change | targets | predicts |
-|---|---|---|---|
-| 1 | `description:` no longer asks for a step-count forecast — the trigger is "before your first command", which is evaluable when read | H1 | DeepSeek-shaped declines stop |
-| 2 | New §0: the response's `plan` field is per-turn scratch; make it a one-line echo of `kona next` | H2 | Sonnet-shaped declines stop — the mandatory field becomes a consumer of the graph rather than a rival |
-| 3 | §1 states the first commit may be two activities, and that §4 is the normal way the rest arrives | H3 | authoring starts without a seed |
+| #   | change                                                                                                                             | targets | predicts                                                                                              |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| 1   | `description:` no longer asks for a step-count forecast — the trigger is "before your first command", which is evaluable when read | H1      | DeepSeek-shaped declines stop                                                                         |
+| 2   | New §0: the response's `plan` field is per-turn scratch; make it a one-line echo of `kona next`                                    | H2      | Sonnet-shaped declines stop — the mandatory field becomes a consumer of the graph rather than a rival |
+| 3   | §1 states the first commit may be two activities, and that §4 is the normal way the rest arrives                                   | H3      | authoring starts without a seed                                                                       |
 
 Change 2 is the one worth watching. The competitor was not another tool — it was a field the
-agent is *required* to fill in, which is a much stronger incumbent than anything we could have
+agent is _required_ to fill in, which is a much stronger incumbent than anything we could have
 been designed against. Turning it into a mirror of the graph costs nothing and removes the
 duplication the model was correctly objecting to.
 
@@ -666,7 +697,7 @@ question with its own prediction, stated here before the data.
   `probe-kona`, which is the control at 0 invocations.
 - **Prediction:** ≥1 `kona mutate` reaching the store. Anything above zero falsifies "models
   will not adopt it unprompted" as a flat statement and relocates the problem to the skill text.
-- **What it does not test:** whether adoption *helps*. Reward is not the read here and will not
+- **What it does not test:** whether adoption _helps_. Reward is not the read here and will not
   be reported as one.
 - **Failure is informative too:** if it still comes back at zero with the exit removed, H1 and
   H2 are both wrong and H4 — the timeout economics — becomes the live explanation.
@@ -682,18 +713,18 @@ The prediction in the block above was ≥1 mutation. It failed. What the transcr
 more useful than the number, and it splits three ways.
 
 **The trigger worked; the instruction didn't bind.** Removing the step-count exit did what it
-was supposed to — the model no longer reasons *"under five steps, skip."* It now notices the
+was supposed to — the model no longer reasons _"under five steps, skip."_ It now notices the
 instruction, twice, and registers that it is in violation of it:
 
-> *"`kona`. No need maybe. But system said read skill before first command. **Too late? We
-> should not worry.**"*
+> _"`kona`. No need maybe. But system said read skill before first command. **Too late? We
+> should not worry.**"_
 >
-> *"`kona` required. It says 'Read this before your first command…' **We didn't.** But final
-> answer just JSON. Fine."*
+> _"`kona` required. It says 'Read this before your first command…' **We didn't.** But final
+> answer just JSON. Fine."_
 
 So the edit converted a reasoned decline into a **noticed violation, rationalised away**. That
-is not nothing — salience went up — but it exposes a defect I introduced: *"before your first
-command"* names a window, and a window **expires**. Once the first command is behind it, the
+is not nothing — salience went up — but it exposes a defect I introduced: _"before your first
+command"_ names a window, and a window **expires**. Once the first command is behind it, the
 instruction is unsatisfiable, and "too late" becomes its own permanent licence to skip. A
 condition that can lapse is worse than a condition that is merely wrong, because it only has
 to be dodged once. **The trigger must be re-entrant** — a standing condition the model
@@ -702,20 +733,20 @@ not a one-time gate.
 
 **H2 was never tested, and my falsification condition was wrong to imply it was.** Change 2 —
 the §0 that redefines the harness's mandatory `plan` field as an echo of `kona next` — lives
-*inside the file the model never opened*. It cannot influence a decision made before reading.
+_inside the file the model never opened_. It cannot influence a decision made before reading.
 The block above said a second zero would make H1 and H2 "both wrong"; that was sloppy. Only
 `description:` is load-bearing for adoption. Everything in the body is post-adoption content,
 and putting an adoption fix there was a category error on my part.
 
-**H4 is live, in the model's own words.** *"kona is for plan. But we have 1800s. Need be
-systematic."* The clock entered its reasoning unprompted, at the moment of the decision.
+**H4 is live, in the model's own words.** _"kona is for plan. But we have 1800s. Need be
+systematic."_ The clock entered its reasoning unprompted, at the moment of the decision.
 
 **H5, new: the terminal is the third incumbent.** The model did keep a plan — as `printf`
 banners in the scrollback (`--- CLIENT MAP SOURCES ---`, `--- SMOKES ---`, `--- PRIVATE TEXT
 SCAN ---`). It felt the need for structure and satisfied it with echo statements. So Kona is
-not competing against *no plan*; it competes against the response's `plan` field (H2), the
-context window, and the terminal itself — three free, zero-latency surfaces. Its stated *"we
-can directly plan"* was an accurate description of its own behaviour.
+not competing against _no plan_; it competes against the response's `plan` field (H2), the
+context window, and the terminal itself — three free, zero-latency surfaces. Its stated _"we
+can directly plan"_ was an accurate description of its own behaviour.
 
 ### The instrument is wrong for the question, and that is on the rig
 

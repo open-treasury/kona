@@ -59,30 +59,96 @@ describe("changeSummary", () => {
       const summary = changeSummary(entry);
       if (diff.addedNodes.length > 0) {
         const n = diff.addedNodes.length;
-        expect(summary).toContain(`${String(n)} ${n === 1 ? "activity" : "activities"}`);
+        expect(summary).toContain(`${String(n)} ${n === 1 ? "node" : "nodes"}`);
       }
-      if (diff.addedEdges.length > 0) expect(summary).toContain(`${String(diff.addedEdges.length)} edge`);
+      if (diff.addedEdges.length > 0)
+        expect(summary).toContain(`${String(diff.addedEdges.length)} edge`);
       if (diff.superseded.length > 0) expect(summary).toContain("retired");
     }
   });
 
   test("plurals are English, including the irregular one", () => {
-    const one = { version: 1, diff: { addedNodes: ["a"], addedEdges: [], superseded: [], statusChanged: [], outcomeAdded: [], topologyStable: false, fromVersion: 0, toVersion: 1 } } as unknown as TimelineEntry;
-    expect(changeSummary(one)).toBe("added 1 activity");
+    // The irregular case is now `branch`/`branches` alone — `activity`/`activities` left with
+    // the noun rename, and `node` is regular.
+    const one = {
+      version: 1,
+      diff: {
+        addedNodes: ["a"],
+        addedEdges: [],
+        superseded: [],
+        statusChanged: [],
+        outcomeAdded: [],
+        topologyStable: false,
+        fromVersion: 0,
+        toVersion: 1,
+      },
+    } as unknown as TimelineEntry;
+    expect(changeSummary(one)).toBe("added 1 node");
 
-    const many = { version: 2, diff: { addedNodes: ["a", "b"], addedEdges: [{}, {}], superseded: [], statusChanged: [], outcomeAdded: [], topologyStable: false, fromVersion: 1, toVersion: 2 } } as unknown as TimelineEntry;
-    expect(changeSummary(many)).toBe("added 2 activities and 2 edges");
+    const many = {
+      version: 2,
+      diff: {
+        addedNodes: ["a", "b"],
+        addedEdges: [{}, {}],
+        superseded: [],
+        statusChanged: [],
+        outcomeAdded: [],
+        topologyStable: false,
+        fromVersion: 1,
+        toVersion: 2,
+      },
+    } as unknown as TimelineEntry;
+    expect(changeSummary(many)).toBe("added 2 nodes and 2 edges");
 
     // `branch` + "s" is the plural a naive implementation writes, and it is wrong.
-    const retired = { version: 3, diff: { addedNodes: [], addedEdges: [], superseded: [{ id: "a", by: null }, { id: "b", by: null }], statusChanged: [], outcomeAdded: [], topologyStable: false, fromVersion: 2, toVersion: 3 } } as unknown as TimelineEntry;
+    const retired = {
+      version: 3,
+      diff: {
+        addedNodes: [],
+        addedEdges: [],
+        superseded: [
+          { id: "a", by: null },
+          { id: "b", by: null },
+        ],
+        statusChanged: [],
+        outcomeAdded: [],
+        topologyStable: false,
+        fromVersion: 2,
+        toVersion: 3,
+      },
+    } as unknown as TimelineEntry;
     expect(changeSummary(retired)).toBe("retired 2 branches");
 
-    const oneBranch = { version: 4, diff: { addedNodes: [], addedEdges: [], superseded: [{ id: "a", by: null }], statusChanged: [], outcomeAdded: [], topologyStable: false, fromVersion: 3, toVersion: 4 } } as unknown as TimelineEntry;
+    const oneBranch = {
+      version: 4,
+      diff: {
+        addedNodes: [],
+        addedEdges: [],
+        superseded: [{ id: "a", by: null }],
+        statusChanged: [],
+        outcomeAdded: [],
+        topologyStable: false,
+        fromVersion: 3,
+        toVersion: 4,
+      },
+    } as unknown as TimelineEntry;
     expect(changeSummary(oneBranch)).toBe("retired 1 branch");
   });
 
   test("topology that is neither an add nor a retire does not invent a verb", () => {
-    const odd = { version: 5, diff: { addedNodes: [], addedEdges: [], superseded: [], statusChanged: [], outcomeAdded: [], topologyStable: false, fromVersion: 4, toVersion: 5 } } as unknown as TimelineEntry;
+    const odd = {
+      version: 5,
+      diff: {
+        addedNodes: [],
+        addedEdges: [],
+        superseded: [],
+        statusChanged: [],
+        outcomeAdded: [],
+        topologyStable: false,
+        fromVersion: 4,
+        toVersion: 5,
+      },
+    } as unknown as TimelineEntry;
     expect(changeSummary(odd)).toBe("changed the shape of the graph");
   });
 });

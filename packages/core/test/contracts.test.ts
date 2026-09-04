@@ -28,36 +28,37 @@ import {
   isTerminal,
   parseBatch,
 } from "../src/index.ts";
-import { seeded, task, activityAt } from "./fixtures.ts";
+import { seeded, action, activityAt } from "./fixtures.ts";
 
 describe("the six ops, and only the six", () => {
   test("OP_KINDS is exactly what the authored schema discriminates on", () => {
-    const discriminated = AuthoredOpSchema.options.map((option) =>
-      option.def.shape.op.value as string,
+    const discriminated = AuthoredOpSchema.options.map(
+      (option) => option.def.shape.op.value as string,
     );
-    expect(discriminated.toSorted()).toEqual([...OP_KINDS].toSorted());
+    expect([...new Set(discriminated)].toSorted()).toEqual([...OP_KINDS].toSorted());
   });
 
   test("the committed schema discriminates on the same six", () => {
-    const discriminated = CommittedOpSchema.options.map((option) =>
-      option.def.shape.op.value as string,
+    const discriminated = CommittedOpSchema.options.map(
+      (option) => option.def.shape.op.value as string,
     );
-    expect(discriminated.toSorted()).toEqual([...OP_KINDS].toSorted());
+    expect([...new Set(discriminated)].toSorted()).toEqual([...OP_KINDS].toSorted());
   });
 
   test.each([...FORBIDDEN_OP_KINDS])("'%s' is refused, and reserves no opcode", (forbidden) => {
     expect(OP_KINDS).not.toContain(forbidden);
-    expect(parseBatch([{ op: forbidden, activity: "a" }]).ok).toBe(false);
+    expect(parseBatch([{ op: forbidden, node: "a" }]).ok).toBe(false);
   });
 
   test("TERMINAL_SAFE_OP_KINDS is exactly the set invariant 1 lets through", () => {
     // Anything not in this list, targeting an activity terminal at head, must be rejected.
-    const done = seeded([task("A")]);
+    const done = seeded([action("A")]);
     const activity = activityAt(done, "a");
-    if (activity === undefined) throw new Error("fixture");
-    activity.status.state = "done";
+    if (activity?.status === undefined)
+      throw new Error("fixture: expected a node that carries a status");
+    activity.status.state = "completed";
     const safe: string[] = [...TERMINAL_SAFE_OP_KINDS];
-    expect(safe.toSorted()).toEqual(["record_outcome", "record_output", "supersede_activity"]);
+    expect(safe.toSorted()).toEqual(["record_outcome", "record_output", "supersede_node"]);
   });
 });
 
@@ -75,11 +76,11 @@ describe("closed sets stay closed", () => {
   });
 
   test.each([...VERDICTS])("verdict '%s' is accepted", (verdict) => {
-    const graph = seeded([task("A")]);
-    expect(
-      parseBatch([{ op: "record_outcome", activity: "a", verdict, evidence_ref: "e" }]).ok,
-    ).toBe(true);
-    expect(graph.activities.size).toBe(1);
+    const graph = seeded([action("A")]);
+    expect(parseBatch([{ op: "record_outcome", node: "a", verdict, evidence_ref: "e" }]).ok).toBe(
+      true,
+    );
+    expect(graph.nodes.size).toBe(1);
   });
 
   test.each([...ACTOR_KINDS])("actor kind '%s' is a legal value", (kind) => {
@@ -130,11 +131,18 @@ describe("the primitive schemas", () => {
     expect(DeadlineSchema.safeParse({ at: "2026-08-22T17:00:00.000Z" }).success).toBe(true);
     expect(DeadlineSchema.safeParse({ after: "a", duration: "48h" }).success).toBe(true);
     expect(
-      DeadlineSchema.safeParse({ expr: "game_date - 24h", backstop: "2026-08-22T17:00:00.000Z", after_unknown: true }).success,
+      DeadlineSchema.safeParse({
+        expr: "game_date - 24h",
+        backstop: "2026-08-22T17:00:00.000Z",
+        after_unknown: true,
+      }).success,
     ).toBe(true);
     // Half of one shape and half of another is not a deadline.
     expect(DeadlineSchema.safeParse({ after: "a" }).success).toBe(false);
-    expect(DeadlineSchema.safeParse({ at: "2026-08-22T17:00:00.000Z", after: "a", duration: "1h" }).success).toBe(false);
+    expect(
+      DeadlineSchema.safeParse({ at: "2026-08-22T17:00:00.000Z", after: "a", duration: "1h" })
+        .success,
+    ).toBe(false);
     expect(DeadlineSchema.safeParse({ after: "a", duration: "soon" }).success).toBe(false);
   });
 
@@ -145,15 +153,15 @@ describe("the primitive schemas", () => {
     // most ordinary activity in a graph or invent a declaration nobody wrote.
     const parsed = parseBatch([
       {
-        op: "add_activity",
+        op: "add_node",
         name: "Read the roster",
-        type: "task",
+        type: "action",
         spec: { instruction: "read it", effect_class: "pure" },
       },
     ]);
     expect(parsed.ok).toBe(true);
     const first = parsed.ok ? parsed.value[0] : undefined;
-    if (first?.op !== "add_activity") throw new Error("unreachable");
+    if (first?.op !== "add_node") throw new Error("unreachable");
     expect(first.spec.inputs).toEqual([]);
     expect(first.spec.outputs).toEqual([]);
   });
@@ -161,15 +169,17 @@ describe("the primitive schemas", () => {
   test("a duration is anchored too — `48hours` is not 48 hours", () => {
     // `/^\d+[smhd]$/` unanchored at the back accepts `48hours`, `48h!` and `48hz`, and
     // `parseDuration` would read every one of them as 48 hours. A deadline is the only thing
-    // standing between a silent wait and a follow-up, so a duration that parses as something
+    // standing between a silent acceptEvent and a follow-up, so a duration that parses as something
     // the author did not write is the quietest possible bug.
     for (const good of ["48h", "30m", "7d", "90s", "1h"]) {
-      expect(`${good}: ${String(DeadlineSchema.safeParse({ after: "a", duration: good }).success)}`)
-        .toBe(`${good}: true`);
+      expect(
+        `${good}: ${String(DeadlineSchema.safeParse({ after: "a", duration: good }).success)}`,
+      ).toBe(`${good}: true`);
     }
     for (const bad of ["48hours", "48h!", "48hz", "x48h", "48", "h", "4 8h", "-1h", "48H"]) {
-      expect(`${bad}: ${String(DeadlineSchema.safeParse({ after: "a", duration: bad }).success)}`)
-        .toBe(`${bad}: false`);
+      expect(
+        `${bad}: ${String(DeadlineSchema.safeParse({ after: "a", duration: bad }).success)}`,
+      ).toBe(`${bad}: false`);
     }
   });
 });

@@ -25,6 +25,7 @@ import {
   Circle,
   CircleCheck,
   CircleSlash,
+  OctagonPause,
   CircleX,
   LoaderCircle,
   Radio,
@@ -49,17 +50,29 @@ export interface CardData extends Record<string, unknown> {
 }
 
 /**
- * The five statuses (§6.2 froze them) as one glyph each, in the Actions vocabulary: a ring you
- * read by its shape before you read it by its colour. `sending` spins because it is the one
- * status that is genuinely mid-flight, and `active` is a bare ring because "queued, nobody has
- * run it" is the absence of an outcome rather than an outcome of its own.
+ * The seven lifecycle states (§6.2.1) as one glyph each, in the Actions vocabulary: a ring you
+ * read by its shape before you read it by its colour.
+ *
+ * The PAYLOADS moved with the meanings, not with the names, and that distinction is the whole
+ * risk in this map: the keys are compiler-checked and the values are not, so renaming the keys
+ * and leaving the payloads where they sat would invert every glyph on the canvas and compile
+ * perfectly. `active` now means *being worked* — the spinner, which used to be `in_flight` —
+ * and the bare queued ring moved to `ready`.
+ *
+ * `inactive` is new and is deliberately the quietest thing here: "the graph has not reached
+ * this yet" is not a state a reader should be drawn to, and it is the commonest state in any
+ * large pursuit. `terminated` shares `withdrawn`'s slash because both are abandonment, but
+ * takes the failed-family ink: somebody was working it when it was stopped, and that is closer
+ * to a wound than to a tidy-up.
  */
 const STATUS_GLYPH: Record<Status, { icon: LucideIcon; tone: string; spin: boolean }> = {
-  active: { icon: Circle, tone: "text-status-active-ink", spin: false },
-  in_flight: { icon: LoaderCircle, tone: "text-status-in-flight-ink", spin: true },
-  done: { icon: CircleCheck, tone: "text-status-done-ink", spin: false },
+  inactive: { icon: Circle, tone: "text-carbon-40", spin: false },
+  ready: { icon: Circle, tone: "text-status-active-ink", spin: false },
+  active: { icon: LoaderCircle, tone: "text-status-in-flight-ink", spin: true },
+  completed: { icon: CircleCheck, tone: "text-status-done-ink", spin: false },
   failed: { icon: CircleX, tone: "text-status-failed-ink", spin: false },
-  dropped: { icon: CircleSlash, tone: "text-status-dropped-ink", spin: false },
+  withdrawn: { icon: CircleSlash, tone: "text-status-dropped-ink", spin: false },
+  terminated: { icon: CircleSlash, tone: "text-status-failed-ink", spin: false },
 };
 
 /**
@@ -73,7 +86,7 @@ const WAIT_TONE: Record<WaitPhase, string> = {
   resolved: "text-wait-resolved",
   failed: "text-wait-failed",
   unarmed: "text-carbon-40",
-  dropped: "text-carbon-40",
+  withdrawn: "text-carbon-40",
 };
 
 const MATCH_ICON: Record<string, LucideIcon> = {
@@ -121,11 +134,21 @@ function DetailRow({ view }: { view: ActivityView }): React.ReactElement | null 
         className={cn(
           ROW,
           "text-status-failed-ink",
-          blocked.unreachable && "font-semibold",
+          (blocked.unreachable || blocked.parked) && "font-semibold",
         )}
       >
+        {/*
+          Three states, not two. §6.10 rule 11: a node waiting on something that will never
+          arrive must not be drawn like one that is merely waiting its turn. `unreachable` is
+          over — nothing can revive it. `parked` is stalled under a FAILED arm, which §6.4
+          rule 5 deliberately keeps alive so a human can repair it rather than the store
+          silently deleting the work. Drawn as an ordinary wait, that second case is exactly
+          the quiet hang this whole line exists to name.
+        */}
         {blocked.unreachable ? (
           <CircleSlash aria-hidden className="size-3 shrink-0 opacity-70" />
+        ) : blocked.parked ? (
+          <OctagonPause aria-hidden className="size-3 shrink-0 opacity-70" />
         ) : (
           <TriangleAlert aria-hidden className="size-3 shrink-0 opacity-70" />
         )}
@@ -133,7 +156,7 @@ function DetailRow({ view }: { view: ActivityView }): React.ReactElement | null 
       </div>
     );
   }
-  const outcome = view.activity.status.outcome;
+  const outcome = view.activity.status?.outcome ?? null;
   if (outcome !== null) {
     return (
       <div className={cn(ROW, "text-muted-foreground")}>
@@ -148,7 +171,7 @@ function DetailRow({ view }: { view: ActivityView }): React.ReactElement | null 
 function WaitRow({ wait }: { wait: WaitState }): React.ReactElement {
   const MatchIcon = MATCH_ICON[wait.matchKind ?? "event"] ?? Radio;
   // When there is no clock, WHY there is no clock outranks what would close the wait. A reader
-  // looking at a wait is looking for the countdown; "anchored to X, which is still active" is
+  // looking at a wait is looking for the countdown; "anchored to X, which is still in flight" is
   // the answer to the question they actually asked, and the match label is one hover away.
   const line = wait.unresolvedReason ?? wait.matchLabel;
   return (
@@ -176,8 +199,8 @@ function WaitRow({ wait }: { wait: WaitState }): React.ReactElement {
         {wait.unresolvedReason !== null && (
           <div className="mt-1 opacity-70">{wait.unresolvedReason}</div>
         )}
-        {wait.onTimeout !== null && (
-          <div className="mt-1 opacity-70">on timeout → {wait.onTimeout}</div>
+        {wait.timeoutTarget !== null && (
+          <div className="mt-1 opacity-70">timeout route → {wait.timeoutTarget}</div>
         )}
       </TooltipContent>
     </Tooltip>
@@ -201,16 +224,31 @@ function ActivityCard({ data, selected }: NodeProps): React.ReactElement {
       // The card, not the React Flow wrapper, carries the box: measured on 12.11.3, a wrapper
       // with explicit style dimensions is skipped by the measuring pass and takes every edge
       // touching it with it — silently, no warning, just no lines.
-      style={ACTIVITY_SIZE[activity.type]}
+      style={{
+        ...ACTIVITY_SIZE[activity.type],
+        // §6.2 — AcceptEventAction is a rectangle with a notch cut into its INCOMING edge, the
+        // receiving mirror of SendSignalAction's outgoing point. It is the notation, and it is
+        // also the only thing on the canvas that says "this one is not ours to do" without
+        // reading a word: an action is worked by an agent, an accept_event by the world.
+        //
+        // A clip-path rather than a border, because the notch has to eat the border too — a
+        // rounded rectangle with a triangle drawn on it reads as a rectangle with a decoration.
+        // The cost is the rounded corners, which clip-path cannot keep; the pentagon's silhouette
+        // is the stronger signal and wins.
+        ...(activity.type === "accept_event"
+          ? { clipPath: "polygon(0 0, 100% 0, 100% 100%, 0 100%, 14px 50%)" }
+          : {}),
+      }}
       className={cn(
-        "flex flex-col justify-center gap-1 overflow-hidden rounded-lg border border-border",
+        "flex flex-col justify-center gap-1 overflow-hidden border border-border",
+        activity.type === "accept_event" ? "rounded-none pl-5" : "rounded-lg",
         "bg-card px-3 py-2 shadow-subtle",
         "transition-[border-color,box-shadow,opacity] duration-[--transition-medium]",
         // Dimmed, not erased. Nothing is ever deleted from a Kona graph, and an activity that has
         // been dropped or replaced is still part of how the pursuit got here — §6.3's whole
         // argument. On a light ground the floor for that is higher than on a dark one: below
         // about 60% the label stops being legible and "retired" reads as "broken render".
-        activity.status.state === "dropped" && "opacity-65",
+        activity.status?.state === "withdrawn" && "opacity-65",
         superseded && "opacity-60",
         selected && "border-primary shadow-standard",
         fresh && "animate-flash",
@@ -219,7 +257,9 @@ function ActivityCard({ data, selected }: NodeProps): React.ReactElement {
       <Handle type="target" position={Position.Left} isConnectable={false} />
 
       <div className="flex min-w-0 items-center gap-2">
-        <StatusGlyph status={activity.status.state} />
+        {/* A card is only ever an action or an accept_event, so this is always present —
+            but the union says so rather than the reader having to know it. */}
+        {activity.status !== undefined && <StatusGlyph status={activity.status.state} />}
         <Tooltip>
           <TooltipTrigger asChild>
             {/* `min-w-0` is what makes the truncation land on the LABEL's own box rather than

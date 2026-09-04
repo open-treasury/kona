@@ -28,9 +28,9 @@ const CONFIG = {
 
 const PLAN = [
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Confirm roster",
-    type: "task",
+    type: "action",
     spec: {
       instruction: "Read the roster.",
       outputs: [{ name: "availability", type: "string[]" }],
@@ -38,9 +38,9 @@ const PLAN = [
     },
   },
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Ask Dana",
-    type: "task",
+    type: "action",
     spec: {
       instruction: "Email Dana asking if she can play Thursday.",
       inputs: [{ ref: "confirm-roster.availability" }],
@@ -52,14 +52,13 @@ const PLAN = [
   // The wait behind the send, and it is not decoration: §6.5's correlation token is the
   // WAIT's, so an ask with nothing waiting on it correctly gets no reply address at all.
   {
-    op: "add_activity",
+    op: "add_node",
     name: "Wait for Dana",
-    type: "wait",
+    type: "accept_event",
     spec: {
       instruction: "Await Dana's reply.",
       effect_class: "pure",
       deadline: { after: "$1", duration: "48h" },
-      on_timeout: "$0",
       match: {
         kind: "event",
         conditions: [
@@ -69,8 +68,16 @@ const PLAN = [
       },
     },
   },
-  { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_node", name: "Route Dana reply", type: "decision", spec: {} },
+  { op: "add_node", name: "Dana replied", type: "final", spec: {} },
+  { op: "add_node", name: "Dana timed out", type: "flow_final", spec: {} },
+  { op: "supersede_node", node: "roster-recorded", by: "$4" },
+  { op: "add_edge", from: "roster-on-file", to: "$0" },
   { op: "add_edge", from: "$1", to: "$2" },
+  { op: "add_edge", from: "$0", to: "$1" },
+  { op: "add_edge", from: "$2", to: "$3" },
+  { op: "add_edge", from: "$3", to: "$4", guard: { on: "satisfied" } },
+  { op: "add_edge", from: "$3", to: "$5", guard: "else" },
 ];
 
 async function initWith(config: unknown): Promise<void> {
@@ -85,7 +92,20 @@ async function initWith(config: unknown): Promise<void> {
   await seedRoster(h, ["dana"]);
   const ops = h.writeOps("ops.json", PLAN);
   expect(
-    await run(["mutate", "--ops", ops, "--base-version", "2", "--why", "plan", "--reason-code", "MISSING_STEP"], h.io),
+    await run(
+      [
+        "mutate",
+        "--ops",
+        ops,
+        "--base-version",
+        "2",
+        "--why",
+        "plan",
+        "--reason-code",
+        "MISSING_STEP",
+      ],
+      h.io,
+    ),
   ).toBe(0);
   h.reset();
 }
@@ -121,11 +141,20 @@ describe("kona next", () => {
 
   test("marks an activity that will move bytes, so the loop can gate on it", async () => {
     const ops = h.writeOps("done.json", [
-      { op: "record_output", activity: h.id("confirm-roster"), output_name: "availability", value: ["dana"], evidence_ref: "e" },
-      { op: "set_status", activity: h.id("confirm-roster"), status: "done", evidence_ref: "e" },
+      {
+        op: "record_output",
+        node: h.id("confirm-roster"),
+        output_name: "availability",
+        value: ["dana"],
+        evidence_ref: "e",
+      },
+      { op: "set_status", node: h.id("confirm-roster"), status: "completed", evidence_ref: "e" },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "read", "--reason-code", "OTHER"], h.io),
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "3", "--why", "read", "--reason-code", "OTHER"],
+        h.io,
+      ),
     ).toBe(0);
     h.reset();
     expect(await run(["next"], h.io)).toBe(0);
@@ -133,23 +162,128 @@ describe("kona next", () => {
   });
 
   test("says so plainly when nothing is ready", async () => {
+    // `withdrawn` is the store's to write, never an author's (§6.2.1), so an author stops an
+    // unclaimed activity by superseding it — the cascade reads "unclaimed" off the state it
+    // finds and derives `withdrawn` itself.
     const ops = h.writeOps("stop.json", [
-      { op: "set_status", activity: h.id("confirm-roster"), status: "dropped", evidence_ref: "e" },
+      { op: "set_status", node: h.id("confirm-roster"), status: "active", evidence_ref: "claim" },
+      {
+        op: "set_status",
+        node: h.id("confirm-roster"),
+        status: "terminated",
+        evidence_ref: "stop",
+      },
     ]);
     expect(
-      await run(["mutate", "--ops", ops, "--base-version", "3", "--why", "stop", "--reason-code", "WITHDRAWN"], h.io),
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "3",
+          "--why",
+          "stop",
+          "--reason-code",
+          "WITHDRAWN",
+        ],
+        h.io,
+      ),
     ).toBe(0);
     h.reset();
     expect(await run(["next"], h.io)).toBe(0);
     expect(h.out[0]).toBe("version 4 · nothing ready");
   });
 
-  test("--json carries the whole activity, not just an id", async () => {
+  test("--json carries the whole action plus its fork and completion state", async () => {
     h.reset();
     expect(await run(["next", "--json"], h.io)).toBe(0);
-    const payload = JSON.parse(h.out[0] ?? "{}") as { version: number; activities: { id: string }[] };
+    const payload = JSON.parse(h.out[0] ?? "{}") as {
+      version: number;
+      complete: boolean;
+      nodes: { id: string; type: string; fork: string | null }[];
+    };
     expect(payload.version).toBe(3);
-    expect(payload.activities.map((n) => n.id)).toEqual([h.id("confirm-roster")]);
+    expect(payload.complete).toBe(false);
+    expect(payload.nodes).toMatchObject([
+      { id: h.id("confirm-roster"), type: "action", fork: null },
+    ]);
+  });
+
+  test("does not dispatch a ready accept-event", async () => {
+    const ops = h.writeOps("reach-wait.json", [
+      {
+        op: "record_output",
+        node: h.id("confirm-roster"),
+        output_name: "availability",
+        value: ["dana"],
+        evidence_ref: "e",
+      },
+      { op: "set_status", node: h.id("confirm-roster"), status: "completed", evidence_ref: "e" },
+      { op: "set_status", node: h.id("ask-dana"), status: "completed", evidence_ref: "e" },
+    ]);
+    expect(
+      await run(
+        ["mutate", "--ops", ops, "--base-version", "3", "--why", "sent", "--reason-code", "OTHER"],
+        h.io,
+      ),
+    ).toBe(0);
+    h.reset();
+    expect(await run(["next", "--json"], h.io)).toBe(0);
+    expect(JSON.parse(h.out[0] ?? "{}")).toMatchObject({ nodes: [], complete: false });
+  });
+
+  test("reports complete when the final has been reached", async () => {
+    const ops = h.writeOps("finish.json", [
+      {
+        op: "record_output",
+        node: h.id("confirm-roster"),
+        output_name: "availability",
+        value: ["dana"],
+        evidence_ref: "e",
+      },
+      { op: "set_status", node: h.id("confirm-roster"), status: "completed", evidence_ref: "e" },
+      { op: "set_status", node: h.id("ask-dana"), status: "completed", evidence_ref: "e" },
+      {
+        op: "record_outcome",
+        node: h.id("wait-for-dana"),
+        verdict: "confirmed",
+        evidence_ref: "e",
+      },
+      { op: "set_status", node: h.id("wait-for-dana"), status: "completed", evidence_ref: "e" },
+    ]);
+    expect(
+      await run(
+        [
+          "mutate",
+          "--ops",
+          ops,
+          "--base-version",
+          "3",
+          "--why",
+          "replied",
+          "--reason-code",
+          "OTHER",
+        ],
+        h.io,
+      ),
+    ).toBe(0);
+    h.reset();
+    expect(await run(["next", "--json"], h.io)).toBe(0);
+    expect(JSON.parse(h.out[0] ?? "{}")).toMatchObject({ nodes: [], complete: true });
+
+    h.reset();
+    expect(await run(["next"], h.io)).toBe(0);
+    expect(h.out[0]).toEndWith("nothing ready · complete");
+  });
+
+  test("graph JSON publishes guards without leaking internal conditions", async () => {
+    h.reset();
+    expect(await run(["graph", "--json"], h.io)).toBe(0);
+    const payload = JSON.parse(h.out[0] ?? "{}") as { edges: Record<string, unknown>[] };
+    const guarded = payload.edges.find((edge) => edge.guard !== undefined);
+    expect(guarded?.guard).toEqual({ on: "satisfied" });
+    expect(payload.edges.some((edge) => "condition" in edge)).toBe(false);
   });
 
   test("refuses outside a pursuit", async () => {
@@ -171,6 +305,15 @@ describe("kona next", () => {
 });
 
 describe("kona brief", () => {
+  test.each(["wait-for-dana", "route-dana-reply"])(
+    "refuses non-action node '%s' cleanly",
+    async (slug) => {
+      h.reset();
+      expect(await run(["brief", h.id(slug)], h.io)).toBe(1);
+      expect(h.err[0]).toContain("NOT_BRIEFABLE");
+    },
+  );
+
   test("exits 0 when preconditions are met", async () => {
     const { code, brief } = await briefJson(h.id("confirm-roster"));
     expect(code).toBe(0);
@@ -282,6 +425,28 @@ describe("kona brief", () => {
     h.reset();
     expect(await run(["brief", h.id("confirm-roster")], h.io)).toBe(1);
     expect(h.err[0]).toContain("UNPARSEABLE_RECORD");
+  });
+});
+
+describe("kona effect reserve", () => {
+  test("refuses an inactive action rather than claiming blocked work", async () => {
+    h.reset();
+    expect(
+      await run(
+        [
+          "effect",
+          "reserve",
+          h.id("ask-dana"),
+          "--payload-hash",
+          "sha256:blocked",
+          "--why",
+          "send",
+        ],
+        h.io,
+      ),
+    ).toBe(1);
+    expect(h.err[0]).toContain("NOT_DISPATCHABLE");
+    expect(h.err[0]).toContain("only ready actions may reserve");
   });
 });
 
