@@ -26,5 +26,6 @@
       ]
     }
   },
+  "lsp": true,
   "permission": "allow"
 }
