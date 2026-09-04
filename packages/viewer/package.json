@@ -24,7 +24,7 @@
     "@radix-ui/react-tooltip": "1.2.16",
     "@xyflow/react": "12.11.3",
     "clsx": "2.1.1",
-    "lucide-react": "1.33.0",
+    "lucide-react": "1.41.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tailwind-merge": "3.6.0",
