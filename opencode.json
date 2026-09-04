@@ -1,4 +1,30 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "autoupdate": true,
+  "formatter": {
+    "oxfmt": {
+      "disabled": true
+    },
+    "project-oxfmt": {
+      "command": ["bunx", "oxfmt", "--write", "--no-error-on-unmatched-pattern", "$FILE"],
+      "extensions": [
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".tsx",
+        ".mts",
+        ".cts",
+        ".json",
+        ".jsonc",
+        ".css",
+        ".html",
+        ".md",
+        ".yaml",
+        ".yml"
+      ]
+    }
+  },
   "permission": "allow"
 }

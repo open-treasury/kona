@@ -12,6 +12,8 @@
     "typecheck": "tsc -p packages/core && tsc -p packages/kona && tsc -p packages/viewer && tsc -p eval && bun run typecheck:purity",
     "typecheck:purity": "tsc -p packages/core/tsconfig.purity.json",
     "lint": "oxlint --type-aware",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "knip": "knip",
     "test": "bun test",
     "mutate": "./scripts/mutation.sh",
@@ -25,6 +27,7 @@
     "@stryker-mutator/core": "10.0.0",
     "@types/bun": "latest",
     "knip": "6.32.2",
+    "oxfmt": "0.66.0",
     "oxlint": "1.79.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "7.0.2"
