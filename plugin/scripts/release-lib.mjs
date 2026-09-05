@@ -19,7 +19,7 @@ export const RELEASE_FILES = [
   "lib/plugin-lifecycle.mjs",
   "package.json",
 ]
-  .toSorted()
+  .toSorted((left, right) => left.localeCompare(right))
   .map((path) => [path, 0o444]);
 
 export const sha256 = (value) => createHash("sha256").update(value).digest("hex");

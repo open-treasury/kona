@@ -1,7 +1,7 @@
 {
   "name": "kona",
   "displayName": "Kona",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "A living workflow graph. Author a pursuit from a brief, run it, and let it change shape as reality answers \u2014 every mutation versioned with its rationale.",
   "author": {
     "name": "Ilya Vorobiev"

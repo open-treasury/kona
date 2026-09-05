@@ -242,7 +242,7 @@
         ],
         [
           "plugin-lifecycle.node.mjs",
-          "schema-v1 copied migration rollback restores exact files, manifest, config, and backups"
+          "copied schema-v1 and schema-v3 migration rollback restores exact files, config, manifest, and backups"
         ],
         [
           "plugin-lifecycle.node.mjs",
@@ -278,12 +278,45 @@
       ]
     }
   },
+  "issues": {
+    "AC1": ["issues-contract.test.ts", "requires issue lifecycle and epic decomposition"],
+    "AC2": ["issues-workflow.test.ts", "substantial feature"],
+    "AC3": ["issues-contract.test.ts", "requires informed bootstrap consent"],
+    "AC4": {
+      "automated": [
+        ["issues-workflow.test.ts", "claim conflict"],
+        ["issues-workflow.test.ts", "failed verification"]
+      ]
+    },
+    "AC5": ["issues-workflow.test.ts", "successful closure"],
+    "AC6": {
+      "automated": [
+        ["static-contract.node.mjs", "issues destination repository assumption"],
+        ["static-contract.node.mjs", "issues bd command"],
+        ["static-contract.node.mjs", "issues Dolt command"]
+      ]
+    },
+    "AC7": {
+      "automated": [["host-validation.node.mjs", "real-host"]],
+      "manual": "issues-runs"
+    },
+    "AC8": [
+      "plugin-lifecycle.node.mjs",
+      "schema-v3 copied bundles migrate directly to strict schema 4"
+    ]
+  },
   "manualEvidence": {
     "copy-runs": {
       "file": "DOGFOOD.md",
       "heading": "Copy Run Matrix (12 Required Runs)",
       "status": "pending",
       "requiredRuns": 12
+    },
+    "issues-runs": {
+      "file": "DOGFOOD.md",
+      "heading": "Issues Run Matrix",
+      "status": "deferred",
+      "requiredRuns": 4
     }
   }
 }

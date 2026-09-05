@@ -109,14 +109,14 @@ This requires Node.js 20+, `curl`, `tar`, and `sha256sum` or `shasum`. The boots
 versioned GitHub Release archive, uses no `sudo`, and changes no startup file. Ensure
 `~/.local/bin` (or `KONA_BIN_DIR`) is on `PATH`.
 
-| Host        | Scopes               | Install example                                        | Copy / PRD / SPEC invocation                    |
-| ----------- | -------------------- | ------------------------------------------------------ | ----------------------------------------------- |
-| OpenCode    | project, user        | `kona install --host opencode --scope project`         | `@copy-writer` / `@prd-writer` / `@spec-writer` |
-| Codex       | project, user        | `kona install --host codex --scope project`            | `$copy` / `$prd` / `$spec`                      |
-| Claude Code | project, local, user | `kona install --host claude --scope project --approve` | `/kona:copy` / `/kona:prd` / `/kona:spec`       |
-| Pi          | project, user        | `kona install --host pi --scope project --approve`     | `/skill:copy` / `/skill:prd` / `/skill:spec`    |
+| Host        | Scopes               | Install example                                        | Copy / PRD / SPEC / Issues invocation                          |
+| ----------- | -------------------- | ------------------------------------------------------ | -------------------------------------------------------------- |
+| OpenCode    | project, user        | `kona install --host opencode --scope project`         | `@copy-writer` / `@prd-writer` / `@spec-writer` / `issues`     |
+| Codex       | project, user        | `kona install --host codex --scope project`            | `$copy` / `$prd` / `$spec` / `$issues`                         |
+| Claude Code | project, local, user | `kona install --host claude --scope project --approve` | `/kona:copy` / `/kona:prd` / `/kona:spec` / `/kona:issues`     |
+| Pi          | project, user        | `kona install --host pi --scope project --approve`     | `/skill:copy` / `/skill:prd` / `/skill:spec` / `/skill:issues` |
 
-Each lifecycle operation manages all three capabilities together; there is one executable, package,
+Each lifecycle operation manages all four capabilities together; there is one executable, package,
 marketplace entry, and active scope per host. Use `verify`, `update`, `disable`, `enable`, or
 `remove` in place of `install`, retaining the same `--host` and `--scope`; Claude and Pi mutations
 show their native command plan and require `--approve`. Disable or remove an active scope before
@@ -126,10 +126,11 @@ unverifiable backup blocks mutation and retains recovery evidence. Project Pi pa
 project trust. The lifecycle CLI also defaults Pi installs to `git:github.com/open-treasury/kona`;
 `--source` remains available for explicit local validation.
 
-Existing schema-v1 `0.1.1` PRD-only and released schema-v2 `0.2.0` PRD+SPEC installs remain
-inspectable and removable as legacy state. Only an explicit `kona update` migrates either to the
-schema-v3 copy+PRD+SPEC bundle; `install` and `verify` report `UPDATE_REQUIRED` rather than migrating
-implicitly. Enable a disabled legacy install before updating it.
+Existing schema-v1 `0.1.1` PRD-only, schema-v2 `0.2.0` PRD+SPEC, and schema-v3 `0.3.0`
+copy+PRD+SPEC installs remain inspectable and removable as legacy state. Only an explicit
+`kona update` migrates them to the schema-v4 copy+PRD+SPEC+issues bundle; `install` and `verify`
+report `UPDATE_REQUIRED` rather than migrating implicitly. Enable a disabled legacy install before
+updating it.
 
 The standalone curl/package `kona` exposes only these six lifecycle verbs. The Claude plugin's
 `kona` also forwards the existing workflow CLI verbs and requires Bun for those verbs. Authoring

@@ -10,7 +10,7 @@
       "name": "kona",
       "source": "./plugin",
       "description": "A living workflow graph and portable copy, PRD, and SPEC authoring capabilities.",
-      "version": "0.3.0",
+      "version": "0.4.1",
       "author": {
         "name": "Ilya Vorobiev"
       },

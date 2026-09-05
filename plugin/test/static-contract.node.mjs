@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,6 +10,7 @@ import { validateStaticContracts } from "../scripts/contracts.mjs";
 import { CAPABILITY_REGISTRY, validateCapabilityRegistry } from "../lib/capability-registry.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 async function copyContractFixture() {
   const fixture = await mkdtemp(join(tmpdir(), "kona-static-contract-"));
@@ -28,8 +30,8 @@ async function copyContractFixture() {
 
 test("recursive runtime and contributor mirrors have no guidelines dependency", async () => {
   const result = await validateStaticContracts(root);
-  assert.equal(result.capabilityVersion, "0.3.0");
-  assert.deepEqual(result.capabilities, ["copy", "prd", "spec"]);
+  assert.equal(result.capabilityVersion, "0.4.1");
+  assert.deepEqual(result.capabilities, ["copy", "prd", "spec", "issues"]);
   assert.deepEqual(result.hosts, ["opencode", "codex", "claude", "pi"]);
 });
 
@@ -149,6 +151,34 @@ for (const control of [
     error: /forbidden dependency: guidelines\//,
   },
   {
+    name: "missing mandatory issues workflow",
+    path: "plugin/skills/issues/SKILL.md",
+    mutate: (value) => value.replace("sole todo and task", "optional todo and task"),
+    error: /issues workflow contract is missing/,
+    rehash: true,
+  },
+  {
+    name: "issues destination repository assumption",
+    path: "plugin/skills/issues/SKILL.md",
+    mutate: (value) => `${value}\nRead plugin/private-policy.md.\n`,
+    error: /destination repository assumption/,
+    rehash: true,
+  },
+  {
+    name: "issues bd command",
+    path: "plugin/skills/issues/SKILL.md",
+    mutate: (value) => `${value}\nbd ready\n`,
+    error: /executable bd command/,
+    rehash: true,
+  },
+  {
+    name: "issues Dolt command",
+    path: "plugin/skills/issues/SKILL.md",
+    mutate: (value) => `${value}\ndolt init\n`,
+    error: /executable Dolt command/,
+    rehash: true,
+  },
+  {
     name: "runtime network client",
     path: "plugin/lib/plugin-lifecycle.mjs",
     mutate: (value) => `${value}\nfetch("https://example.invalid");\n`,
@@ -165,7 +195,14 @@ for (const control of [
     const fixture = await copyContractFixture();
     try {
       const path = join(fixture, control.path);
-      await writeFile(path, control.mutate(await readFile(path, "utf8")));
+      const mutated = control.mutate(await readFile(path, "utf8"));
+      await writeFile(path, mutated);
+      if (control.rehash) {
+        const manifestPath = join(fixture, "plugin/capabilities/issues.json");
+        const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+        manifest.canonical.skill.sha256 = sha256(mutated);
+        await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+      }
       await assert.rejects(validateStaticContracts(fixture), control.error);
     } finally {
       await rm(fixture, { recursive: true, force: true });

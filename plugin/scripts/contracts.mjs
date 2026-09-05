@@ -174,6 +174,41 @@ export async function validateStaticContracts(root) {
     }
   }
 
+  const issuesSkill = resources.find(
+    (_, index) => CAPABILITY_REGISTRY[index].name === "issues",
+  )?.skill;
+  if (!issuesSkill) fail("issues runtime skill is missing");
+  for (const contract of [
+    /sole todo and task\s+tracker/i,
+    /reuse an existing issue or create one/i,
+    /substantial feature[\s\S]*epic[\s\S]*child issues/i,
+    /ready work contains only genuinely[\s\S]*actionable issues/i,
+    /Claim or mark it active before substantive implementation/i,
+    /Close only when the criteria pass/i,
+    /If `br` is unavailable[\s\S]*ask for explicit confirmation/i,
+    /not\s+initialized[\s\S]*explicit confirmation[\s\S]*`br init`/i,
+    /Never invoke, install, recommend, or fall back[\s\S]*`bd`/i,
+    /Never install,[\s\S]*depend on Dolt/i,
+    /future Kona backend can replace `br`/i,
+  ])
+    requireMatch(issuesSkill, contract, `issues workflow contract is missing: ${contract}`);
+  for (const forbidden of [
+    "plugin/",
+    "specs/",
+    ".opencode/",
+    ".agents/",
+    ".claude/",
+    ".pi/",
+    "AGENTS.md",
+    ".beads/",
+  ])
+    if (issuesSkill.includes(forbidden))
+      fail(`issues runtime has a destination repository assumption: ${forbidden}`);
+  if (/(?:^|\n)\s*(?:\$\s*)?bd\s+\w+/m.test(issuesSkill))
+    fail("issues runtime contains an executable bd command");
+  if (/(?:^|\n)\s*(?:\$\s*)?dolt\s+\w+/im.test(issuesSkill))
+    fail("issues runtime contains an executable Dolt command");
+
   const { skill, supporting, adapter } = resources.find(
     (_, index) => CAPABILITY_REGISTRY[index].name === "prd",
   );

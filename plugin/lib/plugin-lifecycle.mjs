@@ -19,17 +19,27 @@ const CLAUDE_MARKETPLACE = "kona";
 const CLAUDE_PLUGIN = "kona";
 const CLAUDE_SOURCE = "https://github.com/open-treasury/kona";
 const PI_SOURCE = "git:github.com/open-treasury/kona";
-const SCHEMA = 3;
+const SCHEMA = 4;
 const LEGACY_SCHEMA = 1;
 const RELEASED_SCHEMA = 2;
+const PREVIOUS_SCHEMA = 3;
 const LEGACY_VERSION = "0.1.1";
 const RELEASED_VERSION = "0.2.0";
+const PREVIOUS_VERSION = "0.3.0";
+const CURRENT_VERSION = "0.4.1";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
 const SCHEMA_CAPABILITIES = new Map([
   [LEGACY_SCHEMA, ["prd"]],
   [RELEASED_SCHEMA, ["prd", "spec"]],
+  [PREVIOUS_SCHEMA, ["copy", "prd", "spec"]],
   [SCHEMA, CAPABILITIES],
+]);
+const SCHEMA_VERSIONS = new Map([
+  [LEGACY_SCHEMA, LEGACY_VERSION],
+  [RELEASED_SCHEMA, RELEASED_VERSION],
+  [PREVIOUS_SCHEMA, PREVIOUS_VERSION],
+  [SCHEMA, CURRENT_VERSION],
 ]);
 const MANIFEST = "manifest.json";
 const JOURNAL = "journal.json";
@@ -486,7 +496,7 @@ async function codexSkillsList(options) {
         method: "initialize",
         id: 1,
         params: {
-          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.3.0" },
+          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: CURRENT_VERSION },
         },
       })}\n`,
     );
@@ -548,13 +558,10 @@ async function verifyCodexDiscovery(options, resources, enabled) {
 function validateManifest(manifest, options, resources) {
   if (!manifest || !SCHEMA_CAPABILITIES.has(manifest.schema))
     throw new LifecycleError("INVALID_STATE", "ownership manifest is malformed", 4);
-  if (
-    manifest.schema === LEGACY_SCHEMA &&
-    (manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION)
-  )
+  if (manifest.version !== SCHEMA_VERSIONS.get(manifest.schema))
+    throw new LifecycleError("INVALID_STATE", "ownership manifest version is invalid", 4);
+  if (manifest.schema === LEGACY_SCHEMA && manifest.capability !== "prd")
     throw new LifecycleError("INVALID_STATE", "legacy ownership manifest is malformed", 4);
-  if (manifest.schema === RELEASED_SCHEMA && manifest.version !== RELEASED_VERSION)
-    throw new LifecycleError("INVALID_STATE", "released ownership manifest is malformed", 4);
   if (
     manifest.schema !== LEGACY_SCHEMA &&
     (manifest.bundle !== BUNDLE ||
@@ -608,8 +615,6 @@ function validateManifest(manifest, options, resources) {
       throw new LifecycleError("INVALID_STATE", "ownership backup records are invalid", 4);
     backupPaths.add(backup.path);
   }
-  if (!/^\d+\.\d+\.\d+$/.test(manifest.version))
-    throw new LifecycleError("INVALID_STATE", "ownership version is invalid", 4);
   const config = codexConfig(options, resources);
   if (
     manifest.host === "codex" &&
@@ -983,16 +988,15 @@ function validateClaudeManifest(manifest, options) {
   if (
     !manifest ||
     !SCHEMA_CAPABILITIES.has(manifest.schema) ||
+    manifest.version !== SCHEMA_VERSIONS.get(manifest.schema) ||
     (legacy
-      ? manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION
+      ? manifest.capability !== "prd"
       : manifest.bundle !== BUNDLE ||
         JSON.stringify(manifest.capabilities) !==
           JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema))) ||
-    (manifest.schema === RELEASED_SCHEMA && manifest.version !== RELEASED_VERSION) ||
     manifest.host !== "claude" ||
     manifest.scope !== options.scope ||
     !["active", "disabled"].includes(manifest.state) ||
-    !/^\d+\.\d+\.\d+$/.test(manifest.version) ||
     manifest.nativeIdentity?.plugin !== CLAUDE_PLUGIN ||
     manifest.nativeIdentity?.marketplace !== CLAUDE_MARKETPLACE ||
     (manifest.nativeIdentity?.source !== CLAUDE_SOURCE &&
@@ -1258,6 +1262,17 @@ async function verifyClaudeCommands(options, installed, manifest) {
     .filter(Boolean);
   if (Number(inventory[1]) !== names.length)
     throw new LifecycleError("DISCOVERY_FAILED", "Claude reported a malformed skill inventory", 4);
+  const portableNames = names.filter((name) => CAPABILITIES.includes(name));
+  if (
+    manifest.schema === SCHEMA &&
+    (portableNames.length !== capabilities.length ||
+      capabilities.some((name) => !portableNames.includes(name)))
+  )
+    throw new LifecycleError(
+      "DISCOVERY_FAILED",
+      "Claude reported a capability inventory that does not match protected Kona state",
+      4,
+    );
 
   for (const name of capabilities) {
     const matches = names.filter((candidate) => candidate === name);
@@ -1670,16 +1685,15 @@ function validatePiManifest(manifest, options) {
   if (
     !manifest ||
     !SCHEMA_CAPABILITIES.has(manifest.schema) ||
+    manifest.version !== SCHEMA_VERSIONS.get(manifest.schema) ||
     (legacy
-      ? manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION
+      ? manifest.capability !== "prd"
       : manifest.bundle !== BUNDLE ||
         JSON.stringify(manifest.capabilities) !==
           JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema))) ||
-    (manifest.schema === RELEASED_SCHEMA && manifest.version !== RELEASED_VERSION) ||
     manifest.host !== "pi" ||
     manifest.scope !== options.scope ||
     !["active", "disabled"].includes(manifest.state) ||
-    !/^\d+\.\d+\.\d+$/.test(manifest.version) ||
     manifest.nativeIdentity.package !== parsed.identity ||
     manifest.nativeIdentity.kind !== parsed.kind ||
     manifest.nativeIdentity.pinned !== parsed.pinned ||
@@ -1841,10 +1855,12 @@ async function inspectPi(options, manifest, expectedEnabled) {
     );
   }
   const capabilities = nativeCapabilities(manifest);
-  for (const name of capabilities) {
+  for (const name of CAPABILITIES) {
     const named = commands.filter((command) => command?.name === `skill:${name}`);
     const discovered = named.length === 1 && piCommandMatches(options, manifest, named[0], name);
-    if ((expectedEnabled && !discovered) || (!expectedEnabled && named.length !== 0))
+    const expected = expectedEnabled && capabilities.includes(name);
+    const unexpectedCurrent = manifest.schema === SCHEMA && !expected && named.length !== 0;
+    if ((expected && !discovered) || unexpectedCurrent || (!expectedEnabled && named.length !== 0))
       throw new LifecycleError(
         "DISCOVERY_FAILED",
         `Pi did not report exactly one valid /skill:${name} command in the expected lifecycle state at ${options.scope} scope`,
@@ -2223,7 +2239,7 @@ async function piLifecycle(options) {
       if (options.verb === "remove") {
         const removedState = nativePiManifest(
           options,
-          manifest.version,
+          capability.version,
           manifest.nativeIdentity.source,
           "disabled",
         );

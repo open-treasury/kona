@@ -75,9 +75,24 @@ test("copy PRD AC1-AC19 have concrete automated or explicit manual evidence", as
   }
 });
 
+test("issues PRD AC1-AC8 have concrete automated or explicit manual evidence", async () => {
+  assert.deepEqual(Object.keys(matrix.issues), expectedCriteria(8));
+  for (const [acceptanceCriterion, entry] of Object.entries(matrix.issues)) {
+    const references = entry.automated ?? (Array.isArray(entry) ? [entry] : []);
+    assert.ok(references.length || entry.manual, `Issues ${acceptanceCriterion} has no evidence`);
+    for (const reference of references)
+      await requireReference(`Issues ${acceptanceCriterion}`, reference, "automated");
+    if (entry.manual)
+      assert.ok(
+        matrix.manualEvidence[entry.manual],
+        `Issues ${acceptanceCriterion} manual evidence is undefined`,
+      );
+  }
+});
+
 test("copy real-model evidence ledger has exactly twelve explicitly pending host-mode runs", async () => {
   const evidence = matrix.manualEvidence["copy-runs"];
-  assert.deepEqual(Object.keys(matrix.manualEvidence), ["copy-runs"]);
+  assert.deepEqual(Object.keys(matrix.manualEvidence), ["copy-runs", "issues-runs"]);
   assert.equal(evidence.status, "pending");
   assert.equal(evidence.requiredRuns, 12);
   const source = await readFile(join(import.meta.dirname, evidence.file), "utf8");
@@ -92,5 +107,22 @@ test("copy real-model evidence ledger has exactly twelve explicitly pending host
       assert.ok(row, `missing manual run: ${host}/${mode}`);
       assert.match(row, /\| Pending \|/, `manual run is not pending: ${host}/${mode}`);
     }
+  }
+});
+
+test("issues real-model evidence ledger records one deferred run per host", async () => {
+  const evidence = matrix.manualEvidence["issues-runs"];
+  assert.equal(evidence.status, "deferred");
+  assert.equal(evidence.requiredRuns, 4);
+  const source = await readFile(join(import.meta.dirname, evidence.file), "utf8");
+  const section = source.split(`## ${evidence.heading}`)[1]?.split("\n## ")[0] ?? "";
+  const rows = section
+    .split("\n")
+    .filter((line) => /^\| (?:OpenCode|Codex|Claude Code|Pi)\s+\|/.test(line));
+  assert.equal(rows.length, evidence.requiredRuns);
+  for (const host of ["OpenCode", "Codex", "Claude Code", "Pi"]) {
+    const row = rows.find((line) => line.includes(`| ${host}`));
+    assert.ok(row, `missing manual issues run: ${host}`);
+    assert.match(row, /\| Deferred \|/, `manual issues run is not deferred: ${host}`);
   }
 });

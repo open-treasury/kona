@@ -1,0 +1,32 @@
+{
+  "type": "capability",
+  "schemaVersion": 1,
+  "name": "issues",
+  "version": "0.4.1",
+  "modes": ["plan", "execute"],
+  "canonical": {
+    "skill": {
+      "path": "skills/issues/SKILL.md",
+      "sha256": "4bb86d5415ac9832a763fd3bdd243d4a8ba92456c9a67159f06fb03af032e039",
+      "mode": "0644"
+    }
+  },
+  "hosts": {
+    "opencode": {
+      "scopes": ["project", "user"],
+      "invocation": "issues"
+    },
+    "codex": {
+      "scopes": ["project", "user"],
+      "invocation": "$issues"
+    },
+    "claude": {
+      "scopes": ["project", "local", "user"],
+      "invocation": "/kona:issues"
+    },
+    "pi": {
+      "scopes": ["project", "user"],
+      "invocation": "/skill:issues"
+    }
+  }
+}
