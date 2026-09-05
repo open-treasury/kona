@@ -6,6 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { validateStaticContracts } from "../scripts/contracts.mjs";
+import { CAPABILITY_REGISTRY, validateCapabilityRegistry } from "../lib/capability-registry.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -26,14 +27,58 @@ async function copyContractFixture() {
 
 test("static validator enforces canonical, adapter, manifest, ownership, privacy, and workflow contracts", async () => {
   const result = await validateStaticContracts(root);
-  assert.equal(result.capabilityVersion, "0.1.1");
+  assert.equal(result.capabilityVersion, "0.2.0");
+  assert.deepEqual(result.capabilities, ["prd", "spec"]);
   assert.deepEqual(result.hosts, ["opencode", "codex", "claude", "pi"]);
 });
 
 for (const control of [
   {
+    name: "capability name",
+    mutate: (registry) => {
+      registry[1].name = registry[0].name;
+    },
+    error: /duplicate capability name/,
+  },
+  {
+    name: "canonical path",
+    mutate: (registry) => {
+      registry[1].canonical[0] = registry[0].canonical[0];
+    },
+    error: /duplicate canonical path/,
+  },
+  {
+    name: "adapter path",
+    mutate: (registry) => {
+      registry[1].adapter = registry[0].adapter;
+    },
+    error: /duplicate adapter path/,
+  },
+  {
+    name: "host invocation",
+    mutate: (registry) => {
+      registry[1].hosts.opencode.invocation = registry[0].hosts.opencode.invocation;
+    },
+    error: /duplicate host invocation/,
+  },
+]) {
+  test(`registry negative control rejects duplicate ${control.name}`, () => {
+    const registry = structuredClone(CAPABILITY_REGISTRY);
+    control.mutate(registry);
+    assert.throws(() => validateCapabilityRegistry(registry), control.error);
+  });
+}
+
+for (const control of [
+  {
     name: "canonical hash drift",
     path: "plugin/skills/prd/SKILL.md",
+    mutate: (value) => `${value}\nchanged\n`,
+    error: /canonical hash drift/,
+  },
+  {
+    name: "SPEC canonical hash drift",
+    path: "plugin/skills/spec/templates/spec.md",
     mutate: (value) => `${value}\nchanged\n`,
     error: /canonical hash drift/,
   },
@@ -47,8 +92,42 @@ for (const control of [
   {
     name: "invalid Pi manifest",
     path: "package.json",
-    mutate: (value) => value.replace('"./plugin/skills/prd"', '"./copied-prd"'),
+    mutate: (value) => value.replace('"./plugin/skills/spec"', '"./copied-spec"'),
     error: /root Pi package metadata/,
+  },
+  {
+    name: "duplicate manifest capability name",
+    path: "plugin/capabilities/spec.json",
+    mutate: (value) => value.replace('"name": "spec"', '"name": "prd"'),
+    error: /duplicate capability name/,
+  },
+  {
+    name: "duplicate manifest canonical path",
+    path: "plugin/capabilities/spec.json",
+    mutate: (value) => value.replace("skills/spec/SKILL.md", "skills/prd/SKILL.md"),
+    error: /duplicate canonical path/,
+  },
+  {
+    name: "duplicate manifest invocation",
+    path: "plugin/capabilities/spec.json",
+    mutate: (value) => value.replace("@spec-writer", "@prd-writer"),
+    error: /duplicate host invocation/,
+  },
+  {
+    name: "altered SPEC adapter",
+    path: "plugin/hosts/opencode/agents/spec-writer.md",
+    mutate: (value) => value.replace("Use the `spec` skill", "Use the `prd` skill"),
+    error: /adapter contract is missing/,
+  },
+  {
+    name: "forbidden guidelines runtime reference",
+    path: "plugin/hosts/opencode/agents/spec-writer.md",
+    mutate: (value) =>
+      value.replace(
+        "Edit only the agreed SPEC",
+        "Do not read `guidelines/docs/spec.md`. Edit only the agreed SPEC",
+      ),
+    error: /forbidden dependency: guidelines\//,
   },
   {
     name: "runtime network client",

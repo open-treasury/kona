@@ -10,11 +10,15 @@ const pluginRoot = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(pluginRoot, "..");
 const hosts = ["opencode", "codex", "claude", "pi"];
 const invocations = {
-  opencode: "@prd-writer",
-  codex: "$prd",
-  claude: "/kona:prd",
-  pi: "/skill:prd",
+  prd: { opencode: "@prd-writer", codex: "$prd", claude: "/kona:prd", pi: "/skill:prd" },
+  spec: {
+    opencode: "@spec-writer",
+    codex: "$spec",
+    claude: "/kona:spec",
+    pi: "/skill:spec",
+  },
 };
+const writeBoundaries = { prd: "agreed-prd-only", spec: "agreed-spec-only" };
 
 async function installPayload(root, host) {
   const destination = join(root, host);
@@ -40,26 +44,31 @@ test("adapter payload/contract parity resolves exact canonical bytes and host co
   const root = await mkdtemp(join(tmpdir(), "kona-adapter-contract-"));
   try {
     for (const host of hosts) {
-      const contracts = [
-        await loadAdapterPayloadContract(
-          host,
-          host === "pi" ? repositoryRoot : pluginRoot,
-          pluginRoot,
-          "distributed",
-        ),
-        await loadAdapterPayloadContract(
-          host,
-          await installPayload(root, host),
-          pluginRoot,
-          "installed",
-        ),
-      ];
-      for (const contract of contracts) {
-        assert.equal(contract.invocation, invocations[host]);
-        assert.deepEqual(contract.modes, ["create", "refine"]);
-        assert.equal(contract.writeBoundary, "agreed-prd-only");
+      const installedRoot = await installPayload(root, host);
+      for (const capability of ["prd", "spec"]) {
+        const contracts = [
+          await loadAdapterPayloadContract(
+            host,
+            host === "pi" ? repositoryRoot : pluginRoot,
+            pluginRoot,
+            "distributed",
+            capability,
+          ),
+          await loadAdapterPayloadContract(
+            host,
+            installedRoot,
+            pluginRoot,
+            "installed",
+            capability,
+          ),
+        ];
+        for (const contract of contracts) {
+          assert.equal(contract.invocation, invocations[capability][host]);
+          assert.deepEqual(contract.modes, ["create", "refine"]);
+          assert.equal(contract.writeBoundary, writeBoundaries[capability]);
+        }
+        assert.deepEqual(contracts[0].canonicalBytes, contracts[1].canonicalBytes);
       }
-      assert.deepEqual(contracts[0].canonicalBytes, contracts[1].canonicalBytes);
     }
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -69,19 +78,24 @@ test("adapter payload/contract parity resolves exact canonical bytes and host co
 test("adapter payload/contract parity rejects altered resolution and canonical bytes", async () => {
   const root = await mkdtemp(join(tmpdir(), "kona-adapter-contract-negative-"));
   try {
-    const opencode = await installPayload(root, "opencode");
-    await writeFile(join(opencode, "agents/prd-writer.md"), "Do something else.\n");
+    const alteredAdapter = await installPayload(join(root, "altered-adapter"), "opencode");
+    await writeFile(join(alteredAdapter, "agents/spec-writer.md"), "Do something else.\n");
     await assert.rejects(
-      loadAdapterPayloadContract("opencode", opencode, pluginRoot, "installed"),
+      loadAdapterPayloadContract("opencode", alteredAdapter, pluginRoot, "installed", "spec"),
       /does not delegate/,
     );
 
-    const codex = await installPayload(root, "codex");
-    await writeFile(join(codex, "skills/prd/SKILL.md"), "altered\n");
-    await assert.rejects(
-      loadAdapterPayloadContract("codex", codex, pluginRoot, "installed"),
-      /resolved canonical skill is missing or altered/,
-    );
+    for (const host of hosts) {
+      for (const relativePath of ["SKILL.md", "templates/spec.md"]) {
+        const installed = await installPayload(join(root, `${host}-${relativePath}`), host);
+        const skillRoot = host === "pi" ? "plugin/skills/spec" : "skills/spec";
+        await writeFile(join(installed, skillRoot, relativePath), "altered SPEC payload\n");
+        await assert.rejects(
+          loadAdapterPayloadContract(host, installed, pluginRoot, "installed", "spec"),
+          /resolved canonical (?:skill|template) is missing or altered/,
+        );
+      }
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+
+import { CAPABILITY_REGISTRY, validateCapabilityRegistry } from "../lib/capability-registry.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const json = async (path) => JSON.parse(await readFile(path, "utf8"));
@@ -13,56 +15,86 @@ const requireMatch = (source, pattern, message) => {
 
 export async function validateStaticContracts(root) {
   const pluginRoot = join(root, "plugin");
-  const [capability, rootManifest, packageManifest, claudeManifest, marketplace, baseline] =
+  validateCapabilityRegistry(CAPABILITY_REGISTRY);
+  const [capabilities, rootManifest, packageManifest, claudeManifest, marketplace, baseline] =
     await Promise.all([
-      json(join(pluginRoot, "capabilities/prd.json")),
+      Promise.all(CAPABILITY_REGISTRY.map(({ manifest }) => json(join(pluginRoot, manifest)))),
       json(join(root, "package.json")),
       json(join(pluginRoot, "package.json")),
       json(join(pluginRoot, ".claude-plugin/plugin.json")),
       json(join(root, ".claude-plugin/marketplace.json")),
       json(join(pluginRoot, "capabilities/workflow-baseline.json")),
     ]);
-  const [skill, template, adapter, lifecycle, launcher, installer] = await Promise.all([
-    readFile(join(pluginRoot, "skills/prd/SKILL.md"), "utf8"),
-    readFile(join(pluginRoot, "skills/prd/templates/prd.md"), "utf8"),
-    readFile(join(pluginRoot, "hosts/opencode/agents/prd-writer.md"), "utf8"),
+  const [resources, lifecycle, launcher, installer] = await Promise.all([
+    Promise.all(
+      CAPABILITY_REGISTRY.map(async (descriptor) => ({
+        skill: await readFile(join(pluginRoot, descriptor.canonical[0]), "utf8"),
+        template: descriptor.canonical[1]
+          ? await readFile(join(pluginRoot, descriptor.canonical[1]), "utf8")
+          : undefined,
+        adapter: descriptor.adapter
+          ? await readFile(join(pluginRoot, descriptor.adapter), "utf8")
+          : undefined,
+      })),
+    ),
     readFile(join(pluginRoot, "lib/plugin-lifecycle.mjs"), "utf8"),
     readFile(join(pluginRoot, "bin/kona.mjs"), "utf8"),
     readFile(join(root, "install.sh"), "utf8"),
   ]);
 
-  if (capability.schemaVersion !== 1 || capability.name !== "prd")
-    fail("capability identity is invalid");
-  if (!/^\d+\.\d+\.\d+$/.test(capability.version)) fail("capability version is not SemVer");
-  if (
-    capability.version !== packageManifest.version ||
-    capability.version !== claudeManifest.version ||
-    capability.version !== marketplace.plugins?.[0]?.version
-  )
-    fail("distribution versions are not aligned");
-  if (JSON.stringify(capability.modes) !== JSON.stringify(["create", "refine"]))
-    fail("capability modes must be create and refine");
-
-  const canonicalPaths = ["skills/prd/SKILL.md", "skills/prd/templates/prd.md"];
-  const canonical = Object.values(capability.canonical ?? {});
-  if (
-    canonical.length !== canonicalPaths.length ||
-    canonical.some((entry, index) => entry.path !== canonicalPaths[index] || entry.mode !== "0644")
-  )
-    fail("canonical manifest paths or modes are invalid");
-  for (const entry of canonical) {
-    const bytes = await readFile(join(pluginRoot, entry.path));
-    if (entry.sha256 !== sha256(bytes)) fail(`canonical hash drift: ${entry.path}`);
-  }
-
-  const hosts = {
-    opencode: { scopes: ["project", "user"], invocation: "@prd-writer" },
-    codex: { scopes: ["project", "user"], invocation: "$prd" },
-    claude: { scopes: ["project", "local", "user"], invocation: "/kona:prd" },
-    pi: { scopes: ["project", "user"], invocation: "/skill:prd" },
+  const requireUnique = (label, values) => {
+    if (new Set(values).size !== values.length) fail(`duplicate ${label}`);
   };
-  if (JSON.stringify(capability.hosts) !== JSON.stringify(hosts))
-    fail("host scope or invocation contract drifted");
+  requireUnique(
+    "capability name",
+    capabilities.map(({ name }) => name),
+  );
+  requireUnique(
+    "canonical path",
+    capabilities.flatMap(({ canonical }) => Object.values(canonical ?? {}).map(({ path }) => path)),
+  );
+  requireUnique(
+    "host invocation",
+    capabilities.flatMap(({ hosts }) =>
+      Object.values(hosts ?? {}).map(({ invocation }) => invocation),
+    ),
+  );
+
+  for (const [index, descriptor] of CAPABILITY_REGISTRY.entries()) {
+    const capability = capabilities[index];
+    if (capability.schemaVersion !== 1 || capability.name !== descriptor.name)
+      fail(`capability identity is invalid: ${descriptor.name}`);
+    if (!/^\d+\.\d+\.\d+$/.test(capability.version))
+      fail(`capability version is not SemVer: ${descriptor.name}`);
+    if (
+      capability.version !== packageManifest.version ||
+      capability.version !== claudeManifest.version ||
+      capability.version !== marketplace.plugins?.[0]?.version
+    )
+      fail(`distribution versions are not aligned: ${descriptor.name}`);
+    if (JSON.stringify(capability.modes) !== JSON.stringify(descriptor.modes))
+      fail(`capability modes are invalid: ${descriptor.name}`);
+
+    const canonical = Object.values(capability.canonical ?? {});
+    if (
+      canonical.length !== descriptor.canonical.length ||
+      canonical.some(
+        (entry, canonicalIndex) =>
+          entry.path !== descriptor.canonical[canonicalIndex] || entry.mode !== "0644",
+      )
+    )
+      fail(`canonical manifest paths or modes are invalid: ${descriptor.name}`);
+    for (const entry of canonical) {
+      const path = join(pluginRoot, entry.path);
+      const [bytes, metadata] = await Promise.all([readFile(path), stat(path)]);
+      if (entry.sha256 !== sha256(bytes)) fail(`canonical hash drift: ${entry.path}`);
+      const actualMode = (metadata.mode & 0o777).toString(8).padStart(4, "0");
+      if (actualMode !== entry.mode) fail(`canonical file mode drift: ${entry.path}`);
+    }
+
+    if (JSON.stringify(capability.hosts) !== JSON.stringify(descriptor.hosts))
+      fail(`host scope or invocation contract drifted: ${descriptor.name}`);
+  }
 
   if (
     packageManifest.name !== "@open-treasury/kona-unpublished" ||
@@ -77,7 +109,10 @@ export async function validateStaticContracts(root) {
   if (
     rootManifest.private !== true ||
     !rootManifest.keywords?.includes("pi-package") ||
-    JSON.stringify(rootManifest.pi?.skills) !== JSON.stringify(["./plugin/skills/prd"])
+    JSON.stringify(rootManifest.pi?.skills) !==
+      JSON.stringify(
+        CAPABILITY_REGISTRY.map(({ copiedHostDirectory }) => `./plugin/${copiedHostDirectory}`),
+      )
   )
     fail("root Pi package metadata is invalid");
   if (claudeManifest.skills !== "./skills/" || claudeManifest.hooks !== "./hooks/hooks.json")
@@ -91,11 +126,39 @@ export async function validateStaticContracts(root) {
   )
     fail("Claude marketplace identity is invalid");
 
-  requireMatch(
-    skill,
-    /^---\nname: prd\ndescription: .*create or refine/im,
-    "skill frontmatter is invalid",
-  );
+  for (const [index, descriptor] of CAPABILITY_REGISTRY.entries()) {
+    const { skill, adapter } = resources[index];
+    requireMatch(
+      skill,
+      new RegExp(`^---\\nname: ${descriptor.name}\\ndescription: .+`, "im"),
+      `skill frontmatter is invalid: ${descriptor.name}`,
+    );
+    if (descriptor.kind === "authoring")
+      requireMatch(
+        skill,
+        /description: .*create or refine/im,
+        `authoring skill description is invalid: ${descriptor.name}`,
+      );
+    if (descriptor.kind === "workflow" && (descriptor.adapter || descriptor.canonical.length !== 1))
+      fail(`workflow capability shape is invalid: ${descriptor.name}`);
+    if (adapter) {
+      if (adapter.split("\n").length >= 15)
+        fail(`OpenCode adapter is not thin: ${descriptor.name}`);
+      for (const contract of [
+        /mode: subagent/,
+        /"\*": deny[\s\S]*"\*\.md": allow/,
+        /bash: deny/,
+        new RegExp("Use the `" + descriptor.name + "` skill for the complete procedure\\."),
+      ])
+        requireMatch(
+          adapter,
+          contract,
+          `OpenCode adapter contract is missing for ${descriptor.name}: ${contract}`,
+        );
+    }
+  }
+
+  const [{ skill, template, adapter }] = resources;
   for (const contract of [
     /explicit path[\s\S]*repository convention[\s\S]*specs\/<feature-slug>\/prd\.md/i,
     /one grouped set of concise questions/i,
@@ -116,18 +179,19 @@ export async function validateStaticContracts(root) {
   ])
     if (!template.includes(section)) fail(`canonical template is missing ${section}`);
 
-  if (adapter.split("\n").length >= 15) fail("OpenCode adapter is not thin");
-  for (const contract of [
-    /mode: subagent/,
-    /"\*": deny[\s\S]*"\*\.md": allow/,
-    /bash: deny/,
-    /Use the `prd` skill for the complete procedure\./,
-  ])
-    requireMatch(adapter, contract, `OpenCode adapter contract is missing: ${contract}`);
   for (const heading of ["TL;DR", "Motivation", "User Stories", "Definition of Done"])
     if (adapter.includes(heading)) fail("OpenCode adapter duplicates the canonical procedure");
 
-  const canonicalText = `${skill}\n${template}\n${adapter}`;
+  const canonicalText = resources
+    .flatMap(
+      ({ skill: capabilitySkill, template: capabilityTemplate, adapter: capabilityAdapter }) => [
+        capabilitySkill,
+        capabilityTemplate ?? "",
+        capabilityAdapter ?? "",
+      ],
+    )
+    .join("\n");
+  if (/guidelines[\\/]/i.test(canonicalText)) fail("runtime has forbidden dependency: guidelines/");
   for (const forbidden of [
     "guidelines/docs/prd.md",
     "docs/agent-toolkit/",
@@ -137,7 +201,7 @@ export async function validateStaticContracts(root) {
     "write-prd",
   ])
     if (canonicalText.includes(forbidden)) fail(`runtime has forbidden dependency: ${forbidden}`);
-  for (const source of [skill, template, adapter, lifecycle, launcher]) {
+  for (const source of [canonicalText, lifecycle, launcher]) {
     if (/\b(?:fetch|XMLHttpRequest|WebSocket)\s*\(/.test(source))
       fail("plugin runtime contains a network client");
   }
@@ -170,5 +234,9 @@ export async function validateStaticContracts(root) {
   if (installer.includes("sudo")) fail("installer must not use sudo");
   if (/\.(?:bashrc|zshrc|profile)|\/etc\//.test(installer))
     fail("installer must not edit startup or system configuration");
-  return { capabilityVersion: capability.version, hosts: Object.keys(hosts) };
+  return {
+    capabilityVersion: capabilities[0].version,
+    capabilities: capabilities.map(({ name }) => name),
+    hosts: Object.keys(CAPABILITY_REGISTRY[0].hosts),
+  };
 }

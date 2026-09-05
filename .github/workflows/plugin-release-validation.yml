@@ -9,6 +9,7 @@ on:
       - "package.json"
       - "plugin/**"
       - "specs/portable-prd-agent-plugin/**"
+      - "specs/portable-spec-agent-plugin/**"
   push:
     tags:
       - "v*"

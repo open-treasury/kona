@@ -6,6 +6,8 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { CAPABILITY_REGISTRY, validateCapabilityRegistry } from "./capability-registry.mjs";
+
 const VERBS = new Set(["install", "update", "verify", "disable", "enable", "remove"]);
 const HOST_SCOPES = {
   opencode: new Set(["project", "user"]),
@@ -17,7 +19,15 @@ const CLAUDE_MARKETPLACE = "kona";
 const CLAUDE_PLUGIN = "kona";
 const CLAUDE_SOURCE = "https://github.com/open-treasury/kona";
 const PI_SOURCE = "git:github.com/open-treasury/kona";
-const SCHEMA = 1;
+const SCHEMA = 2;
+const LEGACY_SCHEMA = 1;
+const LEGACY_VERSION = "0.1.1";
+const BUNDLE = "authoring";
+const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
+const SCHEMA_CAPABILITIES = new Map([
+  [LEGACY_SCHEMA, CAPABILITIES.slice(0, 1)],
+  [SCHEMA, CAPABILITIES],
+]);
 const MANIFEST = "manifest.json";
 const JOURNAL = "journal.json";
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -127,50 +137,67 @@ function parseArguments(argv, cwd, env) {
   return options;
 }
 
-function resourcePlan(options) {
-  const skillRoot =
+function resourcePlan(options, capabilities = CAPABILITY_REGISTRY) {
+  const copiedHostRoot =
     options.scope === "project"
       ? options.host === "opencode"
-        ? join(options.projectRoot, ".opencode", "skills", "prd")
-        : join(options.projectRoot, ".agents", "skills", "prd")
+        ? join(options.projectRoot, ".opencode")
+        : join(options.projectRoot, ".agents")
       : options.host === "opencode"
-        ? join(options.home, ".config", "opencode", "skills", "prd")
-        : join(options.home, ".agents", "skills", "prd");
-  const resources = [
-    {
-      source: join(options.sourceRoot, "skills", "prd", "SKILL.md"),
-      target: join(skillRoot, "SKILL.md"),
+        ? join(options.home, ".config", "opencode")
+        : join(options.home, ".agents");
+  const resources = capabilities.flatMap((capability) =>
+    capability.canonical.map((source) => ({
+      source: join(options.sourceRoot, source),
+      target: join(copiedHostRoot, source),
       mode: "0644",
-    },
-    {
-      source: join(options.sourceRoot, "skills", "prd", "templates", "prd.md"),
-      target: join(skillRoot, "templates", "prd.md"),
-      mode: "0644",
-    },
-  ];
+    })),
+  );
   if (options.host === "opencode") {
-    const adapterRoot =
-      options.scope === "project"
-        ? join(options.projectRoot, ".opencode", "agents")
-        : join(options.home, ".config", "opencode", "agents");
-    resources.push({
-      source: join(options.sourceRoot, "hosts", "opencode", "agents", "prd-writer.md"),
-      target: join(adapterRoot, "prd-writer.md"),
-      mode: "0644",
-    });
+    resources.push(
+      ...capabilities
+        .filter(({ adapter }) => adapter)
+        .map((capability) => ({
+          source: join(options.sourceRoot, capability.adapter),
+          target: join(copiedHostRoot, "agents", `${capability.name}-writer.md`),
+          mode: "0644",
+        })),
+    );
   }
   return resources;
+}
+
+function descriptorsForSchema(schema) {
+  const names = SCHEMA_CAPABILITIES.get(schema);
+  if (!names)
+    throw new LifecycleError("INVALID_STATE", "ownership manifest schema is unsupported", 4);
+  return CAPABILITY_REGISTRY.filter(({ name }) => names.includes(name));
+}
+
+function resourcesForManifest(manifest, options) {
+  return resourcePlan(options, descriptorsForSchema(manifest.schema));
+}
+
+function capabilitiesForResources(resources) {
+  return CAPABILITY_REGISTRY.filter(({ name }) =>
+    resources.some(({ target }) => target.endsWith(join("skills", name, "SKILL.md"))),
+  );
 }
 
 function codexConfig(options, resources) {
   if (options.host !== "codex") return null;
   const path = join(options.home, ".codex", "config.toml");
-  const skillPath = resources.find((resource) =>
-    resource.target.endsWith(join("prd", "SKILL.md")),
-  ).target;
+  const skillPaths = capabilitiesForResources(resources)
+    .map(({ name }) =>
+      resources.find((resource) => resource.target.endsWith(join(name, "SKILL.md"))),
+    )
+    .map(({ target }) => target);
   const start = `# >>> kona prd ${options.scope}`;
   const end = `# <<< kona prd ${options.scope}`;
-  const block = `${start}\n[[skills.config]]\npath = ${JSON.stringify(skillPath)}\nenabled = false\n${end}\n`;
+  const entries = skillPaths
+    .map((skillPath) => `[[skills.config]]\npath = ${JSON.stringify(skillPath)}\nenabled = false`)
+    .join("\n");
+  const block = `${start}\n${entries}\n${end}\n`;
   return { path, start, end, block };
 }
 
@@ -251,57 +278,67 @@ function targetBoundary(options) {
   return options.home;
 }
 
-async function sourceResources(options) {
-  const capability = await readJson(join(options.sourceRoot, "capabilities", "prd.json"));
-  if (
-    capability.schemaVersion !== 1 ||
-    capability.name !== "prd" ||
-    !/^\d+\.\d+\.\d+$/.test(capability.version)
-  ) {
-    throw new LifecycleError("INVALID_SOURCE", "capability manifest is malformed", 4);
+async function sourceResources(options, registry = CAPABILITY_REGISTRY) {
+  if (registry === CAPABILITY_REGISTRY) validateCapabilityRegistry(registry);
+  const capabilities = await Promise.all(
+    registry.map(({ manifest }) => readJson(join(options.sourceRoot, manifest))),
+  );
+  for (const [index, capability] of capabilities.entries()) {
+    if (
+      capability.schemaVersion !== 1 ||
+      capability.name !== registry[index].name ||
+      !/^\d+\.\d+\.\d+$/.test(capability.version) ||
+      capability.version !== capabilities[0].version
+    ) {
+      throw new LifecycleError("INVALID_SOURCE", "capability manifest is malformed", 4);
+    }
   }
-  const resources = resourcePlan(options);
+  const resources = resourcePlan(options, registry);
   for (const resource of resources) {
     resource.content = await readFile(resource.source);
     resource.sha256 = sha256(resource.content);
   }
   if (options.host === "opencode") {
-    const adapter = resources.find((resource) => resource.target.endsWith("prd-writer.md"));
-    const content = adapter?.content.toString("utf8") || "";
-    if (
-      !/^---\n[\s\S]*?mode: subagent\n[\s\S]*?permission:\n  edit:\n    "\*": deny\n    "\*\.md": allow\n  bash: deny\n---\n/m.test(
-        content,
-      ) ||
-      !/Use the `prd` skill for the complete procedure\./.test(content) ||
-      !/Edit only the agreed PRD/.test(content)
-    ) {
-      throw new LifecycleError(
-        "INVALID_SOURCE",
-        "OpenCode adapter must be a thin PRD delegate with documentation-only edits and bash denied",
-        4,
+    for (const capability of capabilitiesForResources(resources).filter(({ adapter }) => adapter)) {
+      const adapter = resources.find((resource) =>
+        resource.target.endsWith(`${capability.name}-writer.md`),
       );
+      const content = adapter?.content.toString("utf8") || "";
+      if (
+        !/^---\n[\s\S]*?mode: subagent\n[\s\S]*?permission:\n  edit:\n    "\*": deny\n    "\*\.md": allow\n  bash: deny\n---\n/m.test(
+          content,
+        ) ||
+        !new RegExp(`Use the \`${capability.name}\` skill for the complete procedure\\.`).test(
+          content,
+        ) ||
+        !new RegExp(`Edit only the agreed ${capability.name.toUpperCase()}`).test(content)
+      ) {
+        throw new LifecycleError(
+          "INVALID_SOURCE",
+          `OpenCode adapter must be a thin ${capability.name.toUpperCase()} delegate with documentation-only edits and bash denied`,
+          4,
+        );
+      }
     }
   }
-  const canonical = Object.values(capability.canonical);
-  for (const entry of canonical) {
-    const actual = resources.find(
-      (resource) => resource.source === join(options.sourceRoot, entry.path),
-    );
-    if (!actual || actual.sha256 !== entry.sha256 || actual.mode !== entry.mode) {
-      throw new LifecycleError(
-        "INVALID_SOURCE",
-        `canonical source does not match capability manifest: ${entry.path}`,
-        4,
+  for (const capability of capabilities) {
+    for (const entry of Object.values(capability.canonical)) {
+      const actual = resources.find(
+        (resource) => resource.source === join(options.sourceRoot, entry.path),
       );
+      if (!actual || actual.sha256 !== entry.sha256 || actual.mode !== entry.mode) {
+        throw new LifecycleError(
+          "INVALID_SOURCE",
+          `canonical source does not match capability manifest: ${entry.path}`,
+          4,
+        );
+      }
     }
   }
-  return { capability, resources };
+  return { capability: capabilities[0], resources };
 }
 
 async function verifyOpenCodeDiscovery(options, resources, enabled = true) {
-  const skillPath = resources.find((resource) =>
-    resource.target.endsWith(join("prd", "SKILL.md")),
-  )?.target;
   try {
     const commandOptions = {
       cwd: options.projectRoot,
@@ -312,31 +349,50 @@ async function verifyOpenCodeDiscovery(options, resources, enabled = true) {
     // OpenCode opens a per-home database even for discovery; serialize reads to avoid lock races.
     const { stdout: agents } = await execute("opencode", ["agent", "list"], commandOptions);
     const { stdout: skillsOutput } = await execute("opencode", ["debug", "skill"], commandOptions);
-    const agentDiscovered = /^prd-writer \(subagent\)$/m.test(agents);
-    if (agentDiscovered !== enabled)
-      throw new LifecycleError(
-        "DISCOVERY_FAILED",
-        `OpenCode reported the prd-writer subagent as ${agentDiscovered ? "enabled" : "disabled"}`,
-        4,
-      );
     const skills = JSON.parse(skillsOutput);
-    const expectedSkillPath = await realpath(skillPath).catch(() => resolve(skillPath));
-    let discovered = null;
-    for (const skill of Array.isArray(skills) ? skills : []) {
-      if (skill?.name !== "prd" || typeof skill.location !== "string") continue;
-      const location = await realpath(skill.location).catch(() => resolve(skill.location));
-      if (location === expectedSkillPath) {
-        discovered = skill;
-        break;
+    for (const capability of capabilitiesForResources(resources)) {
+      if (capability.adapter) {
+        const agentDiscovered = new RegExp(`^${capability.name}-writer \\(subagent\\)$`, "m").test(
+          agents,
+        );
+        if (agentDiscovered !== enabled)
+          throw new LifecycleError(
+            "DISCOVERY_FAILED",
+            `OpenCode reported the ${capability.name}-writer subagent as ${agentDiscovered ? "enabled" : "disabled"}`,
+            4,
+          );
       }
+      const skillPath = resources.find((resource) =>
+        resource.target.endsWith(join(capability.name, "SKILL.md")),
+      )?.target;
+      const expectedSkillPath = await realpath(skillPath).catch(() => resolve(skillPath));
+      let discovered = null;
+      for (const skill of Array.isArray(skills) ? skills : []) {
+        if (skill?.name !== capability.name || typeof skill.location !== "string") continue;
+        const location = await realpath(skill.location).catch(() => resolve(skill.location));
+        if (location === expectedSkillPath) {
+          discovered = skill;
+          break;
+        }
+      }
+      if (Boolean(discovered) !== enabled)
+        throw new LifecycleError(
+          "DISCOVERY_FAILED",
+          `OpenCode reported the canonical ${capability.name.toUpperCase()} skill as ${discovered ? "enabled" : "disabled"}`,
+          4,
+        );
     }
-    if (Boolean(discovered) !== enabled)
-      throw new LifecycleError(
-        "DISCOVERY_FAILED",
-        `OpenCode reported the canonical PRD skill as ${discovered ? "enabled" : "disabled"}`,
-        4,
-      );
-    return { static: true, native: "verified", invocation: "@prd-writer" };
+    return {
+      static: true,
+      native: "verified",
+      invocation: CAPABILITY_REGISTRY[0].hosts.opencode.invocation,
+      invocations: Object.fromEntries(
+        capabilitiesForResources(resources).map(({ name, hosts }) => [
+          name,
+          hosts.opencode.invocation,
+        ]),
+      ),
+    };
   } catch (error) {
     if (error.code === "ENOENT")
       throw new LifecycleError("HOST_UNAVAILABLE", "OpenCode CLI is not available on PATH", 4);
@@ -420,7 +476,7 @@ async function codexSkillsList(options) {
         method: "initialize",
         id: 1,
         params: {
-          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.1.1" },
+          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.2.0" },
         },
       })}\n`,
     );
@@ -428,33 +484,45 @@ async function codexSkillsList(options) {
 }
 
 async function verifyCodexDiscovery(options, resources, enabled) {
-  const skillPath = resources.find((resource) =>
-    resource.target.endsWith(join("prd", "SKILL.md")),
-  )?.target;
   try {
     const result = await codexSkillsList(options);
     const expectedCwd = await realpath(options.projectRoot);
-    const expectedSkillPath = await realpath(skillPath);
-    let discovered = null;
-    for (const entry of Array.isArray(result?.data) ? result.data : []) {
-      if ((await realpath(entry.cwd).catch(() => resolve(entry.cwd))) !== expectedCwd) continue;
-      for (const skill of Array.isArray(entry.skills) ? entry.skills : []) {
-        if (
-          skill?.name === "prd" &&
-          (await realpath(skill.path).catch(() => resolve(skill.path))) === expectedSkillPath
-        ) {
-          discovered = skill;
-          break;
+    for (const capability of capabilitiesForResources(resources)) {
+      const skillPath = resources.find((resource) =>
+        resource.target.endsWith(join(capability.name, "SKILL.md")),
+      )?.target;
+      const expectedSkillPath = await realpath(skillPath);
+      let discovered = null;
+      for (const entry of Array.isArray(result?.data) ? result.data : []) {
+        if ((await realpath(entry.cwd).catch(() => resolve(entry.cwd))) !== expectedCwd) continue;
+        for (const skill of Array.isArray(entry.skills) ? entry.skills : []) {
+          if (
+            skill?.name === capability.name &&
+            (await realpath(skill.path).catch(() => resolve(skill.path))) === expectedSkillPath
+          ) {
+            discovered = skill;
+            break;
+          }
         }
       }
+      if (!discovered || discovered.enabled !== enabled)
+        throw new LifecycleError(
+          "DISCOVERY_FAILED",
+          `Codex did not discover ${capability.hosts.codex.invocation} as ${enabled ? "enabled" : "disabled"} at the selected scope`,
+          4,
+        );
     }
-    if (!discovered || discovered.enabled !== enabled)
-      throw new LifecycleError(
-        "DISCOVERY_FAILED",
-        `Codex did not discover $prd as ${enabled ? "enabled" : "disabled"} at the selected scope`,
-        4,
-      );
-    return { static: true, native: "verified", invocation: "$prd" };
+    return {
+      static: true,
+      native: "verified",
+      invocation: CAPABILITY_REGISTRY[0].hosts.codex.invocation,
+      invocations: Object.fromEntries(
+        capabilitiesForResources(resources).map(({ name, hosts }) => [
+          name,
+          hosts.codex.invocation,
+        ]),
+      ),
+    };
   } catch (error) {
     if (error.code === "ENOENT")
       throw new LifecycleError("HOST_UNAVAILABLE", "Codex CLI is not available on PATH", 4);
@@ -468,8 +536,20 @@ async function verifyCodexDiscovery(options, resources, enabled) {
 }
 
 function validateManifest(manifest, options, resources) {
-  if (!manifest || manifest.schema !== SCHEMA || manifest.capability !== "prd")
+  if (!manifest || !SCHEMA_CAPABILITIES.has(manifest.schema))
     throw new LifecycleError("INVALID_STATE", "ownership manifest is malformed", 4);
+  if (
+    manifest.schema === LEGACY_SCHEMA &&
+    (manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION)
+  )
+    throw new LifecycleError("INVALID_STATE", "legacy ownership manifest is malformed", 4);
+  if (
+    manifest.schema !== LEGACY_SCHEMA &&
+    (manifest.bundle !== BUNDLE ||
+      JSON.stringify(manifest.capabilities) !==
+        JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema)))
+  )
+    throw new LifecycleError("INVALID_STATE", "ownership bundle identity is invalid", 4);
   if (
     manifest.host !== options.host ||
     manifest.scope !== options.scope ||
@@ -533,14 +613,14 @@ function validateManifest(manifest, options, resources) {
     throw new LifecycleError("INVALID_STATE", "unexpected managed configuration record", 4);
 }
 
-async function readManifest(options, resources) {
+async function readManifest(options) {
   const paths = protectedPaths(options);
   if (!(await pathExists(paths.manifest))) return null;
   await assertProtectedFile(paths.manifest, "ownership manifest");
   const manifest = await readJson(paths.manifest).catch(() => {
     throw new LifecycleError("INVALID_STATE", "ownership manifest is unreadable", 4);
   });
-  validateManifest(manifest, options, resources);
+  validateManifest(manifest, options, resourcesForManifest(manifest, options));
   return manifest;
 }
 
@@ -679,7 +759,7 @@ async function recover(paths, options) {
     throw new LifecycleError("RECOVERY_PARTIAL", "transaction journal is unreadable", 4);
   });
   if (
-    journal.schema !== SCHEMA ||
+    !SCHEMA_CAPABILITIES.has(journal.schema) ||
     journal.host !== options.host ||
     !HOST_SCOPES[options.host].has(journal.scope) ||
     (journal.scope === "project" && typeof journal.projectRoot !== "string") ||
@@ -699,8 +779,14 @@ async function recover(paths, options) {
   await assertProtectedDirectory(journal.root, "transaction journal directory").catch((error) => {
     throw new LifecycleError("RECOVERY_PARTIAL", error.message, 4);
   });
+  const plannedResources = resourcePlan(recoveryOptions);
   const allowed = new Set([
-    ...resourcePlan(recoveryOptions).map((resource) => resource.target),
+    ...plannedResources.map((resource) => resource.target),
+    ...[...SCHEMA_CAPABILITIES.keys()].flatMap((schema) =>
+      resourcePlan(recoveryOptions, descriptorsForSchema(schema)).map(
+        (resource) => resource.target,
+      ),
+    ),
     recoveryPaths.manifest,
   ]);
   const recoveryConfig = codexConfig(recoveryOptions, resourcePlan(recoveryOptions));
@@ -803,11 +889,9 @@ async function activeOtherScope(options) {
     const path = protectedPaths(otherOptions).manifest;
     if (!(await pathExists(path))) {
       if (options.host === "codex" || options.host === "opencode") {
-        const unowned = resourcePlan(otherOptions).filter((resource) =>
-          options.host === "opencode"
-            ? resource.target.endsWith(join("prd", "SKILL.md")) ||
-              resource.target.endsWith("prd-writer.md")
-            : resource.target.endsWith(join("prd", "SKILL.md")),
+        const unowned = resourcePlan(otherOptions).filter(
+          (resource) =>
+            resource.target.endsWith("SKILL.md") || resource.target.endsWith("-writer.md"),
         );
         const occupied = [];
         for (const resource of unowned)
@@ -815,7 +899,7 @@ async function activeOtherScope(options) {
         if (occupied.length)
           throw new LifecycleError(
             "CROSS_SCOPE_AMBIGUITY",
-            `unowned ${options.host} PRD installation exists at ${scope} scope`,
+            `unowned ${options.host} authoring installation exists at ${scope} scope`,
             4,
             { conflictingScope: scope, paths: occupied },
           );
@@ -826,7 +910,7 @@ async function activeOtherScope(options) {
     const other = await readJson(path).catch(() => {
       throw new LifecycleError("INVALID_STATE", `cannot inspect ${scope} ownership`, 4);
     });
-    const otherResources = resourcePlan(otherOptions);
+    const otherResources = resourcesForManifest(other, otherOptions);
     validateManifest(other, otherOptions, otherResources);
     if (options.host === "codex" || options.host === "opencode") {
       if (other.state === "active") await inspectOwned(other);
@@ -840,7 +924,8 @@ async function activeOtherScope(options) {
 function nativeClaudeManifest(options, version, state = "active") {
   return {
     schema: SCHEMA,
-    capability: "prd",
+    bundle: BUNDLE,
+    capabilities: CAPABILITIES,
     version,
     host: "claude",
     scope: options.scope,
@@ -856,11 +941,33 @@ function nativeClaudeManifest(options, version, state = "active") {
   };
 }
 
+function nativeCapabilities(manifest) {
+  return manifest ? SCHEMA_CAPABILITIES.get(manifest.schema) || [] : CAPABILITIES;
+}
+
+function nativeDiscovery(host, capabilities) {
+  return {
+    static: true,
+    native: "verified",
+    invocation: CAPABILITY_REGISTRY[0].hosts[host].invocation,
+    invocations: Object.fromEntries(
+      CAPABILITY_REGISTRY.filter(({ name }) => capabilities.includes(name)).map(
+        ({ name, hosts }) => [name, hosts[host].invocation],
+      ),
+    ),
+  };
+}
+
 function validateClaudeManifest(manifest, options) {
+  const legacy = manifest?.schema === LEGACY_SCHEMA;
   if (
     !manifest ||
-    manifest.schema !== SCHEMA ||
-    manifest.capability !== "prd" ||
+    !SCHEMA_CAPABILITIES.has(manifest.schema) ||
+    (legacy
+      ? manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION
+      : manifest.bundle !== BUNDLE ||
+        JSON.stringify(manifest.capabilities) !==
+          JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema))) ||
     manifest.host !== "claude" ||
     manifest.scope !== options.scope ||
     !["active", "disabled"].includes(manifest.state) ||
@@ -1094,6 +1201,55 @@ async function claudeAtScope(inspection, options) {
   return matches[0] || null;
 }
 
+async function verifyClaudeCommands(options, installed, manifest) {
+  const capabilities = nativeCapabilities(manifest);
+  const installPath = installed?.installPath;
+  if (typeof installPath !== "string" || !isAbsolute(installPath))
+    throw new LifecycleError(
+      "DISCOVERY_FAILED",
+      "Claude did not report an absolute install path for the managed Kona plugin",
+      4,
+    );
+
+  const { stdout } = await runClaude(options, [
+    "plugin",
+    "details",
+    `${CLAUDE_PLUGIN}@${CLAUDE_MARKETPLACE}`,
+  ]);
+  if (!/^\s*Source:\s+kona@kona\s*$/m.test(stdout))
+    throw new LifecycleError(
+      "DISCOVERY_FAILED",
+      "Claude plugin details reported the Kona commands from an unexpected source",
+      4,
+    );
+  const inventory = stdout.match(/^\s*Skills \((\d+)\)\s*(.*)$/m);
+  if (!inventory)
+    throw new LifecycleError(
+      "DISCOVERY_FAILED",
+      "Claude plugin details did not report a skill inventory for Kona",
+      4,
+    );
+  const names = inventory[2]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (Number(inventory[1]) !== names.length)
+    throw new LifecycleError("DISCOVERY_FAILED", "Claude reported a malformed skill inventory", 4);
+
+  for (const name of capabilities) {
+    const matches = names.filter((candidate) => candidate === name);
+    const expectedPath = join(installPath, "skills", name, "SKILL.md");
+    const info = await lstat(expectedPath).catch(() => null);
+    if (matches.length !== 1 || !info?.isFile() || info.isSymbolicLink())
+      throw new LifecycleError(
+        "DISCOVERY_FAILED",
+        `Claude did not discover exactly one /kona:${name} command from ${expectedPath}`,
+        4,
+      );
+  }
+  return nativeDiscovery("claude", capabilities);
+}
+
 async function activeClaudeOtherScope(inspection, options) {
   for (const entry of inspection.installed) {
     if (entry.enabled === false) continue;
@@ -1158,7 +1314,7 @@ async function recoverClaude(paths, options) {
     throw new LifecycleError("RECOVERY_PARTIAL", "Claude transaction journal is unreadable", 4);
   });
   if (
-    journal.schema !== SCHEMA ||
+    !SCHEMA_CAPABILITIES.has(journal.schema) ||
     journal.host !== "claude" ||
     !HOST_SCOPES.claude.has(journal.scope) ||
     !["install", "update", "disable", "enable", "remove"].includes(journal.operation) ||
@@ -1207,6 +1363,23 @@ async function claudeLifecycle(options) {
       throw new LifecycleError("DRIFT", "Claude no longer reports Kona at the managed scope", 4);
     if (manifest && (selected.enabled !== false) !== (manifest.state === "active"))
       throw new LifecycleError("DRIFT", "Claude enablement differs from Kona's protected state", 4);
+    if (manifest && manifest.schema !== SCHEMA && ["install", "verify"].includes(options.verb)) {
+      if (!inspection.marketplaceRegistered)
+        throw new LifecycleError(
+          "MARKETPLACE_MISSING",
+          `register ${options.claudeSource} before installing Kona`,
+          1,
+          { command: ["claude", "plugin", "marketplace", "add", options.claudeSource] },
+        );
+      if (!selected) throw new LifecycleError("DRIFT", "Claude no longer reports Kona", 4);
+      const discovery = await verifyClaudeCommands(options, selected, manifest);
+      throw new LifecycleError(
+        "UPDATE_REQUIRED",
+        "the installed capability bundle requires an explicit update",
+        1,
+        { discovery },
+      );
+    }
     if (options.verb === "verify") {
       if (!inspection.marketplaceRegistered)
         throw new LifecycleError(
@@ -1216,12 +1389,13 @@ async function claudeLifecycle(options) {
           { command: ["claude", "plugin", "marketplace", "add", options.claudeSource] },
         );
       if (!selected) throw new LifecycleError("NOT_INSTALLED", "scope is not installed");
+      const discovery = await verifyClaudeCommands(options, selected, manifest);
       return {
         status: selected.enabled === false ? "disabled" : "active",
         message: `${selected.version || manifest?.version || "unknown version"} ${selected.enabled === false ? "disabled" : "active"} and verified`,
         recovered,
         details: {
-          discovery: { static: true, native: "verified", invocation: "/kona:prd" },
+          discovery,
           managed: Boolean(manifest),
         },
       };
@@ -1240,10 +1414,18 @@ async function claudeLifecycle(options) {
           "DISABLED",
           "enable the selected scope instead of reinstalling it",
         );
-      return { status: "unchanged", message: "already installed", recovered };
+      const discovery = await verifyClaudeCommands(options, selected, manifest);
+      return {
+        status: "unchanged",
+        message: "already installed and native discovery verified",
+        recovered,
+        details: { discovery },
+      };
     }
     if (options.verb !== "install" && !selected)
       throw new LifecycleError("NOT_INSTALLED", "scope is not installed");
+    if (options.verb === "update" && manifest.state !== "active")
+      throw new LifecycleError("DISABLED", "enable the selected Claude scope before updating");
     if (options.verb === "disable" && selected.enabled === false)
       return { status: "unchanged", message: "already disabled", recovered };
     if (options.verb === "enable" && selected.enabled !== false)
@@ -1258,6 +1440,9 @@ async function claudeLifecycle(options) {
           { activeScope: other.scope },
         );
     }
+
+    if (manifest && ["update", "disable", "enable", "remove"].includes(options.verb))
+      await verifyClaudeCommands(options, selected, manifest);
 
     const plan = claudeMutationPlan(options, inspection);
     if (!options.approve)
@@ -1317,30 +1502,38 @@ async function claudeLifecycle(options) {
         );
 
       if (installed) {
-        manifest = nativeClaudeManifest(
-          options,
+        const version =
           installed.version ||
-            manifest?.version ||
-            (await readJson(join(options.sourceRoot, ".claude-plugin", "plugin.json"))).version,
-          expectedEnabled ? "active" : "disabled",
-        );
+          manifest?.version ||
+          (await readJson(join(options.sourceRoot, ".claude-plugin", "plugin.json"))).version;
+        const nextManifest =
+          manifest?.schema !== SCHEMA && ["disable", "enable"].includes(options.verb)
+            ? { ...manifest, state: expectedEnabled ? "active" : "disabled" }
+            : nativeClaudeManifest(options, version, expectedEnabled ? "active" : "disabled");
+        const discovery = await verifyClaudeCommands(options, installed, nextManifest);
+        manifest = nextManifest;
         await durableWrite(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`);
+        await rm(paths.journal, { force: true });
+        return {
+          status:
+            options.verb === "install"
+              ? "installed"
+              : options.verb === "update"
+                ? "updated"
+                : `${options.verb}d`,
+          message: `Claude ${options.verb} completed and native discovery verified`,
+          recovered,
+          details: { discovery, plan },
+        };
       } else {
         await rm(paths.scopeRoot, { recursive: true, force: true });
       }
       await rm(paths.journal, { force: true });
       return {
-        status:
-          options.verb === "install"
-            ? "installed"
-            : options.verb === "remove"
-              ? "removed"
-              : options.verb === "update"
-                ? "updated"
-                : `${options.verb}d`,
+        status: "removed",
         message: `Claude ${options.verb} completed and native discovery verified`,
         recovered,
-        details: { discovery: { static: true, native: "verified", invocation: "/kona:prd" }, plan },
+        details: { plan },
       };
     } catch (error) {
       try {
@@ -1415,7 +1608,8 @@ function nativePiManifest(options, version, source, state = "active") {
   const parsed = parsePiSource(source, options);
   return {
     schema: SCHEMA,
-    capability: "prd",
+    bundle: BUNDLE,
+    capabilities: CAPABILITIES,
     version,
     host: "pi",
     scope: options.scope,
@@ -1439,10 +1633,15 @@ function validatePiManifest(manifest, options) {
   } catch {
     throw new LifecycleError("INVALID_STATE", "Pi ownership manifest is malformed", 4);
   }
+  const legacy = manifest?.schema === LEGACY_SCHEMA;
   if (
     !manifest ||
-    manifest.schema !== SCHEMA ||
-    manifest.capability !== "prd" ||
+    !SCHEMA_CAPABILITIES.has(manifest.schema) ||
+    (legacy
+      ? manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION
+      : manifest.bundle !== BUNDLE ||
+        JSON.stringify(manifest.capabilities) !==
+          JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema))) ||
     manifest.host !== "pi" ||
     manifest.scope !== options.scope ||
     !["active", "disabled"].includes(manifest.state) ||
@@ -1586,23 +1785,11 @@ async function piCommands(options) {
 
 async function inspectPi(options, manifest, expectedEnabled) {
   const source = manifest.nativeIdentity.source;
-  let listed;
-  try {
-    const { stdout } = await runPi(options, [
-      "list",
-      ...(options.scope === "project" ? ["--approve"] : []),
-    ]);
-    listed =
-      stdout.includes(source) ||
-      stdout.includes(manifest.nativeIdentity.package.replace(/^\w+:/, ""));
-  } catch (error) {
-    if (error.code === "HOST_UNAVAILABLE") throw error;
-    throw error;
-  }
-  if (!listed)
+  const packages = await piPackagesAtScope(options, source);
+  if (packages.length !== 1)
     throw new LifecycleError(
       "DISCOVERY_FAILED",
-      "Pi list did not report the managed package source",
+      "Pi list did not report exactly one managed package with the expected source and scope",
       4,
     );
   let commands;
@@ -1617,24 +1804,37 @@ async function inspectPi(options, manifest, expectedEnabled) {
       4,
     );
   }
-  const discovered = commands.find((command) => {
-    const location = command?.location ?? command?.sourceInfo?.scope;
-    const path = command?.path ?? command?.sourceInfo?.path;
-    return (
-      command?.name === "skill:prd" &&
-      command?.source === "skill" &&
-      location === options.scope &&
-      typeof path === "string" &&
-      path.endsWith(join("skills", "prd", "SKILL.md"))
-    );
-  });
-  if (Boolean(discovered) !== expectedEnabled)
-    throw new LifecycleError(
-      "DISCOVERY_FAILED",
-      `Pi reported /skill:prd as ${discovered ? "enabled" : "disabled"} at ${options.scope} scope`,
-      4,
-    );
-  return { static: true, native: "verified", invocation: "/skill:prd" };
+  const capabilities = nativeCapabilities(manifest);
+  for (const name of capabilities) {
+    const named = commands.filter((command) => command?.name === `skill:${name}`);
+    const discovered = named.length === 1 && piCommandMatches(options, manifest, named[0], name);
+    if ((expectedEnabled && !discovered) || (!expectedEnabled && named.length !== 0))
+      throw new LifecycleError(
+        "DISCOVERY_FAILED",
+        `Pi did not report exactly one valid /skill:${name} command in the expected lifecycle state at ${options.scope} scope`,
+        4,
+      );
+  }
+  return nativeDiscovery("pi", capabilities);
+}
+
+function piCommandMatches(options, manifest, command, name) {
+  const info = command?.sourceInfo;
+  if (
+    command?.source !== "skill" ||
+    info?.scope !== options.scope ||
+    info?.origin !== "package" ||
+    typeof info?.source !== "string" ||
+    typeof info?.baseDir !== "string" ||
+    !isAbsolute(info.baseDir) ||
+    typeof info?.path !== "string" ||
+    resolve(info.path) !== resolve(info.baseDir, "plugin", "skills", name, "SKILL.md")
+  )
+    return false;
+
+  if (info.source === manifest.nativeIdentity.source) return true;
+  if (manifest.nativeIdentity.kind !== "local") return false;
+  return `local:${resolve(info.baseDir)}` === manifest.nativeIdentity.package;
 }
 
 async function listedPiPackages(options) {
@@ -1672,7 +1872,7 @@ async function piPackagesAtScope(options, source) {
   return matches;
 }
 
-async function piDiscoveredAtScope(options) {
+async function piDiscoveredAtScope(options, capabilities = CAPABILITIES) {
   let commands;
   try {
     commands = await piCommands(options);
@@ -1685,17 +1885,11 @@ async function piDiscoveredAtScope(options) {
       4,
     );
   }
-  return commands.some((command) => {
-    const location = command?.location ?? command?.sourceInfo?.scope;
-    const path = command?.path ?? command?.sourceInfo?.path;
-    return (
-      command?.name === "skill:prd" &&
-      command?.source === "skill" &&
-      location === options.scope &&
-      typeof path === "string" &&
-      path.endsWith(join("skills", "prd", "SKILL.md"))
-    );
-  });
+  return commands.some(
+    (command) =>
+      capabilities.includes(command?.name?.replace(/^skill:/, "")) &&
+      (command?.sourceInfo?.scope ?? command?.location) === options.scope,
+  );
 }
 
 async function refuseUnmanagedPi(options, source) {
@@ -1728,7 +1922,7 @@ async function activePiOtherScope(options) {
         `Pi no longer reports the protected Kona package at ${scope} scope`,
         4,
       );
-    if (await piDiscoveredAtScope(otherOptions)) return scope;
+    if (await piDiscoveredAtScope(otherOptions, nativeCapabilities(other))) return scope;
   }
   return null;
 }
@@ -1789,7 +1983,7 @@ async function recoverPi(paths, options) {
     throw new LifecycleError("RECOVERY_PARTIAL", "Pi transaction journal is unreadable", 4);
   });
   if (
-    journal.schema !== SCHEMA ||
+    !SCHEMA_CAPABILITIES.has(journal.schema) ||
     journal.host !== "pi" ||
     !HOST_SCOPES.pi.has(journal.scope) ||
     !["install", "update", "disable", "enable", "remove"].includes(journal.operation) ||
@@ -1845,7 +2039,7 @@ async function piLifecycle(options) {
     let source = options.source;
 
     if (options.verb === "install") {
-      source ||= PI_SOURCE;
+      source ||= manifest?.nativeIdentity.source || PI_SOURCE;
       const parsed = parsePiSource(source, options);
       if (manifest) {
         if (manifest.nativeIdentity.package !== parsed.identity)
@@ -1855,7 +2049,17 @@ async function piLifecycle(options) {
           );
         if (manifest.nativeIdentity.source !== source)
           throw new LifecycleError("SOURCE_CONFLICT", "use update to change a pinned Pi source");
-        await inspectPi(options, manifest, manifest.state === "active");
+        const discovery = await inspectPi(options, manifest, manifest.state === "active");
+        if (manifest.schema !== SCHEMA)
+          throw new LifecycleError(
+            "UPDATE_REQUIRED",
+            "the installed capability bundle requires an explicit update",
+            1,
+            {
+              discovery,
+              source: manifest.nativeIdentity.source,
+            },
+          );
         if (manifest.state === "disabled")
           throw new LifecycleError(
             "DISABLED",
@@ -1880,6 +2084,7 @@ async function piLifecycle(options) {
       if (options.verb === "update") {
         if (manifest.state === "disabled")
           throw new LifecycleError("DISABLED", "enable the selected Pi scope before updating");
+        if (manifest.schema !== SCHEMA) await inspectPi(options, manifest, true);
         if (manifest.nativeIdentity.pinned) {
           if (!source)
             throw new LifecycleError(
@@ -1910,6 +2115,13 @@ async function piLifecycle(options) {
 
     if (options.verb === "verify") {
       const discovery = await inspectPi(options, manifest, manifest.state === "active");
+      if (manifest.schema !== SCHEMA)
+        throw new LifecycleError(
+          "UPDATE_REQUIRED",
+          "the installed capability bundle requires an explicit update",
+          1,
+          { discovery, source: manifest.nativeIdentity.source },
+        );
       return {
         status: manifest.state,
         message: `${manifest.version} ${manifest.state} and verified`,
@@ -1983,7 +2195,7 @@ async function piLifecycle(options) {
             4,
             { sources: remainingPackages.map((entry) => entry.source) },
           );
-        if (await piDiscoveredAtScope(options))
+        if (await piDiscoveredAtScope(options, nativeCapabilities(manifest)))
           throw new LifecycleError(
             "DISCOVERY_FAILED",
             "Pi still discovers /skill:prd at the removed scope",
@@ -1998,7 +2210,10 @@ async function piLifecycle(options) {
             : options.verb === "enable"
               ? "active"
               : manifest?.state || "active";
-        manifest = nativePiManifest(options, capability.version, effectiveSource, nextState);
+        manifest =
+          manifest?.schema !== SCHEMA && ["disable", "enable"].includes(options.verb)
+            ? { ...manifest, state: nextState }
+            : nativePiManifest(options, capability.version, effectiveSource, nextState);
         const discovery = await inspectPi(options, manifest, nextState === "active");
         await durableWrite(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`);
         await rm(paths.journal, { force: true });
@@ -2140,7 +2355,8 @@ async function installOrUpdate(options, manifest, capability, resources, discove
     for (const resource of resources) await writeResource(resource);
     const next = {
       schema: SCHEMA,
-      capability: "prd",
+      bundle: BUNDLE,
+      capabilities: CAPABILITIES,
       version: capability.version,
       host: options.host,
       scope: options.scope,
@@ -2227,12 +2443,12 @@ async function setEnabled(options, manifest, resources, enabled, discover) {
     }
     manifest.state = enabled ? "active" : "disabled";
     await durableWrite(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`);
-    const discovery = enabled ? await discover(true) : null;
+    const discovery = await discover(enabled);
     await commit(paths, journal);
     return {
       status: enabled ? "enabled" : "disabled",
-      message: enabled ? "scope enabled and native discovery verified" : "scope disabled",
-      details: discovery ? operationDetails(manifest.version, options, discovery) : undefined,
+      message: `scope ${enabled ? "enabled" : "disabled"} and native discovery verified`,
+      details: operationDetails(manifest.version, options, discovery),
     };
   } catch (error) {
     await recover(paths, options);
@@ -2245,6 +2461,7 @@ function operationDetails(version, options, discovery) {
     version,
     scope: options.scope,
     invocation: discovery.invocation,
+    invocations: discovery.invocations,
     verification: discovery,
     discovery,
   };
@@ -2292,25 +2509,56 @@ async function removeInstall(options, manifest, resources) {
 }
 
 async function copiedLifecycle(options) {
-  const { capability, resources } = await sourceResources(options);
   const paths = protectedPaths(options);
   const release = await acquireLock(paths.lock);
   try {
     const recovered = await recover(paths, options);
-    const manifest = await readManifest(options, resources);
-    const discover = (enabled) =>
+    const manifest = await readManifest(options);
+    const sourceRegistry =
+      manifest && manifest.schema !== SCHEMA && options.verb !== "update"
+        ? descriptorsForSchema(manifest.schema)
+        : CAPABILITY_REGISTRY;
+    const { capability, resources } = await sourceResources(options, sourceRegistry);
+    const ownedResources =
+      manifest && options.verb === "update" ? resourcesForManifest(manifest, options) : resources;
+    const discoverWith = (discoveryResources, enabled) =>
       options.host === "opencode"
-        ? verifyOpenCodeDiscovery(options, resources, enabled)
-        : verifyCodexDiscovery(options, resources, enabled);
-    for (const resource of resources)
+        ? verifyOpenCodeDiscovery(options, discoveryResources, enabled)
+        : verifyCodexDiscovery(options, discoveryResources, enabled);
+    const discover = (enabled) => discoverWith(ownedResources, enabled);
+    for (const resource of options.verb === "update" ? resources : ownedResources)
       await assertSafeTarget(resource.target, targetBoundary(options));
+    if (manifest && manifest.schema !== SCHEMA && ["install", "verify"].includes(options.verb)) {
+      if (manifest.state === "active") await inspectOwned(manifest);
+      else await inspectDisabled(manifest, options, ownedResources);
+      await inspectBackups(manifest);
+      const discovery = await discover(manifest.state === "active");
+      throw new LifecycleError(
+        "UPDATE_REQUIRED",
+        "the installed capability bundle requires an explicit update",
+        1,
+        operationDetails(manifest.version, options, discovery),
+      );
+    }
+    if (
+      manifest &&
+      manifest.schema !== SCHEMA &&
+      options.verb === "update" &&
+      manifest.state !== "active"
+    ) {
+      await inspectDisabled(manifest, options, ownedResources);
+      await inspectBackups(manifest);
+      throw new LifecycleError("DISABLED", "enable the scope before updating");
+    }
     let outcome;
     if (options.verb === "install" || options.verb === "update")
-      outcome = await installOrUpdate(options, manifest, capability, resources, discover);
+      outcome = await installOrUpdate(options, manifest, capability, resources, (enabled) =>
+        discoverWith(resources, enabled),
+      );
     else if (options.verb === "verify") {
       if (!manifest) throw new LifecycleError("NOT_INSTALLED", "scope is not installed");
       if (manifest.state === "active") await inspectOwned(manifest);
-      else await inspectDisabled(manifest, options, resources);
+      else await inspectDisabled(manifest, options, ownedResources);
       await inspectBackups(manifest);
       outcome = {
         status: manifest.state,
@@ -2322,10 +2570,10 @@ async function copiedLifecycle(options) {
         ),
       };
     } else if (options.verb === "disable")
-      outcome = await setEnabled(options, manifest, resources, false, discover);
+      outcome = await setEnabled(options, manifest, ownedResources, false, discover);
     else if (options.verb === "enable")
-      outcome = await setEnabled(options, manifest, resources, true, discover);
-    else outcome = await removeInstall(options, manifest, resources);
+      outcome = await setEnabled(options, manifest, ownedResources, true, discover);
+    else outcome = await removeInstall(options, manifest, ownedResources);
     return { ...outcome, recovered };
   } finally {
     await release();

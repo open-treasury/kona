@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
@@ -13,6 +13,12 @@ const pluginRoot = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(pluginRoot, "..");
 const pins = JSON.parse(await readFile(join(import.meta.dirname, "host-versions.json"), "utf8"));
 const releaseValidation = process.env.KONA_RELEASE_VALIDATION === "1";
+const invocationsByHost = {
+  opencode: { prd: "@prd-writer", spec: "@spec-writer" },
+  codex: { prd: "$prd", spec: "$spec" },
+  claude: { prd: "/kona:prd", spec: "/kona:spec" },
+  pi: { prd: "/skill:prd", spec: "/skill:spec" },
+};
 
 async function isolatedHost(host) {
   const root = await mkdtemp(join(tmpdir(), `kona-real-${host}-`));
@@ -38,7 +44,7 @@ async function isolatedHost(host) {
     OPENAI_API_KEY: "",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    KONA_PI_CONFIG_KEYS: " \u001b",
+    KONA_PI_CONFIG_KEYS: " \u001b[B \u001b",
     NO_COLOR: "1",
   };
   if (host.startsWith("claude")) {
@@ -119,6 +125,15 @@ for (const [host, pin] of Object.entries(pins.hosts)) {
       for (const scope of scopesByHost[host]) {
         const fixture = await isolatedHost(`${host}-${scope}`);
         try {
+          const canaries = new Map([
+            [join(fixture.project, "specs/existing/prd.md"), Buffer.from("authored PRD\n")],
+            [join(fixture.project, "specs/existing/spec.md"), Buffer.from("authored SPEC\n")],
+            [join(fixture.project, ".unrelated-host-config"), Buffer.from("unrelated config\n")],
+          ]);
+          for (const [path, bytes] of canaries) {
+            await mkdir(dirname(path), { recursive: true });
+            await writeFile(path, bytes);
+          }
           const run = (args) => runLifecycle(args, { cwd: fixture.project, env: fixture.env });
           const installed = await run(mutation(host, "install", scope, fixture.project));
           assert.equal(
@@ -127,14 +142,17 @@ for (const [host, pin] of Object.entries(pins.hosts)) {
             `${host}/${scope}: ${JSON.stringify(installed.body)}`,
           );
           assert.equal(installed.body.details.discovery.native, "verified");
+          assert.deepEqual(installed.body.details.discovery.invocations, invocationsByHost[host]);
 
           const verified = await run(["verify", "--host", host, "--scope", scope]);
           assert.equal(verified.exitCode, 0, `${host}/${scope}: ${JSON.stringify(verified.body)}`);
           assert.equal(verified.body.details.discovery.native, "verified");
+          assert.deepEqual(verified.body.details.discovery.invocations, invocationsByHost[host]);
 
           const updated = await run(mutation(host, "update", scope, fixture.project));
           assert.equal(updated.exitCode, 0, `${host}/${scope}: ${JSON.stringify(updated.body)}`);
           assert.equal(updated.body.details.discovery.native, "verified");
+          assert.deepEqual(updated.body.details.discovery.invocations, invocationsByHost[host]);
 
           const disabled = await run(mutation(host, "disable", scope, fixture.project));
           assert.equal(disabled.exitCode, 0, `${host}/${scope}: ${JSON.stringify(disabled.body)}`);
@@ -146,6 +164,7 @@ for (const [host, pin] of Object.entries(pins.hosts)) {
           const enabled = await run(mutation(host, "enable", scope, fixture.project));
           assert.equal(enabled.exitCode, 0, `${host}/${scope}: ${JSON.stringify(enabled.body)}`);
           assert.equal(enabled.body.details.discovery.native, "verified");
+          assert.deepEqual(enabled.body.details.discovery.invocations, invocationsByHost[host]);
 
           const otherScope = conflictingScope(host, scope);
           const conflict = await run(mutation(host, "install", otherScope, fixture.project));
@@ -160,6 +179,8 @@ for (const [host, pin] of Object.entries(pins.hosts)) {
           const verifyAbsent = ["verify", "--host", host, "--scope", scope];
           if (host === "claude") verifyAbsent.push("--source", fixture.project);
           assert.equal((await run(verifyAbsent)).body.code, "NOT_INSTALLED");
+          for (const [path, bytes] of canaries)
+            assert.deepEqual(await readFile(path), bytes, `${host}/${scope}: ${path}`);
         } finally {
           await rm(fixture.root, { recursive: true, force: true });
         }
