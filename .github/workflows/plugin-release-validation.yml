@@ -16,6 +16,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: read
+
 jobs:
   pinned-hosts:
     runs-on: ubuntu-latest
