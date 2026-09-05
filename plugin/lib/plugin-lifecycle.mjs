@@ -420,7 +420,7 @@ async function codexSkillsList(options) {
         method: "initialize",
         id: 1,
         params: {
-          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.1.0" },
+          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.1.1" },
         },
       })}\n`,
     );

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-KONA_VERSION='0.1.0'
+KONA_VERSION='0.1.1'
 KONA_TAG="v${KONA_VERSION}"
 KONA_ARCHIVE="kona-${KONA_TAG}-portable.tar.gz"
 KONA_RELEASE_URL="https://github.com/open-treasury/kona/releases/download/v${KONA_VERSION}"
@@ -72,7 +72,7 @@ fetch() {
       301|302|303|307|308)
         redirects=$((redirects + 1))
         [ "$redirects" -le "$KONA_MAX_REDIRECTS" ] || fail 'release redirect limit exceeded'
-        location=$(awk 'BEGIN { IGNORECASE=1 } /^Location:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); value=$0 } END { print value }' "$headers")
+        location=$(awk 'tolower($0) ~ /^location:/ { sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); value=$0 } END { print value }' "$headers")
         [ -n "$location" ] || fail 'release redirect omitted Location'
         approved_url "$location" || fail "refusing unapproved redirect: $location"
         url=$location

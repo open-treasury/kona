@@ -19,7 +19,7 @@ const claudePlugin = readJson(join(pluginRoot, ".claude-plugin", "plugin.json"))
 describe("PRD capability manifest", () => {
   test("records aligned identity, modes, canonical hashes, and file modes", () => {
     expect(capability.name).toBe("prd");
-    expect(capability.version).toBe("0.1.0");
+    expect(capability.version).toBe("0.1.1");
     expect(capability.version).toBe(claudePlugin.version);
     expect(capability.version).toBe(packageManifest.version);
     expect(capability.modes).toEqual(["create", "refine"]);
@@ -79,7 +79,7 @@ describe("distribution manifests", () => {
   test("preserves existing Claude workflow and hook discovery", () => {
     expect(claudePlugin).toMatchObject({
       name: "kona",
-      version: "0.1.0",
+      version: "0.1.1",
       skills: "./skills/",
     });
     expect(claudePlugin.hooks).toBe("./hooks/hooks.json");

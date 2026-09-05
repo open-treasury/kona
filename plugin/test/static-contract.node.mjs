@@ -26,7 +26,7 @@ async function copyContractFixture() {
 
 test("static validator enforces canonical, adapter, manifest, ownership, privacy, and workflow contracts", async () => {
   const result = await validateStaticContracts(root);
-  assert.equal(result.capabilityVersion, "0.1.0");
+  assert.equal(result.capabilityVersion, "0.1.1");
   assert.deepEqual(result.hosts, ["opencode", "codex", "claude", "pi"]);
 });
 

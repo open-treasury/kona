@@ -90,10 +90,10 @@ async function installClaudeMock(value) {
     "claude",
     `const fs=require("node:fs");const a=process.argv.slice(2);const p="${state}";const c="${calls}";const s=JSON.parse(fs.readFileSync(p));fs.appendFileSync(c,JSON.stringify(a)+"\\n");const save=()=>fs.writeFileSync(p,JSON.stringify(s));
  if(a.join(" ")==="plugin marketplace list --json")console.log(JSON.stringify(s.marketplaces??(s.marketplace?[{name:"kona",source:{source:"github",repo:"open-treasury/kona"}}]:[])));
- else if(a.join(" ")==="plugin list --json --available")console.log(JSON.stringify({installed:s.installed,available:s.available??(s.marketplace?[{pluginId:"kona@kona",name:"kona",marketplaceName:"kona",version:"0.1.0"}]:[])}));
+ else if(a.join(" ")==="plugin list --json --available")console.log(JSON.stringify({installed:s.installed,available:s.available??(s.marketplace?[{pluginId:"kona@kona",name:"kona",marketplaceName:"kona",version:"0.1.1"}]:[])}));
 else if(a.slice(0,3).join(" ")==="plugin marketplace add"){s.marketplace=true;save()}
 else if(a.slice(0,3).join(" ")==="plugin marketplace remove"){s.marketplace=false;save()}
- else{const v=a[1],scope=a[4],i=s.installed.findIndex(x=>x.scope===scope&&(scope==="user"||x.projectPath===process.cwd()));if(process.env.MOCK_FAIL===v)process.exit(7);if(v==="install")s.installed.push({id:"kona@kona",version:"0.1.0",scope,enabled:true,projectPath:scope==="user"?undefined:process.cwd()});else if(v==="uninstall")s.installed.splice(i,1);else if(v==="disable")s.installed[i].enabled=false;else if(v==="enable")s.installed[i].enabled=true;else if(v!=="update")process.exit(8);save()}`,
+ else{const v=a[1],scope=a[4],i=s.installed.findIndex(x=>x.scope===scope&&(scope==="user"||x.projectPath===process.cwd()));if(process.env.MOCK_FAIL===v)process.exit(7);if(v==="install")s.installed.push({id:"kona@kona",version:"0.1.1",scope,enabled:true,projectPath:scope==="user"?undefined:process.cwd()});else if(v==="uninstall")s.installed.splice(i,1);else if(v==="disable")s.installed[i].enabled=false;else if(v==="enable")s.installed[i].enabled=true;else if(v!=="update")process.exit(8);save()}`,
   );
   return { state, calls };
 }
@@ -137,7 +137,7 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
             native: installed.body.details.verification.native,
           },
           {
-            version: "0.1.0",
+            version: "0.1.1",
             scope,
             invocation: host === "opencode" ? "@prd-writer" : "$prd",
             native: "verified",
@@ -164,7 +164,7 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
         const updated = await value.run(["update", ...args]);
         assert.equal(updated.body.status, "updated");
         assert.equal(updated.body.details.verification.native, "verified");
-        assert.equal(updated.body.details.version, "0.1.0");
+        assert.equal(updated.body.details.version, "0.1.1");
         assert.equal(updated.body.details.scope, scope);
         assert.equal((await value.run(["disable", ...args])).body.status, "disabled");
         const enabled = await value.run(["enable", ...args]);
@@ -323,7 +323,7 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
     assert.equal((await value.run(["remove", ...project, "--approve"])).body.status, "removed");
 
     const user = ["--host", "pi", "--scope", "user"];
-    await value.run(["install", ...user, "--source", "npm:@open-treasury/kona@0.1.0", "--approve"]);
+    await value.run(["install", ...user, "--source", "npm:@open-treasury/kona@0.1.1", "--approve"]);
     assert.equal((await value.run(["update", ...user])).body.code, "NEW_PIN_REQUIRED");
     assert.equal(
       (
@@ -350,7 +350,7 @@ test("Pi refuses pre-existing unmanaged matching packages at project and user sc
     const value = await fixture();
     try {
       const mock = await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.1.0";
+      const source = "npm:@open-treasury/kona@0.1.1";
       await writeFile(mock.state, JSON.stringify({ packages: [{ scope, source, enabled: true }] }));
       const result = await value.run([
         "install",
@@ -381,7 +381,7 @@ test("Pi blocks unmanaged Kona packages across project and user activation scope
     const value = await fixture();
     try {
       const mock = await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.1.0";
+      const source = "npm:@open-treasury/kona@0.1.1";
       await writeFile(
         mock.state,
         JSON.stringify({ packages: [{ scope: installedScope, source, enabled: true }] }),
@@ -413,7 +413,7 @@ test("Pi blocks native active opposite scopes independently of protected state",
     const value = await fixture();
     try {
       await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.1.0";
+      const source = "npm:@open-treasury/kona@0.1.1";
       await value.run([
         "install",
         "--host",
@@ -452,7 +452,7 @@ test("Pi remove retains ownership when RPC hides discovery but native listing re
   try {
     await installPiMock(value);
     const args = ["--host", "pi", "--scope", "project"];
-    await value.run(["install", ...args, "--source", "npm:@open-treasury/kona@0.1.0", "--approve"]);
+    await value.run(["install", ...args, "--source", "npm:@open-treasury/kona@0.1.1", "--approve"]);
     value.env.MOCK_PI_HIDE_COMMAND = "1";
     value.env.MOCK_PI_KEEP_PACKAGE = "1";
     const result = await value.run(["remove", ...args, "--approve"]);
@@ -481,7 +481,7 @@ test("Pi failed-install compensation removes only the package Kona just created"
       "--scope",
       "project",
       "--source",
-      "npm:@open-treasury/kona@0.1.0",
+      "npm:@open-treasury/kona@0.1.1",
       "--approve",
     ]);
     assert.equal(result.body.code, "DISCOVERY_FAILED");
@@ -615,7 +615,7 @@ test("Claude refuses every mutation of a selected unmanaged native install", asy
           installed: [
             {
               id: "kona@kona",
-              version: "0.1.0",
+              version: "0.1.1",
               scope: "project",
               enabled: verb !== "enable",
               projectPath: value.project,
@@ -712,8 +712,8 @@ test("Claude accepts only consistent normalized marketplace source fields and on
       marketplace: true,
       installed: [],
       available: [
-        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.1.0" },
-        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.1.0" },
+        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.1.1" },
+        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.1.1" },
       ],
     },
   ]) {
