@@ -26,7 +26,7 @@
     "test": "bun test",
     "plugin:build": "node plugin/scripts/build.mjs",
     "plugin:validate": "node plugin/scripts/validate.mjs",
-    "test:plugin": "bun test plugin/test",
+    "test:plugin": "node --test plugin/test/*.node.mjs && bun test plugin/test/*.test.ts",
     "mutate": "./scripts/mutation.sh",
     "check": "bun run typecheck && bun run lint && bun run knip && bun run test",
     "mutate:core": "STRYKER_TIER=core stryker run stryker.conf.mjs",

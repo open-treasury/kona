@@ -147,6 +147,32 @@ test("release builds are byte-identical and contain only the approved assets", a
   }
 });
 
+test("release archive extracts into 0755 directories", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "kona-release-extraction-test-"));
+  try {
+    const release = await buildRelease({ root, outDir: join(directory, "release") });
+    const unpacked = join(directory, "unpacked");
+    await mkdir(unpacked);
+    await execute("tar", ["-xzf", join(release.releaseDir, release.archiveName), "-C", unpacked]);
+    for (const path of [
+      "kona",
+      "kona/.claude-plugin",
+      "kona/bin",
+      "kona/capabilities",
+      "kona/hosts",
+      "kona/hosts/opencode",
+      "kona/hosts/opencode/agents",
+      "kona/lib",
+      "kona/skills",
+      "kona/skills/prd",
+      "kona/skills/prd/templates",
+    ])
+      assert.equal((await lstat(join(unpacked, path))).mode & 0o777, 0o755, path);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("installer verifies and atomically installs an immutable version, then is a no-op", async () => {
   const value = await fixture();
   try {

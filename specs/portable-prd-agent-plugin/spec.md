@@ -199,11 +199,11 @@ Network boundary: PRD runtime is offline. The installer may contact only the app
 
 ### 6.7. Build, Versioning, and Review
 
-| Root script       | Proposed command                   | Purpose                                                                                                               |
-| ----------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `plugin:build`    | `node plugin/scripts/build.mjs`    | Stage deterministic portable artifacts, manifests, and checksums.                                                     |
-| `plugin:validate` | `node plugin/scripts/validate.mjs` | Validate canonical source, thin adapters, host/release contracts, Node-only runtime, references, and reproducibility. |
-| `test:plugin`     | `bun test plugin/test`             | Run lifecycle, installer, contract, parity, and host tests.                                                           |
+| Root script       | Proposed command                                                       | Purpose                                                                                                               |
+| ----------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `plugin:build`    | `node plugin/scripts/build.mjs`                                        | Stage deterministic portable artifacts, manifests, and checksums.                                                     |
+| `plugin:validate` | `node plugin/scripts/validate.mjs`                                     | Validate canonical source, thin adapters, host/release contracts, Node-only runtime, references, and reproducibility. |
+| `test:plugin`     | `node --test plugin/test/*.node.mjs && bun test plugin/test/*.test.ts` | Run Node lifecycle, installer, parity, and host suites, then Bun contract suites.                                     |
 
 Capability/plugin/package versions align for the first release. Behavioral compatibility follows SemVer; copied-host downgrades are refused. Claude auto-update remains host-controlled; Pi pinned sources update by approved reinstall.
 

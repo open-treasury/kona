@@ -58,7 +58,7 @@ function createTar(files) {
   }
   const entries = [...directories]
     .toSorted()
-    .map((path) => tarEntry(path, Buffer.alloc(0), 0o555, "5"));
+    .map((path) => tarEntry(path, Buffer.alloc(0), 0o755, "5"));
   for (const file of files.toSorted((left, right) => left.path.localeCompare(right.path)))
     entries.push(tarEntry(file.path, file.content, file.mode));
   entries.push(Buffer.alloc(1024));

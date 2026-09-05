@@ -8,24 +8,24 @@
   "AC7": ["prd-contract.test.ts", "preserve unaffected confirmed decisions"],
   "AC8": {
     "automated": [
-      "adapter-payload-contract.test.mjs",
+      "adapter-payload-contract.node.mjs",
       "adapter payload/contract parity resolves exact canonical bytes and host contracts"
     ],
     "manual": ["DOGFOOD.md", "This is real-model dogfood evidence"],
     "remaining": "Collect real-model create/refine semantic parity evidence for Codex, Claude Code, and Pi before release."
   },
-  "AC9": ["static-contract.test.mjs", "canonical hash drift"],
+  "AC9": ["static-contract.node.mjs", "canonical hash drift"],
   "AC10": ["prd-contract.test.ts", "invented claims"],
   "AC11": ["prd-contract.test.ts", "bundled template"],
   "AC12": ["prd-contract.test.ts", "optional ceremony"],
-  "AC13": ["adapter-payload-contract.test.mjs", "agreed-prd-only"],
-  "AC14": ["plugin-lifecycle.test.mjs", "Pi native package lifecycle"],
-  "AC15": ["host-validation.test.mjs", "real-host"],
-  "AC16": ["plugin-lifecycle.test.mjs", "replacement is digest-bound"],
-  "AC17": ["plugin-lifecycle.test.mjs", "crash journal recovery"],
-  "AC18": ["plugin-lifecycle.test.mjs", "scope matrix"],
-  "AC19": ["plugin-lifecycle.test.mjs", "idempotent"],
-  "AC20": ["plugin-lifecycle.test.mjs", "collaborator bootstrap"],
-  "AC21": ["plugin-lifecycle.test.mjs", "live host lock"],
-  "AC22": ["release-installer.test.mjs", "checksum failure"]
+  "AC13": ["adapter-payload-contract.node.mjs", "agreed-prd-only"],
+  "AC14": ["plugin-lifecycle.node.mjs", "Pi native package lifecycle"],
+  "AC15": ["host-validation.node.mjs", "real-host"],
+  "AC16": ["plugin-lifecycle.node.mjs", "replacement is digest-bound"],
+  "AC17": ["plugin-lifecycle.node.mjs", "crash journal recovery"],
+  "AC18": ["plugin-lifecycle.node.mjs", "scope matrix"],
+  "AC19": ["plugin-lifecycle.node.mjs", "idempotent"],
+  "AC20": ["plugin-lifecycle.node.mjs", "collaborator bootstrap"],
+  "AC21": ["plugin-lifecycle.node.mjs", "live host lock"],
+  "AC22": ["release-installer.node.mjs", "checksum failure"]
 }
