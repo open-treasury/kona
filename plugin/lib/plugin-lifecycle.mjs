@@ -26,7 +26,7 @@ const PREVIOUS_SCHEMA = 3;
 const LEGACY_VERSION = "0.1.1";
 const RELEASED_VERSION = "0.2.0";
 const PREVIOUS_VERSION = "0.3.0";
-const CURRENT_VERSION = "0.4.0";
+const CURRENT_VERSION = "0.4.1";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
 const SCHEMA_CAPABILITIES = new Map([

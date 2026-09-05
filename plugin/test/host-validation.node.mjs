@@ -49,7 +49,7 @@ async function isolatedHost(host) {
     OPENAI_API_KEY: "",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    KONA_PI_CONFIG_KEYS: " \u001b[B \u001b[B \u001b",
+    KONA_PI_CONFIG_KEYS: " \u001b[B \u001b[B \u001b[B \u001b",
     NO_COLOR: "1",
   };
   if (host.startsWith("claude")) {

@@ -30,7 +30,7 @@ async function copyContractFixture() {
 
 test("recursive runtime and contributor mirrors have no guidelines dependency", async () => {
   const result = await validateStaticContracts(root);
-  assert.equal(result.capabilityVersion, "0.4.0");
+  assert.equal(result.capabilityVersion, "0.4.1");
   assert.deepEqual(result.capabilities, ["copy", "prd", "spec", "issues"]);
   assert.deepEqual(result.hosts, ["opencode", "codex", "claude", "pi"]);
 });

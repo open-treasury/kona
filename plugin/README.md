@@ -74,7 +74,7 @@ to recover an interrupted operation. If rollback cannot be proved, Kona leaves r
 and refuses to claim success. Disable and remove affect every Kona capability, but authored copy,
 authored PRDs/SPECs, project source, and unrelated configuration are never lifecycle-owned.
 
-Release `0.4.0` writes strict schema-v4 ownership state for the ordered
+Release `0.4.1` writes strict schema-v4 ownership state for the ordered
 `copy`/`prd`/`spec`/`issues` bundle. Schema-v1 `0.1.1` PRD-only, schema-v2 `0.2.0` PRD+SPEC,
 and schema-v3 `0.3.0` copy+PRD+SPEC installations remain inspectable and removable. `verify` and
 `install` return `UPDATE_REQUIRED`; only an explicit `update` validates legacy ownership and
@@ -192,7 +192,7 @@ natively; pinned git tags or commits must be replaced with a different pin for t
 
 ```bash
 kona update --host pi --scope user --approve
-kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.4.0 --approve
+kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.4.1 --approve
 ```
 
 The corresponding native lifecycle is:

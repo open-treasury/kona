@@ -122,7 +122,7 @@ async function buildVersion(value, version) {
     join(nextRoot, ".claude-plugin/marketplace.json"),
   );
   const installer = (await readFile(join(root, "install.sh"), "utf8")).replace(
-    "KONA_VERSION='0.4.0'",
+    "KONA_VERSION='0.4.1'",
     `KONA_VERSION='${version}'`,
   );
   await writeFile(join(nextRoot, "install.sh"), installer, { mode: 0o755 });
@@ -137,7 +137,7 @@ async function buildVersion(value, version) {
   ]) {
     const fullPath = join(nextRoot, path);
     const content = (await readFile(fullPath, "utf8")).replace(
-      '"version": "0.4.0"',
+      '"version": "0.4.1"',
       `"version": "${version}"`,
     );
     await writeFile(fullPath, content);
@@ -191,7 +191,7 @@ test("release assembly rejects an omitted copy resource and copy version skew", 
 
     const copyManifest = join(source, "plugin/capabilities/copy.json");
     const original = await readFile(copyManifest, "utf8");
-    await writeFile(copyManifest, original.replace('"version": "0.4.0"', '"version": "9.9.9"'));
+    await writeFile(copyManifest, original.replace('"version": "0.4.1"', '"version": "9.9.9"'));
     await assert.rejects(buildRelease({ root: source }), /release versions are not aligned/);
 
     await writeFile(copyManifest, original);
@@ -262,10 +262,10 @@ test("installer verifies and atomically installs an immutable version, then is a
     value.env.KONA_TEST_REDIRECT = "approved";
     const installed = await install(value);
     assert.equal(installed.code, 0, installed.stderr);
-    assert.match(installed.stdout, /installed kona 0\.4\.0/);
+    assert.match(installed.stdout, /installed kona 0\.4\.1/);
     const link = join(value.bin, "kona");
     const target = await readlink(link);
-    assert.equal(target, join(value.home, "data/kona/versions/v0.4.0/bin/kona"));
+    assert.equal(target, join(value.home, "data/kona/versions/v0.4.1/bin/kona"));
     assert.equal((await lstat(target)).mode & 0o777, 0o555);
     const { stdout: help } = await execute(link, ["--help"], { env: value.env });
     assert.match(help, /^Usage: kona <install\|update\|verify\|disable\|enable\|remove>/);
@@ -279,8 +279,8 @@ test("installer verifies and atomically installs an immutable version, then is a
     assert.match(repeated.stdout, /already installed/);
     assert.deepEqual(await readFile(join(value.home, "data/kona/install-state.json")), stateBefore);
     const requests = await readFile(join(value.directory, "requests.log"), "utf8");
-    assert.match(requests, /\/releases\/download\/v0\.4\.0\/SHA256SUMS/);
-    assert.match(requests, /\/releases\/download\/v0\.4\.0\/kona-v0\.4\.0-portable\.tar\.gz/);
+    assert.match(requests, /\/releases\/download\/v0\.4\.1\/SHA256SUMS/);
+    assert.match(requests, /\/releases\/download\/v0\.4\.1\/kona-v0\.4\.1-portable\.tar\.gz/);
     assert.doesNotMatch(requests, /releases\/latest/);
   } finally {
     await value.cleanup();
@@ -299,7 +299,7 @@ test("installer refuses unapproved redirects before contacting them", async () =
     assert.equal(requests.length, 1);
     assert.match(
       requests[0],
-      /^https:\/\/github\.com\/open-treasury\/kona\/releases\/download\/v0\.4\.0\//,
+      /^https:\/\/github\.com\/open-treasury\/kona\/releases\/download\/v0\.4\.1\//,
     );
   } finally {
     await value.cleanup();
@@ -317,7 +317,7 @@ test("checksum failure and an unowned destination preserve existing files", asyn
     assert.equal(await readFile(destination, "utf8"), "unowned\n");
 
     await rm(destination);
-    const archive = join(value.release, "kona-v0.4.0-portable.tar.gz");
+    const archive = join(value.release, "kona-v0.4.1-portable.tar.gz");
     await writeFile(archive, Buffer.concat([await readFile(archive), Buffer.from("changed")]));
     const checksum = await install(value);
     assert.notEqual(checksum.code, 0);
@@ -332,7 +332,7 @@ test("installer rejects an internally corrupted archive after its external check
   const value = await fixture();
   try {
     const unpacked = join(value.directory, "unpacked");
-    const archive = join(value.release, "kona-v0.4.0-portable.tar.gz");
+    const archive = join(value.release, "kona-v0.4.1-portable.tar.gz");
     await mkdir(unpacked);
     await execute("tar", ["-xzf", archive, "-C", unpacked]);
     const skill = join(unpacked, "kona/skills/copy/SKILL.md");
@@ -347,7 +347,7 @@ test("installer rejects an internally corrupted archive after its external check
       .digest("hex");
     await writeFile(
       join(value.release, "SHA256SUMS"),
-      `${installerHash}  install.sh\n${archiveHash}  kona-v0.4.0-portable.tar.gz\n`,
+      `${installerHash}  install.sh\n${archiveHash}  kona-v0.4.1-portable.tar.gz\n`,
     );
     const refused = await install(value);
     assert.notEqual(refused.code, 0);
@@ -362,7 +362,7 @@ test("installer rejects an archive missing the copy manifest after its external 
   const value = await fixture();
   try {
     const unpacked = join(value.directory, "unpacked-missing-copy");
-    const archive = join(value.release, "kona-v0.4.0-portable.tar.gz");
+    const archive = join(value.release, "kona-v0.4.1-portable.tar.gz");
     await mkdir(unpacked);
     await execute("tar", ["-xzf", archive, "-C", unpacked]);
     await rm(join(unpacked, "kona/capabilities/copy.json"));
@@ -375,7 +375,7 @@ test("installer rejects an archive missing the copy manifest after its external 
       .digest("hex");
     await writeFile(
       join(value.release, "SHA256SUMS"),
-      `${installerHash}  install.sh\n${archiveHash}  kona-v0.4.0-portable.tar.gz\n`,
+      `${installerHash}  install.sh\n${archiveHash}  kona-v0.4.1-portable.tar.gz\n`,
     );
 
     const refused = await install(value);
@@ -393,7 +393,7 @@ test("tampered owned versions are refused without changing the active link", asy
     assert.equal((await install(value)).code, 0);
     const link = join(value.bin, "kona");
     const active = await readlink(link);
-    const skill = join(value.home, "data/kona/versions/v0.4.0/skills/copy/SKILL.md");
+    const skill = join(value.home, "data/kona/versions/v0.4.1/skills/copy/SKILL.md");
     await chmod(skill, 0o644);
     await writeFile(skill, "tampered\n", { mode: 0o444 });
     const refused = await install(value);
@@ -456,7 +456,7 @@ test("installer refuses a downgrade and preserves the newer active release", asy
     value.env.KONA_TEST_RELEASE = older.releaseDir;
     const refused = await install(value);
     assert.notEqual(refused.code, 0);
-    assert.match(refused.stderr, /refusing downgrade from 0\.4\.0 to 0\.3\.0/);
+    assert.match(refused.stderr, /refusing downgrade from 0\.4\.1 to 0\.3\.0/);
     assert.equal(await readlink(link), active);
     assert.deepEqual(await readFile(join(value.home, "data/kona/install-state.json")), state);
   } finally {
@@ -526,7 +526,7 @@ test("a crash-created uncommitted version is recovered only through its durable 
     assert.equal(retried.code, 0, retried.stderr);
     assert.equal(
       await readlink(join(value.bin, "kona")),
-      join(value.home, "data/kona/versions/v0.4.0/bin/kona"),
+      join(value.home, "data/kona/versions/v0.4.1/bin/kona"),
     );
     await assert.rejects(lstat(join(value.home, "data/kona/activation-journal.json")), {
       code: "ENOENT",
@@ -546,12 +546,12 @@ test("concurrent installers serialize activation and never remove the installed 
     assert.equal(first.code, 0, first.stderr);
     assert.equal(second.code, 0, second.stderr);
     const link = join(value.bin, "kona");
-    assert.equal(await readlink(link), join(value.home, "data/kona/versions/v0.4.0/bin/kona"));
+    assert.equal(await readlink(link), join(value.home, "data/kona/versions/v0.4.1/bin/kona"));
     assert.equal((await lstat(await readlink(link))).isFile(), true);
     const state = JSON.parse(
       await readFile(join(value.home, "data/kona/install-state.json"), "utf8"),
     );
-    assert.deepEqual(Object.keys(state.versions), ["v0.4.0"]);
+    assert.deepEqual(Object.keys(state.versions), ["v0.4.1"]);
   } finally {
     await value.cleanup();
   }

@@ -78,7 +78,7 @@ describe("canonical issues capability", () => {
       type: "capability",
       schemaVersion: 1,
       name: "issues",
-      version: "0.4.0",
+      version: "0.4.1",
       modes: ["plan", "execute"],
     });
     expect(Object.keys(manifest.canonical)).toEqual(["skill"]);

@@ -57,7 +57,7 @@ describe("capability registry and manifests", () => {
       expect(capability.schemaVersion).toBe(1);
       expect(capability.type).toBe("capability");
       expect(capability.name).toBe(CAPABILITY_REGISTRY[index].name);
-      expect(capability.version).toBe("0.4.0");
+      expect(capability.version).toBe("0.4.1");
       expect(capability.version).toBe(claudePlugin.version);
       expect(capability.version).toBe(packageManifest.version);
       expect(capability.version).toBe(marketplace.plugins[0].version);
@@ -151,7 +151,7 @@ describe("distribution manifests", () => {
   test("preserves existing Claude workflow and hook discovery", () => {
     expect(claudePlugin).toMatchObject({
       name: "kona",
-      version: "0.4.0",
+      version: "0.4.1",
       skills: "./skills/",
     });
     expect(claudePlugin.hooks).toBe("./hooks/hooks.json");
