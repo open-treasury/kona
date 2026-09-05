@@ -29,16 +29,16 @@ function activityOf(graph: Graph, id: string) {
   // asked the wrong question quietly compare two undefineds and pass.
   const activity = activityAt(graph, id);
   if (activity === undefined) throw new Error(`no node ${id}`);
-  if (activity.status === undefined) throw new Error(`${id} is a ${activity.type}, which carries no status`);
+  if (activity.status === undefined)
+    throw new Error(`${id} is a ${activity.type}, which carries no status`);
   return activity;
 }
 
 describe("outcomes are append-only (§6.7)", () => {
   test("a second outcome appends rather than replacing", () => {
-    const graph = commit(
-      commit(seeded([action("A")]), [outcome("a", "confirmed", "<m-1>")]),
-      [outcome("a", "late", "<m-2>")],
-    );
+    const graph = commit(commit(seeded([action("A")]), [outcome("a", "confirmed", "<m-1>")]), [
+      outcome("a", "late", "<m-2>"),
+    ]);
     expect(activityOf(graph, "a").status.outcomes.map((o) => o.verdict)).toEqual([
       "confirmed",
       "late",
@@ -48,10 +48,10 @@ describe("outcomes are append-only (§6.7)", () => {
   test("a late reply NEVER replaces the verdict the graph acted on", () => {
     // §6.5: recorded, and it never reopens the acceptEvent. Under overwrite semantics the
     // evidence for an email already sent would vanish behind a straggler.
-    const graph = commit(
-      commit(seeded([action("A")]), [outcome("a", "confirmed", "<m-1>")]),
-      [outcome("a", "declined", "<m-2>"), outcome("a", "late", "<m-3>")],
-    );
+    const graph = commit(commit(seeded([action("A")]), [outcome("a", "confirmed", "<m-1>")]), [
+      outcome("a", "declined", "<m-2>"),
+      outcome("a", "late", "<m-3>"),
+    ]);
     const resolved = activityOf(graph, "a").status.outcome;
     expect(resolved?.verdict).toBe("confirmed");
     expect(resolved?.evidence_ref).toBe("<m-1>");
@@ -65,18 +65,16 @@ describe("outcomes are append-only (§6.7)", () => {
   });
 
   test("and a later firm reply is what resolves it", () => {
-    const graph = commit(
-      commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]),
-      [outcome("a", "confirmed", "<m-2>")],
-    );
+    const graph = commit(commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]), [
+      outcome("a", "confirmed", "<m-2>"),
+    ]);
     expect(activityOf(graph, "a").status.outcome?.evidence_ref).toBe("<m-2>");
   });
 
   test("each entry records the version that wrote it", () => {
-    const graph = commit(
-      commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]),
-      [outcome("a", "confirmed", "<m-2>")],
-    );
+    const graph = commit(commit(seeded([action("A")]), [outcome("a", "tentative", "<m-1>")]), [
+      outcome("a", "confirmed", "<m-2>"),
+    ]);
     expect(activityOf(graph, "a").status.outcomes.map((o) => o.at_version)).toEqual([2, 3]);
   });
 
@@ -104,7 +102,9 @@ describe("outcomes are append-only (§6.7)", () => {
 
 describe("the resolution is derived, never stored (§6.2)", () => {
   function resolutionAfter(verdict: Verdict) {
-    return resolutionOf(activityOf(commit(seeded([action("A")]), [outcome("a", verdict, "e")]), "a"));
+    return resolutionOf(
+      activityOf(commit(seeded([action("A")]), [outcome("a", verdict, "e")]), "a"),
+    );
   }
 
   test.each([...DECISION_VERDICTS])("a human decision '%s' is its own guard", (verdict) => {
@@ -171,7 +171,9 @@ describe("readiness fails safe (§6.4)", () => {
       const graph = commit(chain(), [
         { op: "set_status", node: "a", status: state, evidence_ref: "e" } as AuthoredOp,
       ]);
-      expect(isEdgeSatisfied(graph, { from: slugOr(graph, "a"), to: slugOr(graph, "b") })).toBe(ready);
+      expect(isEdgeSatisfied(graph, { from: slugOr(graph, "a"), to: slugOr(graph, "b") })).toBe(
+        ready,
+      );
       expect(isReady(graph, activityOf(graph, "b"))).toBe(ready);
     }
   });
@@ -192,7 +194,10 @@ describe("readiness fails safe (§6.4)", () => {
     ]);
     expect(isReady(dropped, activityOf(dropped, "c"))).toBe(false);
 
-    const superseded = commit(chain(), [action("C prime"), { op: "supersede_node", node: "c", by: "$0" }]);
+    const superseded = commit(chain(), [
+      action("C prime"),
+      { op: "supersede_node", node: "c", by: "$0" },
+    ]);
     expect(isReady(superseded, activityOf(superseded, "c"))).toBe(false);
   });
 
@@ -203,7 +208,7 @@ describe("readiness fails safe (§6.4)", () => {
 
 describe("conditional edges fire only on their own resolution", () => {
   function branched(verdict: Verdict): Graph {
-    const base = commit(seeded([action("Accepted"), action("Ignored"), acceptEvent("Gate", { })]), [
+    const base = commit(seeded([action("Accepted"), action("Ignored"), acceptEvent("Gate", {})]), [
       { op: "add_edge", from: "gate", to: "accepted", guard: { on: "accept" } },
       { op: "add_edge", from: "gate", to: "ignored", guard: { on: "ignore" } },
     ]);
@@ -229,10 +234,8 @@ describe("conditional edges fire only on their own resolution", () => {
   });
 
   test("the frontier comes back in insertion order, so the viewer is stable", () => {
-    expect(readyFrontier(seeded([action("A"), action("B"), action("C")])).map((n) => slugOf(n.id))).toEqual([
-      "a",
-      "b",
-      "c",
-    ]);
+    expect(
+      readyFrontier(seeded([action("A"), action("B"), action("C")])).map((n) => slugOf(n.id)),
+    ).toEqual(["a", "b", "c"]);
   });
 });

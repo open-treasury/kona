@@ -38,7 +38,8 @@ export function namedHere(
   const committed = graph.nodes.get(id);
   if (committed !== undefined) return named(committed);
   for (const op of ops) {
-    if (op.op === "add_node" && op.id === id && op.name !== undefined) return named({ id, name: op.name });
+    if (op.op === "add_node" && op.id === id && op.name !== undefined)
+      return named({ id, name: op.name });
   }
   return `'${id}'`;
 }

@@ -1,39 +1,21 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "includeEntryExports": true,
-  "exclude": [
-    "types"
-  ],
-  "ignoreDependencies": [
-    "@stryker-mutator/command-runner"
-  ],
+  "exclude": ["types"],
+  "ignoreDependencies": ["@stryker-mutator/command-runner"],
   "workspaces": {
     ".": {
-      "project": [
-        "*.mjs!"
-      ]
+      "project": ["*.mjs!"]
     },
     "packages/core": {
-      "project": [
-        "src/**/*.ts!",
-        "test/**/*.ts"
-      ]
+      "project": ["src/**/*.ts!", "test/**/*.ts"]
     },
     "packages/kona": {
-      "project": [
-        "src/**/*.ts!",
-        "test/**/*.ts"
-      ]
+      "project": ["src/**/*.ts!", "test/**/*.ts"]
     },
     "packages/viewer": {
-      "entry": [
-        "index.html",
-        "src/main.tsx"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx}!",
-        "test/**/*.ts"
-      ]
+      "entry": ["index.html", "src/main.tsx"],
+      "project": ["src/**/*.{ts,tsx}!", "test/**/*.ts"]
     }
   }
 }

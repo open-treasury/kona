@@ -22,8 +22,7 @@ const SOURCE = join(REPO, "plugin", "skills", "run", "SKILL.md");
 const DERIVED = join(REPO, "eval", "skills", "kona", "SKILL.md");
 const STAMP = join(here, "provenance.json");
 
-const sha = (p: string): string =>
-  createHash("sha256").update(readFileSync(p)).digest("hex");
+const sha = (p: string): string => createHash("sha256").update(readFileSync(p)).digest("hex");
 
 const current = { source: sha(SOURCE), derived: sha(DERIVED) };
 

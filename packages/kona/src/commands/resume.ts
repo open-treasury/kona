@@ -43,7 +43,9 @@ function render(io: Io, plan: ResumePlan): void {
     io.out("  armed waits");
     for (const wait of report.waits) {
       const when = wait.deadline ?? "unknown";
-      io.out(`    ${wait.overdue ? "OVERDUE" : "waiting"}  ${wait.activity_id}  ${when}  (${wait.basis})`);
+      io.out(
+        `    ${wait.overdue ? "OVERDUE" : "waiting"}  ${wait.activity_id}  ${when}  (${wait.basis})`,
+      );
     }
     // §6.7's step 3 — "reconcile waits against the world" — from the operator's side.
     //
@@ -62,7 +64,9 @@ function render(io: Io, plan: ResumePlan): void {
     io.out("  NEEDS A HUMAN — reserved, never resolved. The world's answer is unknown.");
     for (const send of report.unknown_sends) {
       io.out(`    ${send.activity_id}  ${send.effect_key}  attempted ${send.attempted_at}`);
-      io.out(`      to ${send.recipient_ref ?? "(no recipient)"} — check the mailbox before doing anything`);
+      io.out(
+        `      to ${send.recipient_ref ?? "(no recipient)"} — check the mailbox before doing anything`,
+      );
     }
   }
 }

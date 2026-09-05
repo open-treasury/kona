@@ -138,7 +138,10 @@ describe("the loader is partial-tolerant: it reports rather than dies", () => {
 
   test("a record whose ops cannot apply is reported with the op's own reason", () => {
     const folded = foldLog(
-      logOf(GENESIS, record(1, [{ op: "set_status", node: "ghost", status: "completed", evidence_ref: "e" }])),
+      logOf(
+        GENESIS,
+        record(1, [{ op: "set_status", node: "ghost", status: "completed", evidence_ref: "e" }]),
+      ),
     );
     expect(folded.damaged[0]?.reason).toBe("UNKNOWN_ACTIVITY");
     expect(folded.graph.version).toBe(0);

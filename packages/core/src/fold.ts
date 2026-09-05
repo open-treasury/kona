@@ -49,7 +49,9 @@ function parseLine(text: string): MutationRecord | { error: string } {
   }
   const parsed = MutationRecordSchema.safeParse(json);
   if (!parsed.success) {
-    return { error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") };
+    return {
+      error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+    };
   }
   return parsed.data;
 }

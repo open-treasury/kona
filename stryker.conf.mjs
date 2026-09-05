@@ -97,7 +97,9 @@ const TIERS = {
 const tier = process.env.STRYKER_TIER ?? "core";
 const config = TIERS[tier];
 if (config === undefined) {
-  throw new Error(`Unknown STRYKER_TIER "${tier}". Expected one of: ${Object.keys(TIERS).join(", ")}`);
+  throw new Error(
+    `Unknown STRYKER_TIER "${tier}". Expected one of: ${Object.keys(TIERS).join(", ")}`,
+  );
 }
 
 export default {

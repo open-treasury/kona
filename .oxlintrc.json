@@ -1,12 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "promise",
-    "import"
-  ],
+  "plugins": ["typescript", "unicorn", "oxc", "promise", "import"],
   "categories": {
     "correctness": "error",
     "suspicious": "error",
@@ -31,10 +25,7 @@
     "import/no-unassigned-import": [
       "error",
       {
-        "allow": [
-          "**/*.css",
-          "@fontsource-variable/**"
-        ]
+        "allow": ["**/*.css", "@fontsource-variable/**"]
       }
     ]
   },
@@ -51,9 +42,7 @@
   ],
   "overrides": [
     {
-      "files": [
-        "packages/core/src/**/*.ts"
-      ],
+      "files": ["packages/core/src/**/*.ts"],
       "rules": {
         "eslint/no-restricted-globals": [
           "error",
@@ -75,13 +64,7 @@
           {
             "patterns": [
               {
-                "group": [
-                  "node:*",
-                  "fs",
-                  "path",
-                  "os",
-                  "crypto"
-                ],
+                "group": ["node:*", "fs", "path", "os", "crypto"],
                 "message": "core is pure (SPEC 6.12): the kona package is the only thing that writes."
               }
             ]
@@ -103,25 +86,19 @@
       }
     },
     {
-      "files": [
-        "packages/kona/src/bin.ts"
-      ],
+      "files": ["packages/kona/src/bin.ts"],
       "rules": {
         "eslint/no-console": "off"
       }
     },
     {
-      "files": [
-        "eval/**/*.ts"
-      ],
+      "files": ["eval/**/*.ts"],
       "rules": {
         "eslint/no-console": "off"
       }
     },
     {
-      "files": [
-        "**/test/**/*.ts"
-      ],
+      "files": ["**/test/**/*.ts"],
       "rules": {
         "typescript/no-explicit-any": "off",
         "typescript/await-thenable": "off"

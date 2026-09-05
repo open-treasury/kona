@@ -68,7 +68,9 @@ export async function runPoll(io: Io, options: PollOptions): Promise<number> {
     } else {
       io.out(`version ${opened.folded.graph.version} · ${targets.length} address(es) to poll`);
       for (const target of targets) {
-        io.out(`  ${target.armed ? "armed   " : "resolved"} ${target.address}  ${target.activity_id}`);
+        io.out(
+          `  ${target.armed ? "armed   " : "resolved"} ${target.address}  ${target.activity_id}`,
+        );
       }
     }
     return EXIT_OK;
@@ -97,9 +99,13 @@ export async function runPoll(io: Io, options: PollOptions): Promise<number> {
     return EXIT_OK;
   }
 
-  io.out(`version ${opened.folded.graph.version} · ${raw.length} message(s) · ${matches.length} matched`);
+  io.out(
+    `version ${opened.folded.graph.version} · ${raw.length} message(s) · ${matches.length} matched`,
+  );
   for (const match of matches) {
-    io.out(`  ${match.activity_id}  on:${match.on}${match.late ? "  LATE — records, never reopens" : ""}`);
+    io.out(
+      `  ${match.activity_id}  on:${match.on}${match.late ? "  LATE — records, never reopens" : ""}`,
+    );
     io.out(`    ${match.message_id}  from ${match.from}`);
   }
   if (matches.length > 0) {

@@ -3,7 +3,13 @@ import { readFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { SCHEMA_VERSION, type MutationRecord } from "@kona/core";
 import { konaPaths } from "../src/paths.ts";
-import { appendRecord, dropTornTail, loadGraph, readLogText, serializeRecord } from "../src/store.ts";
+import {
+  appendRecord,
+  dropTornTail,
+  loadGraph,
+  readLogText,
+  serializeRecord,
+} from "../src/store.ts";
 import { systemClock } from "../src/clock.ts";
 import { harness, type Harness } from "./harness.ts";
 
@@ -108,7 +114,14 @@ describe("a torn tail is dropped before appending after it", () => {
     // Rationales are prose: em dashes, middots, names. Truncating by string length would
     // cut mid-character on any log containing them and corrupt the record before the tear.
     const paths = konaPaths(h.dir);
-    const wide = { ...stamped(0), rationale: { why: "Dana declined — away · ünïcode", alternatives_rejected: [], reason_code: "OTHER" as const } };
+    const wide = {
+      ...stamped(0),
+      rationale: {
+        why: "Dana declined — away · ünïcode",
+        alternatives_rejected: [],
+        reason_code: "OTHER" as const,
+      },
+    };
     await appendRecord(paths, wide);
     const intact = readFileSync(paths.log, "utf8");
     expect(Buffer.byteLength(intact, "utf8")).toBeGreaterThan(intact.length);
@@ -116,7 +129,9 @@ describe("a torn tail is dropped before appending after it", () => {
     await Bun.write(paths.log, `${intact}{"v":1,"sch`);
     await dropTornTail(paths, await readLogText(paths));
     expect(readFileSync(paths.log, "utf8")).toBe(intact);
-    expect((await loadGraph(paths)).records[0]?.rationale.why).toBe("Dana declined — away · ünïcode");
+    expect((await loadGraph(paths)).records[0]?.rationale.why).toBe(
+      "Dana declined — away · ünïcode",
+    );
   });
 
   test("a torn line that ended with a newline is still dropped", async () => {

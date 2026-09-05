@@ -10,10 +10,10 @@ the instruments. Nothing here is importable by `core`, `kona` or `viewer`.
 
 ## What the two arms are
 
-| | Agent | Difference |
-|---|---|---|
-| **baseline** | Harbor's stock `terminus-2` | — |
-| **kona** | `eval/harbor/kona_agent.py:KonaTerminus` | `kona` on `PATH`, `.kona/` initialised at `/`, one `SKILL.md` |
+|              | Agent                                    | Difference                                                    |
+| ------------ | ---------------------------------------- | ------------------------------------------------------------- |
+| **baseline** | Harbor's stock `terminus-2`              | —                                                             |
+| **kona**     | `eval/harbor/kona_agent.py:KonaTerminus` | `kona` on `PATH`, `.kona/` initialised at `/`, one `SKILL.md` |
 
 Same model, same prompt template, same parser, same turn loop. `KonaTerminus` subclasses
 `Terminus2` and overrides only `setup()`. Terminus-2 discovers `SKILL.md` by itself —
@@ -33,7 +33,7 @@ eval/run/01-probe.sh         # ~10 min, ~$0.30 — measures the REAL cost per ru
 eval/run/02-ab.sh            # ~70 min — the paired A/B
 ```
 
-Run pre-flight the day *before*. Run slots are the scarce resource, not money, and the
+Run pre-flight the day _before_. Run slots are the scarce resource, not money, and the
 first one should not be spent discovering that an image does not build.
 
 **Do not skip the probe.** Per-run cost spans $0.5–$1.7 depending entirely on whether
@@ -54,7 +54,7 @@ verifier) ≈ 70 minutes; footprint is 40 GB of container RAM across both arms.
 
 `eval/analyze/paired.ts` reports per-task deltas, the **sign pattern**, and the
 pre-registered go/no-go bar. The unit is a task, not a run. Six tasks at one attempt each
-reports a *direction*, never significance, and the tool says so on every invocation.
+reports a _direction_, never significance, and the tool says so on every invocation.
 
 ## The gate
 

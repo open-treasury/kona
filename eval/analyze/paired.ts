@@ -78,7 +78,9 @@ const checksFor = (trialFile: string): Checks => {
     return {
       passed: tests.filter((t) => t.status === "passed").length,
       total: tests.length,
-      failed: tests.filter((t) => t.status !== "passed").map((t) => t.name.split("::").at(-1) ?? t.name),
+      failed: tests
+        .filter((t) => t.status !== "passed")
+        .map((t) => t.name.split("::").at(-1) ?? t.name),
     };
   } catch {
     return null;
@@ -140,7 +142,9 @@ console.log(`\n=== cost (${money.length} runs) ===`);
 console.log(`  total            $${totalCost.toFixed(4)}`);
 console.log(`  per run          $${perRun.toFixed(4)}`);
 console.log(`  input tokens     ${inTok.toLocaleString()}`);
-console.log(`  cached tokens    ${cacheTok.toLocaleString()}  (${inTok > 0 ? ((cacheTok / inTok) * 100).toFixed(1) : "0"}% of input)`);
+console.log(
+  `  cached tokens    ${cacheTok.toLocaleString()}  (${inTok > 0 ? ((cacheTok / inTok) * 100).toFixed(1) : "0"}% of input)`,
+);
 console.log(`  output tokens    ${outTok.toLocaleString()}`);
 
 if (probeMode) {
@@ -166,15 +170,23 @@ if (probeMode) {
 // ---------------------------------------------------------------- pairs
 const tasks = [...new Set(trials.map((t) => t.task))].toSorted();
 const fmt = (v: number | null): string => (v === null ? "  n/a " : v.toFixed(3).padStart(6));
-type Row = { task: string; base: number | null; kona: number | null; delta: number | null; note: string };
+type Row = {
+  task: string;
+  base: number | null;
+  kona: number | null;
+  delta: number | null;
+  note: string;
+};
 const rows: Row[] = tasks.map((task) => {
   const b = trials.find((t) => t.task === task && t.arm === "baseline");
   const k = trials.find((t) => t.task === task && t.arm === "kona");
   const base = b ? rewardOf(b.trial) : null;
   const kona = k ? rewardOf(k.trial) : null;
   const notes: string[] = [];
-  if (b?.trial.exception_info?.exception_type) notes.push(`baseline:${b.trial.exception_info.exception_type}`);
-  if (k?.trial.exception_info?.exception_type) notes.push(`kona:${k.trial.exception_info.exception_type}`);
+  if (b?.trial.exception_info?.exception_type)
+    notes.push(`baseline:${b.trial.exception_info.exception_type}`);
+  if (k?.trial.exception_info?.exception_type)
+    notes.push(`kona:${k.trial.exception_info.exception_type}`);
   if (!b) notes.push("baseline MISSING");
   if (!k) notes.push("kona MISSING");
   return {
@@ -190,7 +202,9 @@ console.log(`\n=== paired result: ${rows.length} tasks ===`);
 console.log("  baseline   kona   delta   task");
 for (const r of rows) {
   const d = r.delta === null ? "  n/a " : (r.delta > 0 ? "+" : "") + r.delta.toFixed(3);
-  console.log(`  ${fmt(r.base)}  ${fmt(r.kona)}  ${d.padStart(7)}   ${r.task}${r.note ? `   [${r.note}]` : ""}`);
+  console.log(
+    `  ${fmt(r.base)}  ${fmt(r.kona)}  ${d.padStart(7)}   ${r.task}${r.note ? `   [${r.note}]` : ""}`,
+  );
 }
 
 // Constraint checks and wall-clock — the two comparisons the binary reward cannot make.
@@ -240,14 +254,18 @@ if (scored.length === 0) {
 } else if (pos >= BAR) {
   console.log(`  GO — ${pos} of ${scored.length} positive (bar: ${BAR}).`);
 } else if (neg >= BAR) {
-  console.log(`  NEGATIVE — Kona is worse on ${neg} of ${scored.length}. Report it; it is a result.`);
+  console.log(
+    `  NEGATIVE — Kona is worse on ${neg} of ${scored.length}. Report it; it is a result.`,
+  );
 } else if (tie === scored.length) {
   console.log(
     `  ALL TIES — usually means both arms scored 0. Check whether the model moved either\n` +
       `  arm at all before reading anything into it.`,
   );
 } else {
-  console.log(`  NO-GO — ${pos}/${neg}/${tie} does not clear the bar of ${BAR}. Write it up as a null PoC.`);
+  console.log(
+    `  NO-GO — ${pos}/${neg}/${tie} does not clear the bar of ${BAR}. Write it up as a null PoC.`,
+  );
 }
 console.log(
   `\n  Six tasks, one attempt: this reports a DIRECTION, not significance. Any write-up\n` +

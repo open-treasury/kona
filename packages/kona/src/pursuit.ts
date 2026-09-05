@@ -9,14 +9,9 @@ import { type KonaPaths, findPursuitRoot, konaPaths } from "./paths.ts";
 import { readLogText } from "./store.ts";
 import type { Io } from "./io.ts";
 
-export type OpenPursuit =
-  | { ok: true; paths: KonaPaths; folded: FoldResult }
-  | { ok: false };
+export type OpenPursuit = { ok: true; paths: KonaPaths; folded: FoldResult } | { ok: false };
 
-export async function openPursuit(
-  io: Io,
-  options: FoldOptions = {},
-): Promise<OpenPursuit> {
+export async function openPursuit(io: Io, options: FoldOptions = {}): Promise<OpenPursuit> {
   const root = findPursuitRoot(io.cwd);
   if (root === null) {
     io.err(`REFUSED NO_PURSUIT no .kona/ found at or above ${io.cwd}`);

@@ -37,7 +37,9 @@ describe("chain ratio", () => {
 
   test("a torn tail is the log's business, not this report's", () => {
     const torn = `${read("goalie.mutations.jsonl").trimEnd()}\n{"v":99,"ops":[`;
-    expect(shapeOf("torn", torn).worked).toBe(shapeOf("goalie", read("goalie.mutations.jsonl")).worked);
+    expect(shapeOf("torn", torn).worked).toBe(
+      shapeOf("goalie", read("goalie.mutations.jsonl")).worked,
+    );
   });
 });
 

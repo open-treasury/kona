@@ -152,7 +152,9 @@ const loopCount = (commands: string[]): number => {
  * rather than producing a negative result.
  */
 const konaCalls = (commands: string[]): number =>
-  commands.filter((c) => /(^|[\s;|&(])kona\s+(init|mutate|graph|next|brief|effect|resume|poll)\b/.test(c)).length;
+  commands.filter((c) =>
+    /(^|[\s;|&(])kona\s+(init|mutate|graph|next|brief|effect|resume|poll)\b/.test(c),
+  ).length;
 const readTheSkill = (commands: string[]): boolean =>
   commands.some((c) => /skills\/kona\/SKILL\.md/.test(c));
 
@@ -168,7 +170,9 @@ const rows = runs.map((r) => ({
 
 console.log(`\n=== trajectories: ${rows.length} runs ===`);
 console.log("  arm       actions   redo%   loops   kona  skill   task");
-for (const r of rows.toSorted((a, b) => a.task.localeCompare(b.task) || a.arm.localeCompare(b.arm))) {
+for (const r of rows.toSorted(
+  (a, b) => a.task.localeCompare(b.task) || a.arm.localeCompare(b.arm),
+)) {
   console.log(
     `  ${r.arm.padEnd(8)} ${String(r.actions).padStart(7)}  ${(r.redo * 100).toFixed(1).padStart(5)}  ${String(r.loops).padStart(6)}  ${String(r.kona).padStart(5)}  ${(r.readSkill ? "yes" : "no").padStart(5)}   ${r.task}`,
   );
@@ -184,7 +188,9 @@ if (konaRuns.length === 0) {
   const opened = konaRuns.filter((r) => r.readSkill).length;
   console.log(`  read the SKILL.md   ${opened}/${konaRuns.length}`);
   console.log(`  invoked kona        ${adopted.length}/${konaRuns.length}`);
-  console.log(`  median kona calls   ${adopted.length > 0 ? adopted.map((r) => r.kona).toSorted((a, b) => a - b)[Math.floor(adopted.length / 2)] : 0}`);
+  console.log(
+    `  median kona calls   ${adopted.length > 0 ? adopted.map((r) => r.kona).toSorted((a, b) => a - b)[Math.floor(adopted.length / 2)] : 0}`,
+  );
   if (adopted.length === 0) {
     console.log(
       `\n  ! VOID, not negative. The model never invoked kona, so the Kona arm was the\n` +
@@ -218,11 +224,17 @@ if (base === null || kona === null) {
   console.log("  only one arm present — nothing to compare.");
   process.exit(0);
 }
-console.log(`  baseline  n=${base.n}  actions ${base.actions.toFixed(0)}  redo ${(base.redo * 100).toFixed(1)}%  loops ${base.loops.toFixed(1)}`);
-console.log(`  kona      n=${kona.n}  actions ${kona.actions.toFixed(0)}  redo ${(kona.redo * 100).toFixed(1)}%  loops ${kona.loops.toFixed(1)}`);
+console.log(
+  `  baseline  n=${base.n}  actions ${base.actions.toFixed(0)}  redo ${(base.redo * 100).toFixed(1)}%  loops ${base.loops.toFixed(1)}`,
+);
+console.log(
+  `  kona      n=${kona.n}  actions ${kona.actions.toFixed(0)}  redo ${(kona.redo * 100).toFixed(1)}%  loops ${kona.loops.toFixed(1)}`,
+);
 
 const redoDrop = base.redo > 0 ? (base.redo - kona.redo) / base.redo : 0;
-console.log(`\n  redo-rate change  ${redoDrop >= 0 ? "-" : "+"}${Math.abs(redoDrop * 100).toFixed(1)}%  (pre-registered secondary bar: a >=20% reduction)`);
+console.log(
+  `\n  redo-rate change  ${redoDrop >= 0 ? "-" : "+"}${Math.abs(redoDrop * 100).toFixed(1)}%  (pre-registered secondary bar: a >=20% reduction)`,
+);
 
 // Gate the verdict on adoption. Without this the tool cheerfully reported "Kona is
 // measurably re-doing less work" from a run in which kona was never once invoked — the two

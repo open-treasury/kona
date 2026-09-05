@@ -81,7 +81,9 @@ export async function commitBatch(
 
     const [firstDamaged] = folded.damaged;
     if (firstDamaged !== undefined) {
-      io.err(`REFUSED CORRUPT_LOG line=${firstDamaged.line} ${firstDamaged.reason} ${firstDamaged.detail}`);
+      io.err(
+        `REFUSED CORRUPT_LOG line=${firstDamaged.line} ${firstDamaged.reason} ${firstDamaged.detail}`,
+      );
       return { ok: false as const, code: EXIT_REFUSED };
     }
 
@@ -175,4 +177,3 @@ export async function commitBatch(
   }
   return held.value;
 }
-

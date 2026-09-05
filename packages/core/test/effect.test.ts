@@ -34,7 +34,8 @@ function activityOf(graph: Graph, id: string) {
   // asked the wrong question quietly compare two undefineds and pass.
   const activity = activityAt(graph, id);
   if (activity === undefined) throw new Error(`no node ${id}`);
-  if (activity.status === undefined) throw new Error(`${id} is a ${activity.type}, which carries no status`);
+  if (activity.status === undefined)
+    throw new Error(`${id} is a ${activity.type}, which carries no status`);
   return activity;
 }
 
@@ -218,6 +219,8 @@ describe("fold materialises the ledger from the log", () => {
   test("an activity that has moved no bytes may still be superseded", () => {
     // Invariant 1 only demands a compensation once the effect_log is non-empty.
     expect(attemptCount(activityOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(0);
-    expect(hasSentEffect(activityOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(false);
+    expect(hasSentEffect(activityOf(rostered(["dana"], [pivot("Ask Dana")]), "ask-dana"))).toBe(
+      false,
+    );
   });
 });

@@ -36,7 +36,7 @@ function waiting(...names: string[]): Graph {
     action("Escalate"),
     ...names.map((name) =>
       acceptEvent(name, {
-                deadline: { at: "2026-08-30T12:00:00.000Z" },
+        deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [
@@ -94,7 +94,7 @@ describe("which addresses are worth polling", () => {
     const graph = seeded([
       action("Escalate"),
       acceptEvent("Quorum", {
-                match: {
+        match: {
           kind: "predicate",
           conditions: [
             {
@@ -102,7 +102,11 @@ describe("which addresses are worth polling", () => {
               on: "satisfied",
               // A predicate acceptEvent must carry one: without it nothing counts against the acceptEvent
               // and invariant 2 can never judge it satisfiable.
-              predicate: { count: { verdict: "confirmed", attrs: { role: "goalie" } }, op: ">=", n: 1 },
+              predicate: {
+                count: { verdict: "confirmed", attrs: { role: "goalie" } },
+                op: ">=",
+                n: 1,
+              },
             },
           ],
         },
@@ -141,7 +145,12 @@ describe("matching one acceptEvent", () => {
   const options = { ownMailbox: MAILBOX };
 
   test("a reply to the acceptEvent's own address matches", () => {
-    const match = matchWait(activityOf(graph, "await-dana"), [message({ message_id: "<m-1>", to: [address] })], address, options);
+    const match = matchWait(
+      activityOf(graph, "await-dana"),
+      [message({ message_id: "<m-1>", to: [address] })],
+      address,
+      options,
+    );
     expect(match?.message_id).toBe("<m-1>");
     expect(match?.on).toBe("satisfied");
     expect(match?.late).toBe(false);
@@ -169,12 +178,16 @@ describe("matching one acceptEvent", () => {
 
   test("the tag is found in reply_to as well as to", () => {
     const viaReplyTo = message({ message_id: "<m-4>", to: [MAILBOX], reply_to: [address] });
-    expect(matchWait(activityOf(graph, "await-dana"), [viaReplyTo], address, options)?.message_id).toBe("<m-4>");
+    expect(
+      matchWait(activityOf(graph, "await-dana"), [viaReplyTo], address, options)?.message_id,
+    ).toBe("<m-4>");
   });
 
   test("addresses compare case-insensitively, as mail does", () => {
     const shouted = message({ message_id: "<m-5>", to: [address.toUpperCase()] });
-    expect(matchWait(activityOf(graph, "await-dana"), [shouted], address, options)?.message_id).toBe("<m-5>");
+    expect(
+      matchWait(activityOf(graph, "await-dana"), [shouted], address, options)?.message_id,
+    ).toBe("<m-5>");
   });
 
   test("a message already recorded against this acceptEvent is skipped", () => {
@@ -183,15 +196,25 @@ describe("matching one acceptEvent", () => {
     const seen = commit(graph, [
       { op: "record_outcome", node: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
     ]);
-    const messages = [message({ message_id: "<m-1>", to: [address] }), message({ message_id: "<m-6>", to: [address] })];
-    expect(matchWait(activityOf(seen, "await-dana"), messages, address, options)?.message_id).toBe("<m-6>");
+    const messages = [
+      message({ message_id: "<m-1>", to: [address] }),
+      message({ message_id: "<m-6>", to: [address] }),
+    ];
+    expect(matchWait(activityOf(seen, "await-dana"), messages, address, options)?.message_id).toBe(
+      "<m-6>",
+    );
   });
 
   test("a tentative reply leaves the acceptEvent armed, so the next one still matches", () => {
     const tentative = commit(graph, [
       { op: "record_outcome", node: "await-dana", verdict: "tentative", evidence_ref: "<m-1>" },
     ]);
-    const match = matchWait(activityOf(tentative, "await-dana"), [message({ message_id: "<m-7>", to: [address] })], address, options);
+    const match = matchWait(
+      activityOf(tentative, "await-dana"),
+      [message({ message_id: "<m-7>", to: [address] })],
+      address,
+      options,
+    );
     expect(match?.late).toBe(false);
   });
 
@@ -200,7 +223,12 @@ describe("matching one acceptEvent", () => {
       { op: "record_outcome", node: "await-dana", verdict: "confirmed", evidence_ref: "<m-1>" },
       { op: "set_status", node: "await-dana", status: "completed", evidence_ref: "<m-1>" },
     ]);
-    const match = matchWait(activityOf(resolved, "await-dana"), [message({ message_id: "<m-8>", to: [address] })], address, options);
+    const match = matchWait(
+      activityOf(resolved, "await-dana"),
+      [message({ message_id: "<m-8>", to: [address] })],
+      address,
+      options,
+    );
     expect(match?.late).toBe(true);
   });
 
@@ -208,7 +236,7 @@ describe("matching one acceptEvent", () => {
     const twoWays = seeded([
       action("Escalate"),
       acceptEvent("Await Dana", {
-                deadline: { at: "2026-08-30T12:00:00.000Z" },
+        deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [
@@ -218,15 +246,21 @@ describe("matching one acceptEvent", () => {
         },
       }),
     ]);
-    expect(matchWait(activityOf(twoWays, "await-dana"), [message({ message_id: "<m-9>", to: [address] })], address, options)?.on)
-      .toBe("respond");
+    expect(
+      matchWait(
+        activityOf(twoWays, "await-dana"),
+        [message({ message_id: "<m-9>", to: [address] })],
+        address,
+        options,
+      )?.on,
+    ).toBe("respond");
   });
 
   test("a guard scoped to one sender ignores everybody else", () => {
     const fromDana = seeded([
       action("Escalate"),
       acceptEvent("Await Dana", {
-                deadline: { at: "2026-08-30T12:00:00.000Z" },
+        deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [{ kind: "reply", on: "satisfied", from: "dana@example.com" }],
@@ -234,8 +268,8 @@ describe("matching one acceptEvent", () => {
       }),
     ]);
     const activity = activityOf(fromDana, "await-dana");
-    const sam = message({ message_id: "<m-10>", from: "sam@example.com" , to: [address] });
-    const dana = message({ message_id: "<m-11>", from: "DANA@example.com" , to: [address] });
+    const sam = message({ message_id: "<m-10>", from: "sam@example.com", to: [address] });
+    const dana = message({ message_id: "<m-11>", from: "DANA@example.com", to: [address] });
     expect(matchWait(activity, [sam], address, options)).toBeNull();
     expect(matchWait(activity, [dana], address, options)?.message_id).toBe("<m-11>");
   });
@@ -244,7 +278,7 @@ describe("matching one acceptEvent", () => {
     const threaded = seeded([
       action("Escalate"),
       acceptEvent("Await Dana", {
-                deadline: { at: "2026-08-30T12:00:00.000Z" },
+        deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: {
           kind: "event",
           conditions: [{ kind: "reply", on: "satisfied", in_reply_to: ["<sent-1>"] }],
@@ -252,27 +286,53 @@ describe("matching one acceptEvent", () => {
       }),
     ]);
     const activity = activityOf(threaded, "await-dana");
-    expect(matchWait(activity, [message({ message_id: "<a>", in_reply_to: "<other>", to: [address] })], address, options)).toBeNull();
-    expect(matchWait(activity, [message({ message_id: "<b>", to: [address] })], address, options)).toBeNull();
-    expect(matchWait(activity, [message({ message_id: "<c>", in_reply_to: "<sent-1>", to: [address] })], address, options)?.message_id)
-      .toBe("<c>");
+    expect(
+      matchWait(
+        activity,
+        [message({ message_id: "<a>", in_reply_to: "<other>", to: [address] })],
+        address,
+        options,
+      ),
+    ).toBeNull();
+    expect(
+      matchWait(activity, [message({ message_id: "<b>", to: [address] })], address, options),
+    ).toBeNull();
+    expect(
+      matchWait(
+        activity,
+        [message({ message_id: "<c>", in_reply_to: "<sent-1>", to: [address] })],
+        address,
+        options,
+      )?.message_id,
+    ).toBe("<c>");
   });
 
   test("a DEADLINE guard never matches a message — that is the clock's job", () => {
     const clockOnly = seeded([
       action("Escalate"),
       acceptEvent("Await Dana", {
-                deadline: { at: "2026-08-30T12:00:00.000Z" },
+        deadline: { at: "2026-08-30T12:00:00.000Z" },
         match: { kind: "event", conditions: [{ kind: "deadline", on: "timeout" }] },
       }),
     ]);
-    expect(matchWait(activityOf(clockOnly, "await-dana"), [message({ message_id: "<m-12>", to: [address] })], address, options))
-      .toBeNull();
+    expect(
+      matchWait(
+        activityOf(clockOnly, "await-dana"),
+        [message({ message_id: "<m-12>", to: [address] })],
+        address,
+        options,
+      ),
+    ).toBeNull();
   });
 
   test("messages are considered oldest first", () => {
-    const messages = [message({ message_id: "<first>", to: [address] }), message({ message_id: "<second>", to: [address] })];
-    expect(matchWait(activityOf(graph, "await-dana"), messages, address, options)?.message_id).toBe("<first>");
+    const messages = [
+      message({ message_id: "<first>", to: [address] }),
+      message({ message_id: "<second>", to: [address] }),
+    ];
+    expect(matchWait(activityOf(graph, "await-dana"), messages, address, options)?.message_id).toBe(
+      "<first>",
+    );
   });
 });
 
@@ -283,7 +343,10 @@ describe("matching a batch across waits", () => {
     const graph = waiting("Await Dana", "Await Sam");
     const shared = message({
       message_id: "<m-1>",
-      to: [`ilya+kona-${nid(graph, "await-dana")}@example.com`, `ilya+kona-${nid(graph, "await-sam")}@example.com`],
+      to: [
+        `ilya+kona-${nid(graph, "await-dana")}@example.com`,
+        `ilya+kona-${nid(graph, "await-sam")}@example.com`,
+      ],
     });
     const matches = matchInbound(graph, MAILBOX, [shared]);
     expect(matches).toHaveLength(1);
@@ -294,7 +357,10 @@ describe("matching a batch across waits", () => {
     const graph = waiting("Await Dana", "Await Sam");
     const matches = matchInbound(graph, MAILBOX, [
       message({ message_id: "<m-sam>", to: [`ilya+kona-${nid(graph, "await-sam")}@example.com`] }),
-      message({ message_id: "<m-dana>", to: [`ilya+kona-${nid(graph, "await-dana")}@example.com`] }),
+      message({
+        message_id: "<m-dana>",
+        to: [`ilya+kona-${nid(graph, "await-dana")}@example.com`],
+      }),
     ]);
     expect(matches.map((m) => [slugOf(m.activity_id), m.message_id])).toEqual([
       ["await-dana", "<m-dana>"],

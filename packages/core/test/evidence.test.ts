@@ -113,18 +113,42 @@ describe("the guarantee this function relies on instead of re-checking", () => {
     // where it is true. If the schema ever relaxes, this fails — and `evidence.ts` says to
     // come back and add the check it deliberately does not have.
     const graph = commit(
-      commit(seeded([action("A", { outputs: [{ name: "reply", type: "string" }, { name: "note", type: "string" }] })]), [
-        { op: "record_output", node: "a", output_name: "reply", value: "dana", evidence_ref: "src#1" },
-      ] as AuthoredOp[]),
+      commit(
+        seeded([
+          action("A", {
+            outputs: [
+              { name: "reply", type: "string" },
+              { name: "note", type: "string" },
+            ],
+          }),
+        ]),
+        [
+          {
+            op: "record_output",
+            node: "a",
+            output_name: "reply",
+            value: "dana",
+            evidence_ref: "src#1",
+          },
+        ] as AuthoredOp[],
+      ),
       [
-        { op: "record_output", node: "a", output_name: "note", value: "sam", evidence_ref: "src#2" },
+        {
+          op: "record_output",
+          node: "a",
+          output_name: "note",
+          value: "sam",
+          evidence_ref: "src#2",
+        },
       ] as AuthoredOp[],
     );
     for (const activity of graph.nodes.values()) {
       // Control nodes produce nothing, so there is no pair to check on one.
       if (activity.status === undefined) continue;
       const { output: recorded, output_evidence: evidence } = activity.status;
-      expect(Object.keys(recorded ?? {}).toSorted()).toEqual(Object.keys(evidence ?? {}).toSorted());
+      expect(Object.keys(recorded ?? {}).toSorted()).toEqual(
+        Object.keys(evidence ?? {}).toSorted(),
+      );
     }
     expect(workedAt(graph, "a").status.output_evidence).toEqual({ reply: "src#1", note: "src#2" });
   });

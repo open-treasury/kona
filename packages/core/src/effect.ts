@@ -111,7 +111,9 @@ export function hasSentEffect(activity: ActivityNode): boolean {
 }
 
 export function effectByKey(activity: ActivityNode, effectKey: string): EffectRecord | null {
-  return (activity.status?.effect_log ?? []).find((entry) => entry.effect_key === effectKey) ?? null;
+  return (
+    (activity.status?.effect_log ?? []).find((entry) => entry.effect_key === effectKey) ?? null
+  );
 }
 
 /** §6.6 restart budget: attempts in a window, then escalate — never loop. */

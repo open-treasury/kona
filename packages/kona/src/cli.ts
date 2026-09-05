@@ -28,15 +28,15 @@ import { runRecord, runReserve } from "./commands/effect.ts";
 
 /** §6.8's nine verbs. All nine, and no tenth. */
 const VERBS: { name: string; summary: string }[] = [
-  { name: "init", summary: "create .kona/, refuse on a network filesystem", },
-  { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync", },
-  { name: "graph", summary: "the only read contract", },
-  { name: "next", summary: "the ready frontier, computed never stored", },
-  { name: "brief", summary: "an activity's subgraph plus identity, correlation, preconditions", },
-  { name: "poll", summary: "which wait is each inbound reply for", },
-  { name: "resume", summary: "reconcile-then-repair", },
-  { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world", },
-  { name: "view", summary: "start the localhost viewer — user-run, never plugin-spawned", },
+  { name: "init", summary: "create .kona/, refuse on a network filesystem" },
+  { name: "mutate", summary: "the only write path: validate, lock, CAS, append, fsync" },
+  { name: "graph", summary: "the only read contract" },
+  { name: "next", summary: "the ready frontier, computed never stored" },
+  { name: "brief", summary: "an activity's subgraph plus identity, correlation, preconditions" },
+  { name: "poll", summary: "which wait is each inbound reply for" },
+  { name: "resume", summary: "reconcile-then-repair" },
+  { name: "effect", summary: "reserve | record — the outbox, the only verbs that touch the world" },
+  { name: "view", summary: "start the localhost viewer — user-run, never plugin-spawned" },
 ];
 
 function usage(): string {
@@ -119,11 +119,7 @@ function verbHelp(verb: string): string {
   ].join("\n");
 }
 
-function requireString(
-  values: Record<string, unknown>,
-  flag: string,
-  io: Io,
-): string | null {
+function requireString(values: Record<string, unknown>, flag: string, io: Io): string | null {
   const value = values[flag];
   if (typeof value === "string" && value.length > 0) return value;
   // Absent and empty are different mistakes, and "--why is required" is a confusing thing
@@ -136,11 +132,7 @@ function requireString(
   return null;
 }
 
-function requireInteger(
-  values: Record<string, unknown>,
-  flag: string,
-  io: Io,
-): number | null {
+function requireInteger(values: Record<string, unknown>, flag: string, io: Io): number | null {
   const raw = requireString(values, flag, io);
   if (raw === null) return null;
   const parsed = Number(raw);
@@ -228,7 +220,9 @@ async function runEffect(
 ): Promise<number> {
   const [action, activity] = positionals;
   if (action !== "reserve" && action !== "record") {
-    io.err(`REFUSED BAD_SUBCOMMAND kona effect takes 'reserve' or 'record', got '${action ?? "nothing"}'`);
+    io.err(
+      `REFUSED BAD_SUBCOMMAND kona effect takes 'reserve' or 'record', got '${action ?? "nothing"}'`,
+    );
     return EXIT_REFUSED;
   }
   if (activity === undefined || activity.length === 0) {
@@ -327,7 +321,10 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 
   if (verb === "poll") {
     const inbound = values["inbound"];
-    return await runPoll(io, { json, ...(typeof inbound === "string" ? { inboundFile: inbound } : {}) });
+    return await runPoll(io, {
+      json,
+      ...(typeof inbound === "string" ? { inboundFile: inbound } : {}),
+    });
   }
 
   if (verb === "view") {

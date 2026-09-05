@@ -50,7 +50,9 @@ describe("status vocabulary", () => {
   });
 
   test("isActivityTerminal reads the activity's own state", () => {
-    const done = commit(WIRED, [{ op: "set_status", node: "a", status: "completed", evidence_ref: "e" }]);
+    const done = commit(WIRED, [
+      { op: "set_status", node: "a", status: "completed", evidence_ref: "e" },
+    ]);
     expect(isActivityTerminal(activityAt(done, "a") as never)).toBe(true);
     expect(isActivityTerminal(activityAt(done, "b") as never)).toBe(false);
   });

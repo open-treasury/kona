@@ -16,7 +16,10 @@ export const NETWORK_PATH_MARKERS: readonly NetworkPathMarker[] = [
   { name: "Dropbox", pattern: /[/\\]Dropbox[/\\]/i },
   { name: "iCloud Drive", pattern: /[/\\]Library[/\\]Mobile Documents[/\\]/ },
   { name: "OneDrive", pattern: /[/\\]OneDrive[^/\\]*[/\\]/i },
-  { name: "Google Drive", pattern: /[/\\](?:Google Drive|My Drive|GoogleDrive|CloudStorage)[/\\]/i },
+  {
+    name: "Google Drive",
+    pattern: /[/\\](?:Google Drive|My Drive|GoogleDrive|CloudStorage)[/\\]/i,
+  },
   // A Windows UNC path is a network share by definition.
   { name: "UNC share", pattern: /^\\\\[^\\]/ },
 ];
