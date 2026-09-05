@@ -6,6 +6,7 @@ docs/Rec2.txt
 # Beads — issues.jsonl is the git-tracked source of truth; the db is not
 .beads/*.db
 .beads/*.db-*
+.beads/*.db.*
 
 # Kona runtime state — a pursuit's .kona/ never belongs in the repo (spec §6.1)
 .kona/
@@ -21,6 +22,10 @@ reports/
 
 # Other windows' worktrees of this same repo
 .claude/worktrees/
+.worktrees/
+
+# Browser automation artifacts
+.playwright-mcp/
 
 # Per-epic working notes from the parallel windows. Local scratch, not a deliverable —
 # whatever they settled that still matters is in the spec, the tests or a beads issue.
