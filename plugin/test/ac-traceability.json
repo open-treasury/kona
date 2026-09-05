@@ -1,0 +1,31 @@
+{
+  "AC1": ["prd-contract.test.ts", "complete create and targeted-refinement contract"],
+  "AC2": ["prd-contract.test.ts", "explicit path"],
+  "AC3": ["prd-contract.test.ts", "explicit path"],
+  "AC4": ["prd-contract.test.ts", "one grouped set of concise questions"],
+  "AC5": ["prd-contract.test.ts", "facts that can be verified locally"],
+  "AC6": ["prd-contract.test.ts", "do not overwrite"],
+  "AC7": ["prd-contract.test.ts", "preserve unaffected confirmed decisions"],
+  "AC8": {
+    "automated": [
+      "adapter-payload-contract.test.mjs",
+      "adapter payload/contract parity resolves exact canonical bytes and host contracts"
+    ],
+    "manual": ["DOGFOOD.md", "This is real-model dogfood evidence"],
+    "remaining": "Collect real-model create/refine semantic parity evidence for Codex, Claude Code, and Pi before release."
+  },
+  "AC9": ["static-contract.test.mjs", "canonical hash drift"],
+  "AC10": ["prd-contract.test.ts", "invented claims"],
+  "AC11": ["prd-contract.test.ts", "bundled template"],
+  "AC12": ["prd-contract.test.ts", "optional ceremony"],
+  "AC13": ["adapter-payload-contract.test.mjs", "agreed-prd-only"],
+  "AC14": ["plugin-lifecycle.test.mjs", "Pi native package lifecycle"],
+  "AC15": ["host-validation.test.mjs", "real-host"],
+  "AC16": ["plugin-lifecycle.test.mjs", "replacement is digest-bound"],
+  "AC17": ["plugin-lifecycle.test.mjs", "crash journal recovery"],
+  "AC18": ["plugin-lifecycle.test.mjs", "scope matrix"],
+  "AC19": ["plugin-lifecycle.test.mjs", "idempotent"],
+  "AC20": ["plugin-lifecycle.test.mjs", "collaborator bootstrap"],
+  "AC21": ["plugin-lifecycle.test.mjs", "live host lock"],
+  "AC22": ["release-installer.test.mjs", "checksum failure"]
+}

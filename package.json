@@ -2,6 +2,14 @@
   "name": "kona-monorepo",
   "private": true,
   "type": "module",
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "skills": [
+      "./plugin/skills/prd"
+    ]
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -16,6 +24,9 @@
     "format:check": "oxfmt --check .",
     "knip": "knip",
     "test": "bun test",
+    "plugin:build": "node plugin/scripts/build.mjs",
+    "plugin:validate": "node plugin/scripts/validate.mjs",
+    "test:plugin": "bun test plugin/test",
     "mutate": "./scripts/mutation.sh",
     "check": "bun run typecheck && bun run lint && bun run knip && bun run test",
     "mutate:core": "STRYKER_TIER=core stryker run stryker.conf.mjs",

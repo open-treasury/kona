@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "files": {
+    "skills/plan/SKILL.md": "b268b1ee6329734496264ffa6af02a6a8eeaee990e5654ee3ab34aea6eb40c12",
+    "skills/run/SKILL.md": "a282391a586bff200f0072bc83bb78568e6fbe15c7fd3bfeff9d890f845135ba",
+    "agents/kona-executor.md": "1d50b490bab8b9b1aa1e0832b7aea1f8e1fc6940a3a6de7ff6f0be26c4c26481",
+    "hooks/hooks.json": "6efe5c0dc909861491d8254630d2d71baa1569deba0bd4214f8ef785f19c2b3d",
+    "scripts/session-start.sh": "f385c7f55c3adb990ca48d04701a0857eb5954412125c54f24d9e60e99d4bcb3"
+  }
+}

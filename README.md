@@ -84,7 +84,49 @@ outbox) · `resume` · `poll` · `view`.
 **Three invariants, enforced in the store rather than advised in a prompt:** terminal and
 effect protection · predicate-waits stay satisfiable · effects are bounded and addressed.
 
-## Try it
+## Portable PRD agent
+
+Kona ships one offline PRD creation/refinement skill for OpenCode, Codex, Claude Code, and Pi.
+Install its lifecycle CLI on macOS or Linux after inspecting the published bootstrap:
+
+```bash
+curl -fsSL https://github.com/open-treasury/kona/releases/latest/download/install.sh -o install.sh
+less install.sh
+sh install.sh
+```
+
+Or run the same published installer directly:
+
+```bash
+curl -fsSL https://github.com/open-treasury/kona/releases/latest/download/install.sh | sh
+```
+
+This requires Node.js 20+, `curl`, `tar`, and `sha256sum` or `shasum`. The bootstrap verifies the
+versioned GitHub Release archive, uses no `sudo`, and changes no startup file. Ensure
+`~/.local/bin` (or `KONA_BIN_DIR`) is on `PATH`.
+
+| Host        | Project install                                                                                                | User install                                        | Invocation            |
+| ----------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | --------------------- |
+| OpenCode    | `kona install --host opencode --scope project`                                                                 | `kona install --host opencode --scope user`         | `@prd-writer <brief>` |
+| Codex       | `kona install --host codex --scope project`                                                                    | `kona install --host codex --scope user`            | `$prd <brief>`        |
+| Claude Code | `kona install --host claude --scope project --approve` or `kona install --host claude --scope local --approve` | `kona install --host claude --scope user --approve` | `/kona:prd <brief>`   |
+| Pi          | `pi install git:github.com/open-treasury/kona -l`                                                              | `pi install git:github.com/open-treasury/kona`      | `/skill:prd <brief>`  |
+
+Use `verify`, `update`, `disable`, `enable`, or `remove` in place of `install`, retaining the same
+`--host` and `--scope`; Claude and Pi mutations show their native command plan and require
+`--approve`. Install one active scope per host. Disable or remove it before enabling another.
+Existing unowned files require the exact reported SHA-256 through `--confirm-replace`; drift or an
+unverifiable backup blocks mutation and retains recovery evidence. Project Pi packages require
+project trust. The lifecycle CLI also defaults Pi installs to `git:github.com/open-treasury/kona`;
+`--source` remains available for explicit local validation.
+
+The standalone curl/package `kona` exposes only these six lifecycle verbs. The Claude plugin's
+`kona` also forwards the existing workflow CLI verbs and requires Bun for those verbs. PRD
+authoring has no network client, analytics, or telemetry; only installation and approved native
+package-manager operations access their configured sources. Exact roots, native commands, trust,
+updates, recovery, and removal are in [`plugin/README.md`](plugin/README.md).
+
+## Try the workflow engine
 
 ```bash
 bun install && bun run check

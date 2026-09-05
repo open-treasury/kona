@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "hosts": {
+    "opencode": {
+      "command": "opencode",
+      "version": "1.18.29",
+      "evidence": "Installed CLI: opencode --version"
+    },
+    "codex": {
+      "command": "codex",
+      "version": "0.153.3",
+      "evidence": "Installed CLI: codex --version"
+    },
+    "claude": {
+      "command": "claude",
+      "version": "2.1.257",
+      "evidence": "Installed CLI: claude --version"
+    },
+    "pi": {
+      "command": "pi",
+      "version": "0.85.0",
+      "package": "@earendil-works/pi-coding-agent@0.85.0",
+      "evidence": "npm package metadata: name, version, bin.pi, Node >=22.19.0, and dist.integrity"
+    }
+  }
+}

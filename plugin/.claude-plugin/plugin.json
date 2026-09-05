@@ -7,12 +7,7 @@
     "name": "Ilya Vorobiev"
   },
   "license": "MIT",
-  "keywords": [
-    "workflow",
-    "agents",
-    "graph",
-    "long-horizon"
-  ],
+  "keywords": ["workflow", "agents", "graph", "long-horizon"],
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json"
 }

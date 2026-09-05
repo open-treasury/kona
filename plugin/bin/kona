@@ -15,6 +15,16 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+case "${1:-}" in
+  install|update|verify|disable|enable|remove)
+    if ! command -v node >/dev/null 2>&1; then
+      echo "REFUSED NO_NODE lifecycle commands require Node.js 20+ on PATH" >&2
+      exit 1
+    fi
+    exec node "${here}/kona.mjs" "$@"
+    ;;
+esac
+
 if [[ -x "${here}/kona-bin" ]]; then
   exec "${here}/kona-bin" "$@"
 fi

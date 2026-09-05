@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "name": "prd",
+  "version": "0.1.0",
+  "modes": ["create", "refine"],
+  "canonical": {
+    "skill": {
+      "path": "skills/prd/SKILL.md",
+      "sha256": "6f3b6b818a6d80233c05147de894713a3aca81d1482db2c37350c794f9bb9f40",
+      "mode": "0644"
+    },
+    "template": {
+      "path": "skills/prd/templates/prd.md",
+      "sha256": "1bb8bbaa791854443b020a6c4c008efe944340e646eb9b4bae9c7947a61f8f5c",
+      "mode": "0644"
+    }
+  },
+  "hosts": {
+    "opencode": {
+      "scopes": ["project", "user"],
+      "invocation": "@prd-writer"
+    },
+    "codex": {
+      "scopes": ["project", "user"],
+      "invocation": "$prd"
+    },
+    "claude": {
+      "scopes": ["project", "local", "user"],
+      "invocation": "/kona:prd"
+    },
+    "pi": {
+      "scopes": ["project", "user"],
+      "invocation": "/skill:prd"
+    }
+  }
+}

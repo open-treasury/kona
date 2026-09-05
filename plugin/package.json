@@ -1,0 +1,20 @@
+{
+  "name": "@open-treasury/kona-unpublished",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Portable PRD authoring capability for OpenCode, Codex, Claude Code, and Pi.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/open-treasury/kona.git",
+    "directory": "plugin"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "kona": "./bin/kona.mjs"
+  },
+  "dependencies": {}
+}
