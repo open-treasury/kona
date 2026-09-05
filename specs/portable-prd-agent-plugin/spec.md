@@ -311,12 +311,9 @@ Codex, Claude Code, and Pi evidence remains a release requirement rather than an
 | Reference                                                                                          | Relevance                                                            |
 | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | [Approved PRD](./prd.md)                                                                           | Product scope, functional/non-functional requirements, and AC1-AC22. |
-| `guidelines/docs/spec.md`                                                                          | Required SPEC sections and scannability guidance.                    |
 | `guidelines/docs/prd.md`                                                                           | One-time migration input only; deleted after verified migration.     |
 | `.opencode/agents/prd-writer.md`                                                                   | Existing duplicated procedure to replace with a thin adapter.        |
 | `plugin/.claude-plugin/plugin.json` and `plugin/README.md`                                         | Existing Claude distribution and workflow compatibility boundary.    |
-| `docs/agent-toolkit/03-writing-skills-and-commands.md`                                             | Canonical-skill/thin-adapter pattern.                                |
-| `docs/agent-toolkit/06-testing-and-governance.md`                                                  | Fixture, parity, provenance, and release testing guidance.           |
 | `eval/gen/check-drift.ts`                                                                          | Existing SHA-256 provenance-gate pattern.                            |
 | [Claude Code plugins](https://code.claude.com/docs/en/plugins-reference)                           | Plugin scopes, marketplace lifecycle, and invocation.                |
 | [Pi packages](https://pi.dev/docs/latest/packages)                                                 | Package resources, trust, scopes, and lifecycle.                     |

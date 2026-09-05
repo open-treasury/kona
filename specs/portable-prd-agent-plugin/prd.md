@@ -193,10 +193,6 @@ The current PRD writer is tied to Kona-specific files, duplicates its required f
 
 - `.opencode/agents/prd-writer.md` — current Kona-specific PRD writer and migration source.
 - `guidelines/docs/prd.md` — migration input whose useful structure moves into the canonical skill before this file is deleted.
-- `docs/agent-toolkit/02-writing-agents.md` — current agent quality and failure-behavior guidance.
-- `docs/agent-toolkit/03-writing-skills-and-commands.md` — canonical-source and thin-adapter guidance.
-- `docs/agent-toolkit/05-hyperpowers-patterns.md` — conceptual portability, progressive-disclosure, and drift lessons.
-- `docs/agent-toolkit/06-testing-and-governance.md` — behavioral fixture and provenance expectations.
 - `plugin/` — existing Claude Code plugin packaging patterns; its plan/run behavior is outside this PRD.
 - `eval/gen/check-drift.ts` and `eval/gen/provenance.json` — existing provenance gate to adapt conceptually.
 - [Pi packages](https://pi.dev/docs/latest/packages) — package manifest and bundled resource conventions for the Pi adapter.
