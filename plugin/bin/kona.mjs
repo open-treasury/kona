@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { runLifecycle } from "../lib/plugin-lifecycle.mjs";
+import { formatLifecycleHuman } from "../lib/lifecycle-output.mjs";
 
 if (process.argv.slice(2).some((argument) => argument === "--help" || argument === "-h")) {
   process.stdout
@@ -27,13 +28,6 @@ const result = await runLifecycle(process.argv.slice(2), {
   env: process.env,
 });
 
-const shellQuote = (argument) => `'${String(argument).replaceAll("'", `'"'"'`)}'`;
-const humanPlan =
-  result.body.code === "APPROVAL_REQUIRED" && Array.isArray(result.body.details?.plan)
-    ? `\n${result.body.details.plan.map((command) => command.map(shellQuote).join(" ")).join("\n")}`
-    : "";
-const output = result.json
-  ? JSON.stringify(result.body)
-  : `${result.body.ok ? "OK" : "REFUSED"} ${result.body.code} ${result.body.message}${humanPlan}`;
+const output = result.json ? JSON.stringify(result.body) : formatLifecycleHuman(result.body);
 (result.body.ok ? process.stdout : process.stderr).write(`${output}\n`);
 process.exitCode = result.exitCode;

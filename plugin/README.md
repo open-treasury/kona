@@ -192,7 +192,7 @@ natively; pinned git tags or commits must be replaced with a different pin for t
 
 ```bash
 kona update --host pi --scope user --approve
-kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.4.1 --approve
+kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.4.2 --approve
 ```
 
 The corresponding native lifecycle is:

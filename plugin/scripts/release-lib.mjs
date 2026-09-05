@@ -16,6 +16,7 @@ export const RELEASE_FILES = [
   ".claude-plugin/plugin.json",
   ...capabilityReleasePaths,
   "lib/capability-registry.mjs",
+  "lib/lifecycle-output.mjs",
   "lib/plugin-lifecycle.mjs",
   "package.json",
 ]
