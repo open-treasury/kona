@@ -2,7 +2,7 @@
   "type": "capability",
   "schemaVersion": 1,
   "name": "copy",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "modes": ["generate", "revise", "source-edit"],
   "canonical": {
     "skill": {

@@ -26,7 +26,7 @@ const PREVIOUS_SCHEMA = 3;
 const LEGACY_VERSION = "0.1.1";
 const RELEASED_VERSION = "0.2.0";
 const PREVIOUS_VERSION = "0.3.0";
-const CURRENT_VERSION = "0.4.1";
+const CURRENT_VERSION = "0.4.2";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
 const SCHEMA_CAPABILITIES = new Map([
@@ -41,6 +41,7 @@ const SCHEMA_VERSIONS = new Map([
   [PREVIOUS_SCHEMA, PREVIOUS_VERSION],
   [SCHEMA, CURRENT_VERSION],
 ]);
+const SCHEMA_V4_VERSIONS = new Set(["0.4.1", CURRENT_VERSION]);
 const MANIFEST = "manifest.json";
 const JOURNAL = "journal.json";
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -67,6 +68,9 @@ const pathExists = async (path) => {
 };
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const modeOf = (value) => `0${(value & 0o777).toString(8)}`;
+const validManifestVersion = (manifest) =>
+  manifest.version === SCHEMA_VERSIONS.get(manifest.schema) ||
+  (manifest.schema === SCHEMA && SCHEMA_V4_VERSIONS.has(manifest.version));
 
 async function durableWrite(path, content, mode = 0o600) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -558,7 +562,7 @@ async function verifyCodexDiscovery(options, resources, enabled) {
 function validateManifest(manifest, options, resources) {
   if (!manifest || !SCHEMA_CAPABILITIES.has(manifest.schema))
     throw new LifecycleError("INVALID_STATE", "ownership manifest is malformed", 4);
-  if (manifest.version !== SCHEMA_VERSIONS.get(manifest.schema))
+  if (!validManifestVersion(manifest))
     throw new LifecycleError("INVALID_STATE", "ownership manifest version is invalid", 4);
   if (manifest.schema === LEGACY_SCHEMA && manifest.capability !== "prd")
     throw new LifecycleError("INVALID_STATE", "legacy ownership manifest is malformed", 4);
@@ -988,7 +992,7 @@ function validateClaudeManifest(manifest, options) {
   if (
     !manifest ||
     !SCHEMA_CAPABILITIES.has(manifest.schema) ||
-    manifest.version !== SCHEMA_VERSIONS.get(manifest.schema) ||
+    !validManifestVersion(manifest) ||
     (legacy
       ? manifest.capability !== "prd"
       : manifest.bundle !== BUNDLE ||
@@ -1411,7 +1415,11 @@ async function claudeLifecycle(options) {
       throw new LifecycleError("DRIFT", "Claude no longer reports Kona at the managed scope", 4);
     if (manifest && (selected.enabled !== false) !== (manifest.state === "active"))
       throw new LifecycleError("DRIFT", "Claude enablement differs from Kona's protected state", 4);
-    if (manifest && manifest.schema !== SCHEMA && ["install", "verify"].includes(options.verb)) {
+    if (
+      manifest &&
+      manifest.version !== CURRENT_VERSION &&
+      ["install", "verify"].includes(options.verb)
+    ) {
       if (!inspection.marketplaceRegistered)
         throw new LifecycleError(
           "MARKETPLACE_MISSING",
@@ -1445,6 +1453,7 @@ async function claudeLifecycle(options) {
         details: {
           discovery,
           managed: Boolean(manifest),
+          version: selected.version || manifest?.version,
         },
       };
     }
@@ -1467,7 +1476,7 @@ async function claudeLifecycle(options) {
         status: "unchanged",
         message: "already installed and native discovery verified",
         recovered,
-        details: { discovery },
+        details: { discovery, version: selected.version || manifest.version },
       };
     }
     if (options.verb !== "install" && !selected)
@@ -1475,9 +1484,19 @@ async function claudeLifecycle(options) {
     if (options.verb === "update" && manifest.state !== "active")
       throw new LifecycleError("DISABLED", "enable the selected Claude scope before updating");
     if (options.verb === "disable" && selected.enabled === false)
-      return { status: "unchanged", message: "already disabled", recovered };
+      return {
+        status: "unchanged",
+        message: "already disabled",
+        recovered,
+        details: { version: selected.version || manifest.version },
+      };
     if (options.verb === "enable" && selected.enabled !== false)
-      return { status: "unchanged", message: "already enabled", recovered };
+      return {
+        status: "unchanged",
+        message: "already enabled",
+        recovered,
+        details: { version: selected.version || manifest.version },
+      };
     if (["install", "enable"].includes(options.verb)) {
       const other = await activeClaudeOtherScope(inspection, options);
       if (other)
@@ -1571,7 +1590,7 @@ async function claudeLifecycle(options) {
                 : `${options.verb}d`,
           message: `Claude ${options.verb} completed and native discovery verified`,
           recovered,
-          details: { discovery, plan },
+          details: { discovery, plan, version },
         };
       } else {
         await rm(paths.scopeRoot, { recursive: true, force: true });
@@ -1581,7 +1600,7 @@ async function claudeLifecycle(options) {
         status: "removed",
         message: `Claude ${options.verb} completed and native discovery verified`,
         recovered,
-        details: { plan },
+        details: { plan, version: selected.version || manifest?.version },
       };
     } catch (error) {
       try {
@@ -1685,7 +1704,7 @@ function validatePiManifest(manifest, options) {
   if (
     !manifest ||
     !SCHEMA_CAPABILITIES.has(manifest.schema) ||
-    manifest.version !== SCHEMA_VERSIONS.get(manifest.schema) ||
+    !validManifestVersion(manifest) ||
     (legacy
       ? manifest.capability !== "prd"
       : manifest.bundle !== BUNDLE ||
@@ -2106,7 +2125,7 @@ async function piLifecycle(options) {
         if (manifest.nativeIdentity.source !== source)
           throw new LifecycleError("SOURCE_CONFLICT", "use update to change a pinned Pi source");
         const discovery = await inspectPi(options, manifest, manifest.state === "active");
-        if (manifest.schema !== SCHEMA)
+        if (manifest.version !== CURRENT_VERSION)
           throw new LifecycleError(
             "UPDATE_REQUIRED",
             "the installed capability bundle requires an explicit update",
@@ -2121,7 +2140,12 @@ async function piLifecycle(options) {
             "DISABLED",
             "enable the selected Pi scope instead of reinstalling",
           );
-        return { status: "unchanged", message: "already installed", recovered };
+        return {
+          status: "unchanged",
+          message: "already installed",
+          recovered,
+          details: { version: manifest.version },
+        };
       }
       await refuseUnmanagedPi(options, source);
       const other = await activePiOtherScope(options);
@@ -2140,7 +2164,7 @@ async function piLifecycle(options) {
       if (options.verb === "update") {
         if (manifest.state === "disabled")
           throw new LifecycleError("DISABLED", "enable the selected Pi scope before updating");
-        if (manifest.schema !== SCHEMA) await inspectPi(options, manifest, true);
+        if (manifest.version !== CURRENT_VERSION) await inspectPi(options, manifest, true);
         if (manifest.nativeIdentity.pinned) {
           if (!source)
             throw new LifecycleError(
@@ -2171,7 +2195,7 @@ async function piLifecycle(options) {
 
     if (options.verb === "verify") {
       const discovery = await inspectPi(options, manifest, manifest.state === "active");
-      if (manifest.schema !== SCHEMA)
+      if (manifest.version !== CURRENT_VERSION)
         throw new LifecycleError(
           "UPDATE_REQUIRED",
           "the installed capability bundle requires an explicit update",
@@ -2182,13 +2206,23 @@ async function piLifecycle(options) {
         status: manifest.state,
         message: `${manifest.version} ${manifest.state} and verified`,
         recovered,
-        details: { discovery, source: manifest.nativeIdentity.source },
+        details: { discovery, source: manifest.nativeIdentity.source, version: manifest.version },
       };
     }
     if (options.verb === "disable" && manifest.state === "disabled")
-      return { status: "unchanged", message: "already disabled", recovered };
+      return {
+        status: "unchanged",
+        message: "already disabled",
+        recovered,
+        details: { version: manifest.version },
+      };
     if (options.verb === "enable" && manifest.state === "active")
-      return { status: "unchanged", message: "already enabled", recovered };
+      return {
+        status: "unchanged",
+        message: "already enabled",
+        recovered,
+        details: { version: manifest.version },
+      };
     if (options.verb === "enable") {
       await refuseUnmanagedPi(options, manifest.nativeIdentity.source);
       const other = await activePiOtherScope(options);
@@ -2282,7 +2316,7 @@ async function piLifecycle(options) {
                 : `${options.verb}d`,
           message: `Pi ${options.verb} completed and native discovery verified`,
           recovered,
-          details: { discovery, source: effectiveSource, plan },
+          details: { discovery, source: effectiveSource, plan, version: manifest.version },
         };
       }
       await rm(paths.journal, { force: true });
@@ -2290,7 +2324,7 @@ async function piLifecycle(options) {
         status: "removed",
         message: "Pi remove completed and native discovery verified",
         recovered,
-        details: { plan },
+        details: { plan, version: manifest.version },
       };
     } catch (error) {
       try {
@@ -2451,7 +2485,11 @@ async function setEnabled(options, manifest, resources, enabled, discover) {
     };
   }
   if (!enabled && manifest.state === "disabled")
-    return { status: "unchanged", message: "already disabled" };
+    return {
+      status: "unchanged",
+      message: "already disabled",
+      details: { version: manifest.version },
+    };
   if (enabled) {
     await inspectDisabled(manifest, options, resources);
     const other = await activeOtherScope(options);
@@ -2530,6 +2568,7 @@ function operationDetails(version, options, discovery) {
 
 async function removeInstall(options, manifest, resources) {
   if (!manifest) return { status: "absent", message: "scope is not installed" };
+  const version = manifest.version;
   if (manifest.state === "active") await inspectOwned(manifest);
   else await inspectDisabled(manifest, options, resources);
   await inspectBackups(manifest);
@@ -2566,7 +2605,7 @@ async function removeInstall(options, manifest, resources) {
     await recover(paths, options);
     throw error;
   }
-  return { status: "removed", message: "scope removed" };
+  return { status: "removed", message: "scope removed", details: { version } };
 }
 
 async function copiedLifecycle(options) {
@@ -2589,7 +2628,11 @@ async function copiedLifecycle(options) {
     const discover = (enabled) => discoverWith(ownedResources, enabled);
     for (const resource of options.verb === "update" ? resources : ownedResources)
       await assertSafeTarget(resource.target, targetBoundary(options));
-    if (manifest && manifest.schema !== SCHEMA && ["install", "verify"].includes(options.verb)) {
+    if (
+      manifest &&
+      manifest.version !== CURRENT_VERSION &&
+      ["install", "verify"].includes(options.verb)
+    ) {
       if (manifest.state === "active") await inspectOwned(manifest);
       else await inspectDisabled(manifest, options, ownedResources);
       await inspectBackups(manifest);
@@ -2603,7 +2646,7 @@ async function copiedLifecycle(options) {
     }
     if (
       manifest &&
-      manifest.schema !== SCHEMA &&
+      manifest.version !== CURRENT_VERSION &&
       options.verb === "update" &&
       manifest.state !== "active"
     ) {
