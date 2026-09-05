@@ -55,6 +55,21 @@ semantic runs.
 | Pi          | Revise      | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
 | Pi          | Source-edit | Pending | Host/model versions, prompt, payload hash, diff, approvals, validation, and human rubric assessment.    |
 
+## Issues Run Matrix
+
+No issues real-model run has been performed or evidenced. The user explicitly authorized the
+v0.4.0 release with these runs deferred because Pi is unavailable in the release environment. Each
+follow-up run must cover implicit activation, informed bootstrap consent, small issue tracking, epic
+decomposition, claims, failed verification, evidence-bearing closure, and rejection of `bd`, Dolt,
+and parallel todos.
+
+| Host        | Status   | Required evidence when run                                                                        |
+| ----------- | -------- | ------------------------------------------------------------------------------------------------- |
+| OpenCode    | Deferred | Host/model version, prompt, consent transcript, commands, issue graph, changed files, and review. |
+| Codex       | Deferred | Host/model version, prompt, consent transcript, commands, issue graph, changed files, and review. |
+| Claude Code | Deferred | Host/model version, prompt, consent transcript, commands, issue graph, changed files, and review. |
+| Pi          | Deferred | Host/model version, prompt, consent transcript, commands, issue graph, changed files, and review. |
+
 ## 2026-09-05 - SPEC Writer
 
 The SPEC writer used the same isolated notification-digest fixture on each available host. The

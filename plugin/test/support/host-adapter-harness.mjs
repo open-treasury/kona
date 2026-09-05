@@ -33,7 +33,12 @@ async function resolvedPayload(host, root, layout, capabilityName) {
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   if (
     JSON.stringify(manifest.pi?.skills) !==
-    JSON.stringify(["./plugin/skills/copy", "./plugin/skills/prd", "./plugin/skills/spec"])
+    JSON.stringify([
+      "./plugin/skills/copy",
+      "./plugin/skills/prd",
+      "./plugin/skills/spec",
+      "./plugin/skills/issues",
+    ])
   )
     throw new Error("Pi manifest does not resolve the canonical skills in registry order");
   const skillRoot = manifest.pi.skills.find((path) => path.endsWith(`/skills/${capabilityName}`));

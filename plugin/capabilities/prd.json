@@ -2,7 +2,7 @@
   "type": "capability",
   "schemaVersion": 1,
   "name": "prd",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "modes": ["create", "refine"],
   "canonical": {
     "skill": {

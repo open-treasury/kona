@@ -49,10 +49,21 @@ const copyCapability = {
   hosts: hosts("copy", "@copy-writer"),
 };
 
+const workflowCapability = (name) => ({
+  name,
+  kind: "workflow",
+  modes: ["plan", "execute"],
+  manifest: `capabilities/${name}.json`,
+  canonical: [`skills/${name}/SKILL.md`],
+  copiedHostDirectory: `skills/${name}`,
+  hosts: hosts(name, name),
+});
+
 export const CAPABILITY_REGISTRY = [
   copyCapability,
   authoringCapability("prd"),
   authoringCapability("spec"),
+  workflowCapability("issues"),
 ];
 
 export function validateCapabilityRegistry(registry) {
@@ -73,12 +84,17 @@ export function validateCapabilityRegistry(registry) {
   }
 
   for (const descriptor of registry) {
-    if (!new Set(["authoring", "copywriting"]).has(descriptor.kind))
+    if (!new Set(["authoring", "copywriting", "workflow"]).has(descriptor.kind))
       throw new Error(`invalid capability kind: ${descriptor.name}`);
-    if (!descriptor.adapter || descriptor.canonical.length < 2)
+    if (descriptor.kind === "workflow" && (descriptor.adapter || descriptor.canonical.length !== 1))
+      throw new Error(`invalid workflow capability: ${descriptor.name}`);
+    if (descriptor.kind !== "workflow" && (!descriptor.adapter || descriptor.canonical.length < 2))
       throw new Error(`invalid capability: ${descriptor.name}`);
   }
 
-  if (JSON.stringify(registry.map(({ name }) => name)) !== JSON.stringify(["copy", "prd", "spec"]))
-    throw new Error("capability registry order must be copy, prd, then spec");
+  if (
+    JSON.stringify(registry.map(({ name }) => name)) !==
+    JSON.stringify(["copy", "prd", "spec", "issues"])
+  )
+    throw new Error("capability registry order must be copy, prd, spec, then issues");
 }
