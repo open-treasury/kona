@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "generate-precedence-conversation",
+  "mode": "generate",
+  "acceptanceCriteria": ["AC1", "AC2", "AC3", "AC4", "AC7", "AC8", "AC12", "AC13"],
+  "input": {
+    "prompt": "Write one checkout button label. Use the term basket, sentence case, at most 18 characters, and no punctuation. Do not create a file.",
+    "repository": {
+      "README.md": "This product normally calls the destination a cart.\n",
+      "package.json": "{\"name\":\"clean-copy-fixture\"}\n"
+    },
+    "precedence": [
+      { "source": "user", "direction": "Use basket." },
+      { "source": "repository", "direction": "Use cart." },
+      { "source": "bundled-default", "direction": "Use established terminology." }
+    ],
+    "constraints": {
+      "component": "button",
+      "maxCharacters": 18,
+      "capitalization": "sentence-case",
+      "punctuation": "none",
+      "requiredTerms": ["basket"],
+      "variantLimit": 1
+    },
+    "cleanRepository": true
+  },
+  "expectations": {
+    "delivery": "conversation",
+    "destination": null,
+    "noWrite": true,
+    "forbiddenOperations": [
+      { "kind": "read", "target": "external-writing-guidance" },
+      { "kind": "request", "target": "external-writing-guidance" },
+      { "kind": "link", "target": "external-writing-guidance" }
+    ],
+    "manualRubric": [
+      "The explicit user term wins over the repository convention and bundled default.",
+      "The result is a button label within every explicit constraint.",
+      "The result uses concise American English and does not imply outside affiliation.",
+      "Only one recommended version is returned.",
+      "No discoverable fact is requested again and nonblocking assumptions are stated."
+    ]
+  }
+}

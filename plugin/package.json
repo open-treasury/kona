@@ -1,8 +1,8 @@
 {
   "name": "@open-treasury/kona-unpublished",
   "private": true,
-  "version": "0.2.0",
-  "description": "Portable PRD and SPEC authoring capabilities for OpenCode, Codex, Claude Code, and Pi.",
+  "version": "0.3.0",
+  "description": "Portable copy, PRD, and SPEC authoring capabilities for OpenCode, Codex, Claude Code, and Pi.",
   "type": "module",
   "license": "MIT",
   "repository": {

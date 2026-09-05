@@ -34,7 +34,26 @@ const authoringCapability = (name) => ({
   hosts: hosts(name, `@${name}-writer`),
 });
 
-export const CAPABILITY_REGISTRY = [authoringCapability("prd"), authoringCapability("spec")];
+const copyCapability = {
+  name: "copy",
+  kind: "copywriting",
+  modes: ["generate", "revise", "source-edit"],
+  manifest: "capabilities/copy.json",
+  canonical: [
+    "skills/copy/SKILL.md",
+    "skills/copy/references/components.md",
+    "skills/copy/references/style-and-safety.md",
+  ],
+  copiedHostDirectory: "skills/copy",
+  adapter: "hosts/opencode/agents/copy-writer.md",
+  hosts: hosts("copy", "@copy-writer"),
+};
+
+export const CAPABILITY_REGISTRY = [
+  copyCapability,
+  authoringCapability("prd"),
+  authoringCapability("spec"),
+];
 
 export function validateCapabilityRegistry(registry) {
   for (const [label, values] of [
@@ -54,12 +73,12 @@ export function validateCapabilityRegistry(registry) {
   }
 
   for (const descriptor of registry) {
-    if (descriptor.kind !== "authoring")
+    if (!new Set(["authoring", "copywriting"]).has(descriptor.kind))
       throw new Error(`invalid capability kind: ${descriptor.name}`);
-    if (!descriptor.adapter || descriptor.canonical.length !== 2)
-      throw new Error(`invalid authoring capability: ${descriptor.name}`);
+    if (!descriptor.adapter || descriptor.canonical.length < 2)
+      throw new Error(`invalid capability: ${descriptor.name}`);
   }
 
-  if (JSON.stringify(registry.map(({ name }) => name)) !== JSON.stringify(["prd", "spec"]))
-    throw new Error("capability registry order must be prd, then spec");
+  if (JSON.stringify(registry.map(({ name }) => name)) !== JSON.stringify(["copy", "prd", "spec"]))
+    throw new Error("capability registry order must be copy, prd, then spec");
 }

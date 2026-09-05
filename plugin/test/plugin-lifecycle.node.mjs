@@ -25,6 +25,8 @@ const repositoryRoot = resolve(pluginRoot, "..");
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const execute = promisify(execFile);
 const isLegacyPath = (path) => path.includes("/skills/prd/") || path.endsWith("/prd-writer.md");
+const isReleasedPath = (path) =>
+  !path.includes("/skills/copy/") && !path.endsWith("/copy-writer.md");
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "kona-lifecycle-"));
@@ -49,6 +51,7 @@ async function missing(path) {
 
 async function createAuthoringCanaries(value) {
   const canaries = new Map([
+    [join(value.project, "copy/existing.md"), Buffer.from("authored copy\n")],
     [join(value.project, "specs/existing/prd.md"), Buffer.from("authored PRD\n")],
     [join(value.project, "specs/existing/spec.md"), Buffer.from("authored SPEC\n")],
     [join(value.project, ".unrelated-host-config"), Buffer.from("unrelated config\n")],
@@ -82,7 +85,7 @@ async function installCopiedHostMock(value, host, scope = "project") {
       ? join(value.project, host === "opencode" ? ".opencode" : ".agents")
       : join(value.home, host === "opencode" ? ".config/opencode" : ".agents");
   const skills = Object.fromEntries(
-    ["prd", "spec"].map((name) => [name, join(copiedRoot, `skills/${name}/SKILL.md`)]),
+    ["copy", "prd", "spec"].map((name) => [name, join(copiedRoot, `skills/${name}/SKILL.md`)]),
   );
   const source =
     host === "opencode"
@@ -116,6 +119,27 @@ async function makeCopiedInstallLegacy(value, host, scope = "project") {
   return { args, path: manifestFile, manifest: legacy };
 }
 
+async function makeCopiedInstallReleased(value, host, scope = "project") {
+  const args = ["--host", host, "--scope", scope];
+  const installed = await value.run(["install", ...args]);
+  assert.equal(installed.exitCode, 0, JSON.stringify(installed.body));
+  const path = await manifestPath(value, host, scope);
+  const current = JSON.parse(await readFile(path, "utf8"));
+  for (const resourcePath of current.paths.filter((candidate) => !isReleasedPath(candidate)))
+    await rm(resourcePath, { force: true });
+  const released = {
+    ...current,
+    schema: 2,
+    version: "0.2.0",
+    capabilities: ["prd", "spec"],
+    paths: current.paths.filter(isReleasedPath),
+    resources: current.resources.filter(({ path: resourcePath }) => isReleasedPath(resourcePath)),
+    backups: current.backups.filter(({ path: resourcePath }) => isReleasedPath(resourcePath)),
+  };
+  await writeFile(path, `${JSON.stringify(released, null, 2)}\n`, { mode: 0o600 });
+  return { args, path, manifest: released };
+}
+
 async function makeNativeManifestLegacy(value, host, scope = "project") {
   const path = await manifestPath(value, host, scope);
   const {
@@ -124,8 +148,22 @@ async function makeNativeManifestLegacy(value, host, scope = "project") {
     ...current
   } = JSON.parse(await readFile(path, "utf8"));
   const legacy = { ...current, schema: 1, capability: "prd", version: "0.1.1" };
+  legacy.nativeIdentity.invocation = host === "claude" ? "/kona:prd" : "/skill:prd";
   await writeFile(path, `${JSON.stringify(legacy, null, 2)}\n`, { mode: 0o600 });
   return { path, manifest: legacy };
+}
+
+async function makeNativeManifestReleased(value, host, scope = "project") {
+  const path = await manifestPath(value, host, scope);
+  const released = {
+    ...JSON.parse(await readFile(path, "utf8")),
+    schema: 2,
+    version: "0.2.0",
+    capabilities: ["prd", "spec"],
+  };
+  released.nativeIdentity.invocation = host === "claude" ? "/kona:prd" : "/skill:prd";
+  await writeFile(path, `${JSON.stringify(released, null, 2)}\n`, { mode: 0o600 });
+  return { path, manifest: released };
 }
 
 async function installClaudeMock(value) {
@@ -138,11 +176,11 @@ async function installClaudeMock(value) {
     "claude",
     `const fs=require("node:fs");const path=require("node:path");const a=process.argv.slice(2);const p="${state}";const c="${calls}";const s=JSON.parse(fs.readFileSync(p));fs.appendFileSync(c,JSON.stringify(a)+"\\n");const save=()=>fs.writeFileSync(p,JSON.stringify(s));
  if(a.join(" ")==="plugin marketplace list --json")console.log(JSON.stringify(s.marketplaces??(s.marketplace?[{name:"kona",source:{source:"github",repo:"open-treasury/kona"}}]:[])));
- else if(a.join(" ")==="plugin list --json --available")console.log(JSON.stringify({installed:s.installed,available:s.available??(s.marketplace?[{pluginId:"kona@kona",name:"kona",marketplaceName:"kona",version:"0.2.0"}]:[])}));
-   else if(a.slice(0,2).join(" ")==="plugin details"){const names=process.env.MOCK_CLAUDE_COMMANDS?JSON.parse(process.env.MOCK_CLAUDE_COMMANDS):["prd","spec"];console.log("kona 0.2.0\\n  Source: "+(process.env.MOCK_CLAUDE_SOURCE||"kona@kona")+"\\n\\nComponent inventory\\n  Skills ("+names.length+")  "+names.join(", "))}
+ else if(a.join(" ")==="plugin list --json --available")console.log(JSON.stringify({installed:s.installed,available:s.available??(s.marketplace?[{pluginId:"kona@kona",name:"kona",marketplaceName:"kona",version:"0.3.0"}]:[])}));
+   else if(a.slice(0,2).join(" ")==="plugin details"){const names=process.env.MOCK_CLAUDE_COMMANDS?JSON.parse(process.env.MOCK_CLAUDE_COMMANDS):["copy","prd","spec"];console.log("kona 0.3.0\\n  Source: "+(process.env.MOCK_CLAUDE_SOURCE||"kona@kona")+"\\n\\nComponent inventory\\n  Skills ("+names.length+")  "+names.join(", "))}
 else if(a.slice(0,3).join(" ")==="plugin marketplace add"){s.marketplace=true;save()}
 else if(a.slice(0,3).join(" ")==="plugin marketplace remove"){s.marketplace=false;save()}
- else{const v=a[1],scope=a[4],i=s.installed.findIndex(x=>x.scope===scope&&(scope==="user"||x.projectPath===process.cwd()));const root=path.join("${installRoot}",scope);if(process.env.MOCK_FAIL===v)process.exit(7);if(v==="install"){for(const name of ["prd","spec"]){const skill=path.join(root,"skills",name,"SKILL.md");fs.mkdirSync(path.dirname(skill),{recursive:true});fs.writeFileSync(skill,name)}s.installed.push({id:"kona@kona",version:"0.2.0",scope,enabled:true,installPath:root,projectPath:scope==="user"?undefined:process.cwd()})}else if(v==="uninstall")s.installed.splice(i,1);else if(v==="disable")s.installed[i].enabled=false;else if(v==="enable")s.installed[i].enabled=true;else if(v!=="update")process.exit(8);save()}`,
+ else{const v=a[1],scope=a[4],i=s.installed.findIndex(x=>x.scope===scope&&(scope==="user"||x.projectPath===process.cwd()));const root=path.join("${installRoot}",scope);if(process.env.MOCK_FAIL===v)process.exit(7);if(v==="install"||v==="update")fs.cpSync("${join(pluginRoot, "skills")}",path.join(root,"skills"),{recursive:true});if(v==="install")s.installed.push({id:"kona@kona",version:"0.3.0",scope,enabled:true,installPath:root,projectPath:scope==="user"?undefined:process.cwd()});else if(v==="uninstall")s.installed.splice(i,1);else if(v==="disable")s.installed[i].enabled=false;else if(v==="enable")s.installed[i].enabled=true;else if(v!=="update")process.exit(8);save()}`,
   );
   return { state, calls };
 }
@@ -155,7 +193,7 @@ async function installPiMock(value) {
     value,
     "pi",
     `const fs=require("node:fs");const path=require("node:path");const a=process.argv.slice(2);const p="${state}";const c="${calls}";const s=JSON.parse(fs.readFileSync(p));fs.appendFileSync(c,JSON.stringify(a)+"\\n");const save=()=>fs.writeFileSync(p,JSON.stringify(s));const scope=a.includes("-l")?"project":"user";const id=x=>x.replace(/@(?:[0-9].*)$/," ").trim();
- if(a.includes("rpc")){let b="";process.stdin.on("data",x=>{b+=x;if(!b.includes("\\n"))return;fs.appendFileSync(c,JSON.stringify({rpc:JSON.parse(b.trim())})+"\\n");let commands=[];if(!process.env.MOCK_PI_HIDE_COMMAND){for(const x of s.packages.filter(x=>x.enabled)){const base=x.source.startsWith("/")?x.source:"/installed/kona";for(const name of ["prd",...(process.env.MOCK_PI_HIDE_SPEC?[]:["spec"])])commands.push({name:"skill:"+name,source:"skill",sourceInfo:{source:process.env.MOCK_PI_WRONG_SOURCE||x.source,scope:process.env.MOCK_PI_WRONG_SCOPE||x.scope,origin:"package",baseDir:base,path:process.env.MOCK_PI_WRONG_PATH||path.join(base,"plugin","skills",name,"SKILL.md")}})}}if(process.env.MOCK_PI_DUPLICATE&&commands.length)commands.push({...commands[0]});if(process.env.MOCK_PI_UNRELATED)commands.push({name:"unrelated",source:"extension",sourceInfo:{source:"other",scope,origin:"package",baseDir:"/other",path:"/other/index.js"}});console.log(JSON.stringify({type:"response",command:"get_commands",success:true,data:{commands}}))})}
+ if(a.includes("rpc")){let b="";process.stdin.on("data",x=>{b+=x;if(!b.includes("\\n"))return;fs.appendFileSync(c,JSON.stringify({rpc:JSON.parse(b.trim())})+"\\n");let commands=[];if(!process.env.MOCK_PI_HIDE_COMMAND){for(const x of s.packages.filter(x=>x.enabled)){const base=x.source.startsWith("/")?x.source:"/installed/kona";for(const name of ["copy","prd",...(process.env.MOCK_PI_HIDE_SPEC?[]:["spec"])])commands.push({name:"skill:"+name,source:"skill",sourceInfo:{source:process.env.MOCK_PI_WRONG_SOURCE||x.source,scope:process.env.MOCK_PI_WRONG_SCOPE||x.scope,origin:"package",baseDir:base,path:process.env.MOCK_PI_WRONG_PATH||path.join(base,"plugin","skills",name,"SKILL.md")}})}}if(process.env.MOCK_PI_DUPLICATE&&commands.length)commands.push({...commands[0]});if(process.env.MOCK_PI_UNRELATED)commands.push({name:"unrelated",source:"extension",sourceInfo:{source:"other",scope,origin:"package",baseDir:"/other",path:"/other/index.js"}});console.log(JSON.stringify({type:"response",command:"get_commands",success:true,data:{commands}}))})}
  else if(a[0]==="list"){for(const scope of ["user","project"]){const xs=s.packages.filter(x=>x.scope===scope);if(xs.length){console.log((scope==="user"?"User":"Project")+" packages:");xs.forEach(x=>console.log("  "+x.source))}}if(!s.packages.length)console.log("No packages installed.")}
 else if(a[0]==="install"){const x={scope,source:a[1],enabled:true},i=s.packages.findIndex(y=>y.scope===scope&&id(y.source)===id(x.source));i<0?s.packages.push(x):s.packages[i]=x;save()}
  else if(a[0]==="remove"){if(!process.env.MOCK_PI_KEEP_PACKAGE)s.packages=s.packages.filter(x=>!(x.scope===scope&&id(x.source)===id(a[1])));save()}
@@ -185,15 +223,22 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
             native: installed.body.details.verification.native,
           },
           {
-            version: "0.2.0",
+            version: "0.3.0",
             scope,
-            invocation: host === "opencode" ? "@prd-writer" : "$prd",
+            invocation: host === "opencode" ? "@copy-writer" : "$copy",
             invocations:
               host === "opencode"
-                ? { prd: "@prd-writer", spec: "@spec-writer" }
-                : { prd: "$prd", spec: "$spec" },
+                ? { copy: "@copy-writer", prd: "@prd-writer", spec: "@spec-writer" }
+                : { copy: "$copy", prd: "$prd", spec: "$spec" },
             native: "verified",
           },
+        );
+        assert.deepEqual(
+          installed.body.details.capabilities.map(({ id, integrity }) => ({ id, integrity })),
+          ["copy", "prd", "spec"].map((id) => ({
+            id,
+            integrity: { canonical: "verified", native: "verified" },
+          })),
         );
         assert.equal((await value.run(["install", ...args])).body.status, "unchanged");
         const root =
@@ -206,15 +251,15 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
           host === "opencode"
             ? join(root, scope === "project" ? ".opencode" : "")
             : join(root, ".agents");
-        for (const name of ["prd", "spec"]) {
-          assert.deepEqual(
-            await readFile(join(copiedRoot, `skills/${name}/SKILL.md`)),
-            await readFile(join(pluginRoot, `skills/${name}/SKILL.md`)),
-          );
-          assert.deepEqual(
-            await readFile(join(copiedRoot, `skills/${name}/templates/${name}.md`)),
-            await readFile(join(pluginRoot, `skills/${name}/templates/${name}.md`)),
-          );
+        for (const name of ["copy", "prd", "spec"]) {
+          for (const resource of Object.values(
+            JSON.parse(await readFile(join(pluginRoot, `capabilities/${name}.json`), "utf8"))
+              .canonical,
+          ))
+            assert.deepEqual(
+              await readFile(join(copiedRoot, resource.path)),
+              await readFile(join(pluginRoot, resource.path)),
+            );
           if (host === "opencode")
             assert.deepEqual(
               await readFile(join(copiedRoot, `agents/${name}-writer.md`)),
@@ -222,28 +267,31 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
             );
         }
         const manifest = JSON.parse(await readFile(await manifestPath(value, host, scope), "utf8"));
-        assert.equal(manifest.schema, 2);
+        assert.equal(manifest.schema, 3);
         assert.equal(manifest.bundle, "authoring");
-        assert.deepEqual(manifest.capabilities, ["prd", "spec"]);
-        assert.equal(manifest.resources.length, host === "opencode" ? 6 : 4);
+        assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
+        assert.equal(manifest.resources.length, host === "opencode" ? 10 : 7);
         const updated = await value.run(["update", ...args]);
         assert.equal(updated.body.status, "updated");
         assert.equal(updated.body.details.verification.native, "verified");
-        assert.equal(updated.body.details.version, "0.2.0");
+        assert.equal(updated.body.details.version, "0.3.0");
         assert.equal(updated.body.details.scope, scope);
         assert.equal((await value.run(["disable", ...args])).body.status, "disabled");
         const enabled = await value.run(["enable", ...args]);
         assert.equal(enabled.body.status, "enabled", JSON.stringify(enabled.body));
         assert.equal(enabled.body.details.verification.native, "verified");
-        assert.equal(enabled.body.details.invocation, host === "opencode" ? "@prd-writer" : "$prd");
+        assert.equal(
+          enabled.body.details.invocation,
+          host === "opencode" ? "@copy-writer" : "$copy",
+        );
         assert.deepEqual(
           enabled.body.details.invocations,
           host === "opencode"
-            ? { prd: "@prd-writer", spec: "@spec-writer" }
-            : { prd: "$prd", spec: "$spec" },
+            ? { copy: "@copy-writer", prd: "@prd-writer", spec: "@spec-writer" }
+            : { copy: "$copy", prd: "$prd", spec: "$spec" },
         );
         assert.equal((await value.run(["remove", ...args])).body.status, "removed");
-        for (const name of ["prd", "spec"]) {
+        for (const name of ["copy", "prd", "spec"]) {
           await missing(join(copiedRoot, `skills/${name}/SKILL.md`));
           if (host === "opencode") await missing(join(copiedRoot, `agents/${name}-writer.md`));
         }
@@ -304,13 +352,65 @@ test("schema-v1 copied installs require update and retain their legacy lifecycle
       const result = await migrating.run(["update", ...legacy.args]);
       assert.equal(result.body.status, "updated", JSON.stringify(result.body));
       const manifest = JSON.parse(await readFile(legacy.path, "utf8"));
-      assert.equal(manifest.schema, 2);
+      assert.equal(manifest.schema, 3);
       assert.equal(manifest.bundle, "authoring");
-      assert.deepEqual(manifest.capabilities, ["prd", "spec"]);
-      assert.equal(manifest.resources.length, host === "opencode" ? 6 : 4);
+      assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
+      assert.equal(manifest.resources.length, host === "opencode" ? 10 : 7);
     } finally {
       await rm(migrating.root, { recursive: true, force: true });
     }
+  }
+});
+
+test("released schema-v2 copied bundles expand to copy only through explicit update", async () => {
+  for (const host of ["opencode", "codex"]) {
+    const value = await fixture();
+    try {
+      await installCopiedHostMock(value, host);
+      const released = await makeCopiedInstallReleased(value, host);
+      for (const verb of ["install", "verify"]) {
+        const observed = await value.run([verb, ...released.args]);
+        assert.equal(observed.body.code, "UPDATE_REQUIRED", `${host}/${verb}`);
+        assert.deepEqual(Object.keys(observed.body.details.invocations), ["prd", "spec"]);
+      }
+      const updated = await value.run(["update", ...released.args]);
+      assert.equal(updated.body.status, "updated", JSON.stringify(updated.body));
+      const manifest = JSON.parse(await readFile(released.path, "utf8"));
+      assert.equal(manifest.schema, 3);
+      assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
+    } finally {
+      await rm(value.root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("disabled released schema-v2 copied bundles must be enabled before expansion", async () => {
+  const value = await fixture();
+  try {
+    await installCopiedHostMock(value, "opencode");
+    const released = await makeCopiedInstallReleased(value, "opencode");
+    assert.equal((await value.run(["disable", ...released.args])).body.status, "disabled");
+    assert.equal((await value.run(["update", ...released.args])).body.code, "DISABLED");
+    assert.equal(JSON.parse(await readFile(released.path, "utf8")).schema, 2);
+    assert.equal((await value.run(["enable", ...released.args])).body.status, "enabled");
+    assert.equal((await value.run(["update", ...released.args])).body.status, "updated");
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("released schema-v2 version skew is rejected before adding copy", async () => {
+  const value = await fixture();
+  try {
+    await installCopiedHostMock(value, "opencode");
+    const released = await makeCopiedInstallReleased(value, "opencode");
+    const skewed = { ...released.manifest, version: "0.2.1" };
+    await writeFile(released.path, `${JSON.stringify(skewed, null, 2)}\n`, { mode: 0o600 });
+    const result = await value.run(["update", ...released.args]);
+    assert.equal(result.body.code, "INVALID_STATE");
+    await missing(join(value.project, ".opencode/skills/copy/SKILL.md"));
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
   }
 });
 
@@ -492,7 +592,7 @@ test("AC15: OpenCode and Codex native discovery uses list protocols and never st
   }
 });
 
-test("OpenCode and Codex reject partial PRD/SPEC discovery at every scope", async () => {
+test("OpenCode and Codex reject partial bundle discovery at every scope", async () => {
   for (const host of ["opencode", "codex"]) {
     for (const scope of ["project", "user"]) {
       const value = await fixture();
@@ -511,7 +611,7 @@ test("OpenCode and Codex reject partial PRD/SPEC discovery at every scope", asyn
   }
 });
 
-test("Codex disable owns one bounded block with both skills and preserves unrelated TOML", async () => {
+test("Codex disable owns one bounded block with all skills and preserves unrelated TOML", async () => {
   const value = await fixture();
   try {
     await installCopiedHostMock(value, "codex");
@@ -524,7 +624,8 @@ test("Codex disable owns one bounded block with both skills and preserves unrela
     const disabled = await readFile(config, "utf8");
     assert.equal(disabled.match(/# >>> kona prd project/g)?.length, 1);
     assert.equal(disabled.match(/# <<< kona prd project/g)?.length, 1);
-    assert.equal(disabled.match(/\[\[skills\.config\]\]/g)?.length, 2);
+    assert.equal(disabled.match(/\[\[skills\.config\]\]/g)?.length, 3);
+    assert.match(disabled, /skills\/copy\/SKILL\.md/);
     assert.match(disabled, /skills\/prd\/SKILL\.md/);
     assert.match(disabled, /skills\/spec\/SKILL\.md/);
     assert.ok(disabled.startsWith('model = "gpt-5"\n'));
@@ -554,16 +655,27 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
     );
     const projectVerification = await value.run(["verify", ...project]);
     assert.deepEqual(projectVerification.body.details.discovery.invocations, {
+      copy: "/skill:copy",
       prd: "/skill:prd",
       spec: "/skill:spec",
     });
     assert.deepEqual(
+      projectVerification.body.details.discovery.capabilities.map(({ id, integrity }) => ({
+        id,
+        integrity,
+      })),
+      ["copy", "prd", "spec"].map((id) => ({
+        id,
+        integrity: { canonical: "verified", native: "verified" },
+      })),
+    );
+    assert.deepEqual(
       JSON.parse(await readFile(await manifestPath(value, "pi", "project"), "utf8")),
       {
-        schema: 2,
+        schema: 3,
         bundle: "authoring",
-        capabilities: ["prd", "spec"],
-        version: "0.2.0",
+        capabilities: ["copy", "prd", "spec"],
+        version: "0.3.0",
         host: "pi",
         scope: "project",
         state: "active",
@@ -574,7 +686,7 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
           kind: "local",
           pinned: false,
           pin: null,
-          invocation: "/skill:prd",
+          invocation: "/skill:copy",
         },
       },
     );
@@ -602,10 +714,11 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
       "install",
       ...user,
       "--source",
-      "npm:@open-treasury/kona@0.2.0",
+      "npm:@open-treasury/kona@0.3.0",
       "--approve",
     ]);
     assert.deepEqual(userInstall.body.details.discovery.invocations, {
+      copy: "/skill:copy",
       prd: "/skill:prd",
       spec: "/skill:spec",
     });
@@ -616,7 +729,7 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
           "update",
           ...user,
           "--source",
-          "npm:@open-treasury/kona@0.3.0",
+          "npm:@open-treasury/kona@0.4.0",
           "--approve",
         ])
       ).body.status,
@@ -658,7 +771,7 @@ test("schema-v1 Pi state reports update-required and remains inspectable through
   }
 });
 
-test("active schema-v1 Pi update verifies both package commands before committing schema 2", async () => {
+test("active schema-v1 Pi update verifies the package before committing schema 3", async () => {
   const value = await fixture();
   try {
     await installPiMock(value);
@@ -671,12 +784,13 @@ test("active schema-v1 Pi update verifies both package commands before committin
     const updated = await value.run(["update", ...args, "--approve"]);
     assert.equal(updated.body.status, "updated", JSON.stringify(updated.body));
     assert.deepEqual(updated.body.details.discovery.invocations, {
+      copy: "/skill:copy",
       prd: "/skill:prd",
       spec: "/skill:spec",
     });
     const manifest = JSON.parse(await readFile(legacy.path, "utf8"));
-    assert.equal(manifest.schema, 2);
-    assert.deepEqual(manifest.capabilities, ["prd", "spec"]);
+    assert.equal(manifest.schema, 3);
+    assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
   } finally {
     await rm(value.root, { recursive: true, force: true });
   }
@@ -687,7 +801,7 @@ test("Pi refuses pre-existing unmanaged matching packages at project and user sc
     const value = await fixture();
     try {
       const mock = await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.2.0";
+      const source = "npm:@open-treasury/kona@0.3.0";
       await writeFile(mock.state, JSON.stringify({ packages: [{ scope, source, enabled: true }] }));
       const result = await value.run([
         "install",
@@ -696,7 +810,7 @@ test("Pi refuses pre-existing unmanaged matching packages at project and user sc
         "--scope",
         scope,
         "--source",
-        "npm:@open-treasury/kona@0.2.0",
+        "npm:@open-treasury/kona@0.3.0",
         "--approve",
       ]);
       assert.equal(result.body.code, "UNMANAGED_NATIVE_INSTALL");
@@ -718,7 +832,7 @@ test("Pi blocks unmanaged Kona packages across project and user activation scope
     const value = await fixture();
     try {
       const mock = await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.2.0";
+      const source = "npm:@open-treasury/kona@0.3.0";
       await writeFile(
         mock.state,
         JSON.stringify({ packages: [{ scope: installedScope, source, enabled: true }] }),
@@ -730,7 +844,7 @@ test("Pi blocks unmanaged Kona packages across project and user activation scope
         "--scope",
         requestedScope,
         "--source",
-        "npm:@open-treasury/kona@0.2.0",
+        "npm:@open-treasury/kona@0.3.0",
         "--approve",
       ]);
       assert.equal(result.body.code, "UNMANAGED_NATIVE_INSTALL");
@@ -750,7 +864,7 @@ test("Pi blocks native active opposite scopes independently of protected state",
     const value = await fixture();
     try {
       await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.2.0";
+      const source = "npm:@open-treasury/kona@0.3.0";
       await value.run([
         "install",
         "--host",
@@ -789,7 +903,7 @@ test("Pi remove retains ownership when RPC hides discovery but native listing re
   try {
     await installPiMock(value);
     const args = ["--host", "pi", "--scope", "project"];
-    await value.run(["install", ...args, "--source", "npm:@open-treasury/kona@0.2.0", "--approve"]);
+    await value.run(["install", ...args, "--source", "npm:@open-treasury/kona@0.3.0", "--approve"]);
     value.env.MOCK_PI_HIDE_COMMAND = "1";
     value.env.MOCK_PI_KEEP_PACKAGE = "1";
     const result = await value.run(["remove", ...args, "--approve"]);
@@ -818,7 +932,7 @@ test("Pi failed-install compensation removes only the package Kona just created"
       "--scope",
       "project",
       "--source",
-      "npm:@open-treasury/kona@0.2.0",
+      "npm:@open-treasury/kona@0.3.0",
       "--approve",
     ]);
     assert.equal(result.body.code, "DISCOVERY_FAILED");
@@ -849,18 +963,28 @@ test("AC15, AC18, AC20-AC21: Claude collaborator bootstrap and all scopes use ap
       const manifest = JSON.parse(
         await readFile(await manifestPath(value, "claude", scope), "utf8"),
       );
-      assert.equal(manifest.schema, 2);
+      assert.equal(manifest.schema, 3);
       assert.equal(manifest.bundle, "authoring");
-      assert.deepEqual(manifest.capabilities, ["prd", "spec"]);
-      assert.equal(manifest.nativeIdentity.invocation, "/kona:prd");
+      assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
+      assert.equal(manifest.nativeIdentity.invocation, "/kona:copy");
       assert.equal(
         (await value.run(["verify", ...args])).body.details.discovery.native,
         "verified",
       );
       assert.deepEqual((await value.run(["verify", ...args])).body.details.discovery.invocations, {
+        copy: "/kona:copy",
         prd: "/kona:prd",
         spec: "/kona:spec",
       });
+      assert.deepEqual(
+        (await value.run(["verify", ...args])).body.details.discovery.capabilities.map(
+          ({ id, integrity }) => ({ id, integrity }),
+        ),
+        ["copy", "prd", "spec"].map((id) => ({
+          id,
+          integrity: { canonical: "verified", native: "verified" },
+        })),
+      );
       assert.equal((await value.run(["disable", ...args, "--approve"])).body.status, "disabled");
       assert.equal((await value.run(["enable", ...args, "--approve"])).body.status, "enabled");
       assert.equal((await value.run(["remove", ...args, "--approve"])).body.status, "removed");
@@ -874,8 +998,15 @@ test("AC15, AC18, AC20-AC21: Claude collaborator bootstrap and all scopes use ap
   }
 });
 
-test("Claude rejects missing, duplicate, wrong-scope, wrong-source, and wrong-path command surfaces", async () => {
-  const variants = ["missing", "duplicate", "wrong-scope", "wrong-source", "wrong-path"];
+test("Claude rejects incomplete, ambiguous, misplaced, or altered package capability surfaces", async () => {
+  const variants = [
+    "missing",
+    "duplicate",
+    "wrong-scope",
+    "wrong-source",
+    "wrong-path",
+    "altered-payload",
+  ];
   const scopes = ["project", "local", "user"];
   for (const [index, variant] of variants.entries()) {
     const value = await fixture();
@@ -886,7 +1017,7 @@ test("Claude rejects missing, duplicate, wrong-scope, wrong-source, and wrong-pa
       assert.equal((await value.run(["install", ...args, "--approve"])).exitCode, 0);
       if (variant === "missing") value.env.MOCK_CLAUDE_COMMANDS = JSON.stringify(["prd"]);
       if (variant === "duplicate")
-        value.env.MOCK_CLAUDE_COMMANDS = JSON.stringify(["prd", "spec", "spec"]);
+        value.env.MOCK_CLAUDE_COMMANDS = JSON.stringify(["copy", "prd", "spec", "spec"]);
       if (variant === "wrong-source") value.env.MOCK_CLAUDE_SOURCE = "kona@other";
       if (["wrong-scope", "wrong-path"].includes(variant)) {
         const state = JSON.parse(await readFile(mock.state, "utf8"));
@@ -894,6 +1025,10 @@ test("Claude rejects missing, duplicate, wrong-scope, wrong-source, and wrong-pa
         if (variant === "wrong-scope") entry.scope = scope === "user" ? "project" : "user";
         if (variant === "wrong-path") entry.installPath = join(value.root, "wrong-package");
         await writeFile(mock.state, JSON.stringify(state));
+      }
+      if (variant === "altered-payload") {
+        const state = JSON.parse(await readFile(mock.state, "utf8"));
+        await writeFile(join(state.installed[0].installPath, "skills/copy/SKILL.md"), "altered\n");
       }
       const result = await value.run(["verify", ...args]);
       assert.notEqual(result.exitCode, 0, `${scope}/${variant}: ${JSON.stringify(result.body)}`);
@@ -923,7 +1058,7 @@ test("Pi requires exact bundle package command provenance at project and user sc
               "install",
               ...args,
               "--source",
-              "npm:@open-treasury/kona@0.2.0",
+              "npm:@open-treasury/kona@0.3.0",
               "--approve",
             ])
           ).exitCode,
@@ -949,7 +1084,7 @@ test("Pi requires exact bundle package command provenance at project and user sc
           "install",
           ...args,
           "--source",
-          "npm:@open-treasury/kona@0.2.0",
+          "npm:@open-treasury/kona@0.3.0",
           "--approve",
         ])
       ).exitCode,
@@ -974,15 +1109,51 @@ test("active schema-v1 Claude state migrates only through explicit update", asyn
     assert.equal(verified.body.code, "UPDATE_REQUIRED");
     assert.deepEqual(verified.body.details.discovery.invocations, { prd: "/kona:prd" });
     assert.equal((await value.run(["install", ...args])).body.code, "UPDATE_REQUIRED");
-    value.env.MOCK_CLAUDE_COMMANDS = JSON.stringify(["prd", "spec"]);
+    value.env.MOCK_CLAUDE_COMMANDS = JSON.stringify(["copy", "prd", "spec"]);
     const updated = await value.run(["update", ...args, "--approve"]);
     assert.equal(updated.body.status, "updated", JSON.stringify(updated.body));
     const manifest = JSON.parse(await readFile(legacy.path, "utf8"));
-    assert.equal(manifest.schema, 2);
+    assert.equal(manifest.schema, 3);
     assert.equal(manifest.bundle, "authoring");
-    assert.deepEqual(manifest.capabilities, ["prd", "spec"]);
+    assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
   } finally {
     await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("released schema-v2 native bundles require explicit update before reporting copy", async () => {
+  for (const host of ["claude", "pi"]) {
+    const value = await fixture();
+    try {
+      if (host === "claude") await installClaudeMock(value);
+      else await installPiMock(value);
+      const args = ["--host", host, "--scope", "project"];
+      const installArgs =
+        host === "claude"
+          ? [...args, "--approve"]
+          : [...args, "--source", repositoryRoot, "--approve"];
+      assert.equal((await value.run(["install", ...installArgs])).exitCode, 0);
+      const released = await makeNativeManifestReleased(value, host);
+      const observed = await value.run(["verify", ...args]);
+      assert.equal(
+        observed.body.code,
+        "UPDATE_REQUIRED",
+        `${host}: ${JSON.stringify(observed.body)}`,
+      );
+      assert.deepEqual(Object.keys(observed.body.details.discovery.invocations), ["prd", "spec"]);
+      const updated = await value.run(["update", ...args, "--approve"]);
+      assert.equal(updated.body.status, "updated", JSON.stringify(updated.body));
+      const manifest = JSON.parse(await readFile(released.path, "utf8"));
+      assert.equal(manifest.schema, 3);
+      assert.deepEqual(manifest.capabilities, ["copy", "prd", "spec"]);
+      assert.deepEqual(Object.keys(updated.body.details.discovery.invocations), [
+        "copy",
+        "prd",
+        "spec",
+      ]);
+    } finally {
+      await rm(value.root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1077,7 +1248,7 @@ test("Claude refuses every mutation of a selected unmanaged native install", asy
           installed: [
             {
               id: "kona@kona",
-              version: "0.2.0",
+              version: "0.3.0",
               scope: "project",
               enabled: verb !== "enable",
               projectPath: value.project,
@@ -1174,8 +1345,8 @@ test("Claude accepts only consistent normalized marketplace source fields and on
       marketplace: true,
       installed: [],
       available: [
-        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.2.0" },
-        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.2.0" },
+        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.3.0" },
+        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.3.0" },
       ],
     },
   ]) {

@@ -10,6 +10,7 @@ const pluginRoot = resolve(import.meta.dirname, "..");
 const repositoryRoot = resolve(pluginRoot, "..");
 const hosts = ["opencode", "codex", "claude", "pi"];
 const invocations = {
+  copy: { opencode: "@copy-writer", codex: "$copy", claude: "/kona:copy", pi: "/skill:copy" },
   prd: { opencode: "@prd-writer", codex: "$prd", claude: "/kona:prd", pi: "/skill:prd" },
   spec: {
     opencode: "@spec-writer",
@@ -18,7 +19,16 @@ const invocations = {
     pi: "/skill:spec",
   },
 };
-const writeBoundaries = { prd: "agreed-prd-only", spec: "agreed-spec-only" };
+const modes = {
+  copy: ["generate", "revise", "source-edit"],
+  prd: ["create", "refine"],
+  spec: ["create", "refine"],
+};
+const writeBoundaries = {
+  copy: "agreed-copy-only",
+  prd: "agreed-prd-only",
+  spec: "agreed-spec-only",
+};
 
 async function installPayload(root, host) {
   const destination = join(root, host);
@@ -45,7 +55,7 @@ test("adapter payload/contract parity resolves exact canonical bytes and host co
   try {
     for (const host of hosts) {
       const installedRoot = await installPayload(root, host);
-      for (const capability of ["prd", "spec"]) {
+      for (const capability of ["copy", "prd", "spec"]) {
         const contracts = [
           await loadAdapterPayloadContract(
             host,
@@ -64,7 +74,7 @@ test("adapter payload/contract parity resolves exact canonical bytes and host co
         ];
         for (const contract of contracts) {
           assert.equal(contract.invocation, invocations[capability][host]);
-          assert.deepEqual(contract.modes, ["create", "refine"]);
+          assert.deepEqual(contract.modes, modes[capability]);
           assert.equal(contract.writeBoundary, writeBoundaries[capability]);
         }
         assert.deepEqual(contracts[0].canonicalBytes, contracts[1].canonicalBytes);
@@ -83,6 +93,16 @@ test("adapter payload/contract parity rejects altered resolution and canonical b
     await assert.rejects(
       loadAdapterPayloadContract("opencode", alteredAdapter, pluginRoot, "installed", "spec"),
       /does not delegate/,
+    );
+
+    const copyAdapter = await installPayload(join(root, "copy-adapter"), "opencode");
+    await writeFile(
+      join(copyAdapter, "agents/copy-writer.md"),
+      "---\nmode: subagent\npermission:\n  edit: allow\n  bash: ask\n  webfetch: deny\n---\n\nUse the `copy` skill for the complete procedure.\n",
+    );
+    await assert.rejects(
+      loadAdapterPayloadContract("opencode", copyAdapter, pluginRoot, "installed", "copy"),
+      /invalid permission boundary/,
     );
 
     for (const host of hosts) {

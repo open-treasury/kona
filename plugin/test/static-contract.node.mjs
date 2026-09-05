@@ -14,6 +14,7 @@ async function copyContractFixture() {
   const fixture = await mkdtemp(join(tmpdir(), "kona-static-contract-"));
   await Promise.all([
     cp(join(root, "plugin"), join(fixture, "plugin"), { recursive: true }),
+    cp(join(root, ".opencode"), join(fixture, ".opencode"), { recursive: true }),
     mkdir(join(fixture, ".claude-plugin"), { recursive: true }),
     cp(join(root, "install.sh"), join(fixture, "install.sh")),
     cp(join(root, "package.json"), join(fixture, "package.json")),
@@ -25,10 +26,10 @@ async function copyContractFixture() {
   return fixture;
 }
 
-test("static validator enforces canonical, adapter, manifest, ownership, privacy, and workflow contracts", async () => {
+test("recursive runtime and contributor mirrors have no guidelines dependency", async () => {
   const result = await validateStaticContracts(root);
-  assert.equal(result.capabilityVersion, "0.2.0");
-  assert.deepEqual(result.capabilities, ["prd", "spec"]);
+  assert.equal(result.capabilityVersion, "0.3.0");
+  assert.deepEqual(result.capabilities, ["copy", "prd", "spec"]);
   assert.deepEqual(result.hosts, ["opencode", "codex", "claude", "pi"]);
 });
 
@@ -71,6 +72,18 @@ for (const control of [
 
 for (const control of [
   {
+    name: "missing capability discriminator",
+    path: "plugin/capabilities/copy.json",
+    mutate: (value) => value.replace('  "type": "capability",\n', ""),
+    error: /capability identity is invalid/,
+  },
+  {
+    name: "copy canonical hash drift",
+    path: "plugin/skills/copy/references/components.md",
+    mutate: (value) => `${value}\nchanged\n`,
+    error: /canonical hash drift/,
+  },
+  {
     name: "canonical hash drift",
     path: "plugin/skills/prd/SKILL.md",
     mutate: (value) => `${value}\nchanged\n`,
@@ -92,7 +105,7 @@ for (const control of [
   {
     name: "invalid Pi manifest",
     path: "package.json",
-    mutate: (value) => value.replace('"./plugin/skills/spec"', '"./copied-spec"'),
+    mutate: (value) => value.replace('"./plugin/skills/copy"', '"./copied-copy"'),
     error: /root Pi package metadata/,
   },
   {
@@ -127,6 +140,12 @@ for (const control of [
         "Edit only the agreed SPEC",
         "Do not read `guidelines/docs/spec.md`. Edit only the agreed SPEC",
       ),
+    error: /forbidden dependency: guidelines\//,
+  },
+  {
+    name: "forbidden guidelines contributor-mirror reference",
+    path: ".opencode/skills/copy/SKILL.md",
+    mutate: (value) => `${value}\nRead guidelines/copy.md.\n`,
     error: /forbidden dependency: guidelines\//,
   },
   {

@@ -19,13 +19,16 @@ const CLAUDE_MARKETPLACE = "kona";
 const CLAUDE_PLUGIN = "kona";
 const CLAUDE_SOURCE = "https://github.com/open-treasury/kona";
 const PI_SOURCE = "git:github.com/open-treasury/kona";
-const SCHEMA = 2;
+const SCHEMA = 3;
 const LEGACY_SCHEMA = 1;
+const RELEASED_SCHEMA = 2;
 const LEGACY_VERSION = "0.1.1";
+const RELEASED_VERSION = "0.2.0";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
 const SCHEMA_CAPABILITIES = new Map([
-  [LEGACY_SCHEMA, CAPABILITIES.slice(0, 1)],
+  [LEGACY_SCHEMA, ["prd"]],
+  [RELEASED_SCHEMA, ["prd", "spec"]],
   [SCHEMA, CAPABILITIES],
 ]);
 const MANIFEST = "manifest.json";
@@ -304,18 +307,25 @@ async function sourceResources(options, registry = CAPABILITY_REGISTRY) {
         resource.target.endsWith(`${capability.name}-writer.md`),
       );
       const content = adapter?.content.toString("utf8") || "";
+      const permissionContract =
+        capability.name === "copy"
+          ? /permission:\n  edit: ask\n  bash: ask\n  webfetch: deny\n/
+          : /permission:\n  edit:\n    "\*": deny\n    "\*\.md": allow\n  bash: deny\n/;
+      const boundaryContract =
+        capability.name === "copy"
+          ? /Use the `copy` skill/
+          : new RegExp(`Edit only the agreed ${capability.name.toUpperCase()}`);
       if (
-        !/^---\n[\s\S]*?mode: subagent\n[\s\S]*?permission:\n  edit:\n    "\*": deny\n    "\*\.md": allow\n  bash: deny\n---\n/m.test(
-          content,
-        ) ||
+        !/^---\n[\s\S]*?mode: subagent\n[\s\S]*?---\n/m.test(content) ||
+        !permissionContract.test(content) ||
         !new RegExp(`Use the \`${capability.name}\` skill for the complete procedure\\.`).test(
           content,
         ) ||
-        !new RegExp(`Edit only the agreed ${capability.name.toUpperCase()}`).test(content)
+        !boundaryContract.test(content)
       ) {
         throw new LifecycleError(
           "INVALID_SOURCE",
-          `OpenCode adapter must be a thin ${capability.name.toUpperCase()} delegate with documentation-only edits and bash denied`,
+          `OpenCode ${capability.name} adapter violates its delegated permission or write boundary`,
           4,
         );
       }
@@ -385,7 +395,7 @@ async function verifyOpenCodeDiscovery(options, resources, enabled = true) {
     return {
       static: true,
       native: "verified",
-      invocation: CAPABILITY_REGISTRY[0].hosts.opencode.invocation,
+      invocation: capabilitiesForResources(resources)[0].hosts.opencode.invocation,
       invocations: Object.fromEntries(
         capabilitiesForResources(resources).map(({ name, hosts }) => [
           name,
@@ -476,7 +486,7 @@ async function codexSkillsList(options) {
         method: "initialize",
         id: 1,
         params: {
-          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.2.0" },
+          clientInfo: { name: "kona", title: "Kona lifecycle verifier", version: "0.3.0" },
         },
       })}\n`,
     );
@@ -515,7 +525,7 @@ async function verifyCodexDiscovery(options, resources, enabled) {
     return {
       static: true,
       native: "verified",
-      invocation: CAPABILITY_REGISTRY[0].hosts.codex.invocation,
+      invocation: capabilitiesForResources(resources)[0].hosts.codex.invocation,
       invocations: Object.fromEntries(
         capabilitiesForResources(resources).map(({ name, hosts }) => [
           name,
@@ -543,6 +553,8 @@ function validateManifest(manifest, options, resources) {
     (manifest.capability !== "prd" || manifest.version !== LEGACY_VERSION)
   )
     throw new LifecycleError("INVALID_STATE", "legacy ownership manifest is malformed", 4);
+  if (manifest.schema === RELEASED_SCHEMA && manifest.version !== RELEASED_VERSION)
+    throw new LifecycleError("INVALID_STATE", "released ownership manifest is malformed", 4);
   if (
     manifest.schema !== LEGACY_SCHEMA &&
     (manifest.bundle !== BUNDLE ||
@@ -936,7 +948,7 @@ function nativeClaudeManifest(options, version, state = "active") {
       plugin: CLAUDE_PLUGIN,
       marketplace: CLAUDE_MARKETPLACE,
       source: options.claudeSource,
-      invocation: "/kona:prd",
+      invocation: CAPABILITY_REGISTRY[0].hosts.claude.invocation,
     },
   };
 }
@@ -946,15 +958,23 @@ function nativeCapabilities(manifest) {
 }
 
 function nativeDiscovery(host, capabilities) {
+  const invocations = Object.fromEntries(
+    CAPABILITY_REGISTRY.filter(({ name }) => capabilities.includes(name)).map(({ name, hosts }) => [
+      name,
+      hosts[host].invocation,
+    ]),
+  );
   return {
     static: true,
     native: "verified",
-    invocation: CAPABILITY_REGISTRY[0].hosts[host].invocation,
-    invocations: Object.fromEntries(
-      CAPABILITY_REGISTRY.filter(({ name }) => capabilities.includes(name)).map(
-        ({ name, hosts }) => [name, hosts[host].invocation],
-      ),
-    ),
+    invocation: CAPABILITY_REGISTRY.find(({ name }) => capabilities.includes(name)).hosts[host]
+      .invocation,
+    invocations,
+    capabilities: capabilities.map((name) => ({
+      id: name,
+      invocation: invocations[name],
+      integrity: { canonical: "verified", native: "verified" },
+    })),
   };
 }
 
@@ -968,6 +988,7 @@ function validateClaudeManifest(manifest, options) {
       : manifest.bundle !== BUNDLE ||
         JSON.stringify(manifest.capabilities) !==
           JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema))) ||
+    (manifest.schema === RELEASED_SCHEMA && manifest.version !== RELEASED_VERSION) ||
     manifest.host !== "claude" ||
     manifest.scope !== options.scope ||
     !["active", "disabled"].includes(manifest.state) ||
@@ -977,7 +998,9 @@ function validateClaudeManifest(manifest, options) {
     (manifest.nativeIdentity?.source !== CLAUDE_SOURCE &&
       !isAbsolute(manifest.nativeIdentity?.source || "")) ||
     (options.source && manifest.nativeIdentity?.source !== options.claudeSource) ||
-    manifest.nativeIdentity?.invocation !== "/kona:prd" ||
+    manifest.nativeIdentity?.invocation !==
+      CAPABILITY_REGISTRY.find(({ name }) => nativeCapabilities(manifest).includes(name))?.hosts
+        .claude.invocation ||
     ((options.scope === "project" || options.scope === "local") &&
       (typeof manifest.projectRoot !== "string" ||
         resolve(manifest.projectRoot) !== options.projectRoot))
@@ -1238,12 +1261,22 @@ async function verifyClaudeCommands(options, installed, manifest) {
 
   for (const name of capabilities) {
     const matches = names.filter((candidate) => candidate === name);
+    const descriptor = CAPABILITY_REGISTRY.find((candidate) => candidate.name === name);
     const expectedPath = join(installPath, "skills", name, "SKILL.md");
-    const info = await lstat(expectedPath).catch(() => null);
-    if (matches.length !== 1 || !info?.isFile() || info.isSymbolicLink())
+    const validPayload = await Promise.all(
+      descriptor.canonical.map(async (path) => {
+        const installedPath = join(installPath, path);
+        const info = await lstat(installedPath).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink()) return false;
+        const capability = await readJson(join(options.sourceRoot, descriptor.manifest));
+        const expected = Object.values(capability.canonical).find((entry) => entry.path === path);
+        return expected && sha256(await readFile(installedPath)) === expected.sha256;
+      }),
+    );
+    if (matches.length !== 1 || validPayload.some((valid) => !valid))
       throw new LifecycleError(
         "DISCOVERY_FAILED",
-        `Claude did not discover exactly one /kona:${name} command from ${expectedPath}`,
+        `Claude did not discover exactly one integrity-verified /kona:${name} command from ${expectedPath}`,
         4,
       );
   }
@@ -1621,7 +1654,7 @@ function nativePiManifest(options, version, source, state = "active") {
       kind: parsed.kind,
       pinned: parsed.pinned,
       pin: parsed.pin,
-      invocation: "/skill:prd",
+      invocation: CAPABILITY_REGISTRY[0].hosts.pi.invocation,
     },
   };
 }
@@ -1642,6 +1675,7 @@ function validatePiManifest(manifest, options) {
       : manifest.bundle !== BUNDLE ||
         JSON.stringify(manifest.capabilities) !==
           JSON.stringify(SCHEMA_CAPABILITIES.get(manifest.schema))) ||
+    (manifest.schema === RELEASED_SCHEMA && manifest.version !== RELEASED_VERSION) ||
     manifest.host !== "pi" ||
     manifest.scope !== options.scope ||
     !["active", "disabled"].includes(manifest.state) ||
@@ -1650,7 +1684,9 @@ function validatePiManifest(manifest, options) {
     manifest.nativeIdentity.kind !== parsed.kind ||
     manifest.nativeIdentity.pinned !== parsed.pinned ||
     manifest.nativeIdentity.pin !== parsed.pin ||
-    manifest.nativeIdentity.invocation !== "/skill:prd" ||
+    manifest.nativeIdentity.invocation !==
+      CAPABILITY_REGISTRY.find(({ name }) => nativeCapabilities(manifest).includes(name))?.hosts.pi
+        .invocation ||
     (options.scope === "project" &&
       (typeof manifest.projectRoot !== "string" ||
         resolve(manifest.projectRoot) !== options.projectRoot))
@@ -1957,17 +1993,21 @@ async function compensatePi(paths, options, journal) {
     );
   for (const step of journal.completed.toReversed()) {
     let args;
+    let interactive = false;
     if (step === "install") args = piScopedArgs(options, ["remove", journal.source]);
     else if (step === "remove") args = piScopedArgs(options, ["install", journal.source]);
     else if (step === "pinned-reinstall")
       args = piScopedArgs(options, ["install", journal.previousSource]);
-    else
+    else if (step === "disable" || step === "enable") {
+      args = piScopedArgs(options, ["config"]);
+      interactive = true;
+    } else
       throw new LifecycleError(
         "RECOVERY_PARTIAL",
         `Pi ${step} cannot be rolled back automatically; evidence retained at ${paths.journal}`,
         4,
       );
-    await runPi(options, args);
+    await runPi(options, args, interactive);
   }
   if (journal.manifestPreimage) await durableWrite(paths.manifest, journal.manifestPreimage, 0o600);
   else await rm(paths.manifest, { force: true });
@@ -2198,7 +2238,7 @@ async function piLifecycle(options) {
         if (await piDiscoveredAtScope(options, nativeCapabilities(manifest)))
           throw new LifecycleError(
             "DISCOVERY_FAILED",
-            "Pi still discovers /skill:prd at the removed scope",
+            "Pi still discovers a managed skill at the removed scope",
             4,
           );
         validatePiManifest(removedState, options);
@@ -2464,6 +2504,11 @@ function operationDetails(version, options, discovery) {
     invocations: discovery.invocations,
     verification: discovery,
     discovery,
+    capabilities: Object.entries(discovery.invocations).map(([id, invocation]) => ({
+      id,
+      invocation,
+      integrity: { canonical: "verified", native: "verified" },
+    })),
   };
 }
 

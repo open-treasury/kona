@@ -1,6 +1,6 @@
 {
   "name": "kona",
-  "description": "Kona workflow and portable PRD and SPEC authoring plugins.",
+  "description": "Kona workflow and portable copy, PRD, and SPEC authoring plugins.",
   "owner": {
     "name": "Ilya Vorobiev",
     "url": "https://github.com/open-treasury/kona"
@@ -9,8 +9,8 @@
     {
       "name": "kona",
       "source": "./plugin",
-      "description": "A living workflow graph and portable PRD and SPEC authoring capabilities.",
-      "version": "0.2.0",
+      "description": "A living workflow graph and portable copy, PRD, and SPEC authoring capabilities.",
+      "version": "0.3.0",
       "author": {
         "name": "Ilya Vorobiev"
       },

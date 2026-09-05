@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "source-edit-ambiguous-target",
+  "mode": "source-edit",
+  "acceptanceCriteria": ["AC9", "AC13"],
+  "input": {
+    "prompt": "Change the Retry label in src/actions.ts.",
+    "repository": {
+      "src/actions.ts": "export const primary = \"Retry\";\nexport const secondary = \"Retry\";\n"
+    },
+    "target": { "path": "src/actions.ts", "text": "Retry" }
+  },
+  "expectations": {
+    "delivery": "blocked",
+    "destination": null,
+    "noWrite": true,
+    "requiredDecision": "unique-target-or-bounded-span",
+    "manualRubric": [
+      "The response identifies the ambiguous target and requests one bounded clarification."
+    ]
+  }
+}

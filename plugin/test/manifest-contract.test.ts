@@ -20,8 +20,8 @@ const packageManifest = readJson(join(pluginRoot, "package.json"));
 const claudePlugin = readJson(join(pluginRoot, ".claude-plugin", "plugin.json"));
 
 describe("capability registry and manifests", () => {
-  test("orders prd then spec and resolves each distribution surface", () => {
-    expect(CAPABILITY_REGISTRY.map(({ name }) => name)).toEqual(["prd", "spec"]);
+  test("orders copy, prd, then spec and resolves each distribution surface", () => {
+    expect(CAPABILITY_REGISTRY.map(({ name }) => name)).toEqual(["copy", "prd", "spec"]);
     expect(
       CAPABILITY_REGISTRY.map(({ manifest, copiedHostDirectory, adapter }) => ({
         manifest,
@@ -29,6 +29,11 @@ describe("capability registry and manifests", () => {
         adapter,
       })),
     ).toEqual([
+      {
+        manifest: "capabilities/copy.json",
+        copiedHostDirectory: "skills/copy",
+        adapter: "hosts/opencode/agents/copy-writer.md",
+      },
       {
         manifest: "capabilities/prd.json",
         copiedHostDirectory: "skills/prd",
@@ -45,8 +50,9 @@ describe("capability registry and manifests", () => {
   test("records aligned identity, modes, canonical hashes, and exact file modes", () => {
     for (const [index, capability] of capabilities.entries()) {
       expect(capability.schemaVersion).toBe(1);
+      expect(capability.type).toBe("capability");
       expect(capability.name).toBe(CAPABILITY_REGISTRY[index].name);
-      expect(capability.version).toBe("0.2.0");
+      expect(capability.version).toBe("0.3.0");
       expect(capability.version).toBe(claudePlugin.version);
       expect(capability.version).toBe(packageManifest.version);
       expect(capability.version).toBe(marketplace.plugins[0].version);
@@ -73,15 +79,22 @@ describe("capability registry and manifests", () => {
       expect(capability.hosts).toEqual(CAPABILITY_REGISTRY[index].hosts);
     }
     expect(capabilities.map(({ hosts }) => hosts.opencode.invocation)).toEqual([
+      "@copy-writer",
       "@prd-writer",
       "@spec-writer",
     ]);
-    expect(capabilities.map(({ hosts }) => hosts.codex.invocation)).toEqual(["$prd", "$spec"]);
+    expect(capabilities.map(({ hosts }) => hosts.codex.invocation)).toEqual([
+      "$copy",
+      "$prd",
+      "$spec",
+    ]);
     expect(capabilities.map(({ hosts }) => hosts.claude.invocation)).toEqual([
+      "/kona:copy",
       "/kona:prd",
       "/kona:spec",
     ]);
     expect(capabilities.map(({ hosts }) => hosts.pi.invocation)).toEqual([
+      "/skill:copy",
       "/skill:prd",
       "/skill:spec",
     ]);
@@ -113,18 +126,18 @@ describe("distribution manifests", () => {
     expect(packageManifest.keywords).toBeUndefined();
   });
 
-  test("discovers both canonical Pi skills in registry order", () => {
+  test("discovers all canonical Pi skills in registry order", () => {
     expect(rootManifest.private).toBe(true);
     expect(rootManifest.keywords).toContain("pi-package");
     expect(rootManifest.pi).toEqual({
-      skills: ["./plugin/skills/prd", "./plugin/skills/spec"],
+      skills: ["./plugin/skills/copy", "./plugin/skills/prd", "./plugin/skills/spec"],
     });
   });
 
   test("preserves existing Claude workflow and hook discovery", () => {
     expect(claudePlugin).toMatchObject({
       name: "kona",
-      version: "0.2.0",
+      version: "0.3.0",
       skills: "./skills/",
     });
     expect(claudePlugin.hooks).toBe("./hooks/hooks.json");

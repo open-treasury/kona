@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "source-edit-validation-failed",
+  "mode": "source-edit",
+  "acceptanceCriteria": ["AC14"],
+  "input": {
+    "prompt": "Revise only the title in src/title.ts and run the targeted local test.",
+    "repository": {
+      "src/title.ts": "export const title = \"Old title\";\n"
+    },
+    "allowedSpans": [{ "path": "src/title.ts", "before": "Old title" }],
+    "protectedBytes": []
+  },
+  "expectations": {
+    "delivery": "files",
+    "destination": null,
+    "noWrite": false,
+    "changedFiles": ["src/title.ts"],
+    "validation": {
+      "required": true,
+      "allowedStatuses": ["failed", "unavailable"]
+    },
+    "manualRubric": [
+      "The report identifies the changed file and incomplete validation state without claiming success."
+    ]
+  }
+}

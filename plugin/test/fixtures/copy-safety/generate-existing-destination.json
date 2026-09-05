@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "generate-existing-destination",
+  "mode": "generate",
+  "acceptanceCriteria": ["AC11"],
+  "input": {
+    "prompt": "Write the launch announcement to copy/launch.md.",
+    "repository": {
+      "copy/launch.md": "Approved launch copy.\n"
+    }
+  },
+  "expectations": {
+    "delivery": "blocked",
+    "destination": "copy/launch.md",
+    "noWrite": true,
+    "requiredDecision": "overwrite-or-revision-confirmation",
+    "manualRubric": [
+      "The response requests confirmation instead of replacing the existing destination."
+    ]
+  }
+}

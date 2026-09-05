@@ -14,10 +14,10 @@ const repositoryRoot = resolve(pluginRoot, "..");
 const pins = JSON.parse(await readFile(join(import.meta.dirname, "host-versions.json"), "utf8"));
 const releaseValidation = process.env.KONA_RELEASE_VALIDATION === "1";
 const invocationsByHost = {
-  opencode: { prd: "@prd-writer", spec: "@spec-writer" },
-  codex: { prd: "$prd", spec: "$spec" },
-  claude: { prd: "/kona:prd", spec: "/kona:spec" },
-  pi: { prd: "/skill:prd", spec: "/skill:spec" },
+  opencode: { copy: "@copy-writer", prd: "@prd-writer", spec: "@spec-writer" },
+  codex: { copy: "$copy", prd: "$prd", spec: "$spec" },
+  claude: { copy: "/kona:copy", prd: "/kona:prd", spec: "/kona:spec" },
+  pi: { copy: "/skill:copy", prd: "/skill:prd", spec: "/skill:spec" },
 };
 
 async function isolatedHost(host) {
@@ -44,7 +44,7 @@ async function isolatedHost(host) {
     OPENAI_API_KEY: "",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    KONA_PI_CONFIG_KEYS: " \u001b[B \u001b",
+    KONA_PI_CONFIG_KEYS: " \u001b[B \u001b[B \u001b",
     NO_COLOR: "1",
   };
   if (host.startsWith("claude")) {
@@ -126,6 +126,7 @@ for (const [host, pin] of Object.entries(pins.hosts)) {
         const fixture = await isolatedHost(`${host}-${scope}`);
         try {
           const canaries = new Map([
+            [join(fixture.project, "copy/existing.md"), Buffer.from("authored copy\n")],
             [join(fixture.project, "specs/existing/prd.md"), Buffer.from("authored PRD\n")],
             [join(fixture.project, "specs/existing/spec.md"), Buffer.from("authored SPEC\n")],
             [join(fixture.project, ".unrelated-host-config"), Buffer.from("unrelated config\n")],

@@ -1,0 +1,42 @@
+{
+  "type": "capability",
+  "schemaVersion": 1,
+  "name": "copy",
+  "version": "0.3.0",
+  "modes": ["generate", "revise", "source-edit"],
+  "canonical": {
+    "skill": {
+      "path": "skills/copy/SKILL.md",
+      "sha256": "390d02d1886427f45328b20e04c865b0865c94128a6beb1c3130fbf861f606aa",
+      "mode": "0644"
+    },
+    "components": {
+      "path": "skills/copy/references/components.md",
+      "sha256": "72c479cb2632194863e7d6f88cb693c9929e83896ad4e91df75d2708c1fd23e0",
+      "mode": "0644"
+    },
+    "styleAndSafety": {
+      "path": "skills/copy/references/style-and-safety.md",
+      "sha256": "c4d268266d2bc7853e4ac51e3da0bd8495fbe8010642239a73061f0342a115f0",
+      "mode": "0644"
+    }
+  },
+  "hosts": {
+    "opencode": {
+      "scopes": ["project", "user"],
+      "invocation": "@copy-writer"
+    },
+    "codex": {
+      "scopes": ["project", "user"],
+      "invocation": "$copy"
+    },
+    "claude": {
+      "scopes": ["project", "local", "user"],
+      "invocation": "/kona:copy"
+    },
+    "pi": {
+      "scopes": ["project", "user"],
+      "invocation": "/skill:copy"
+    }
+  }
+}

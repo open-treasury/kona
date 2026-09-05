@@ -1,4 +1,4 @@
-# PRD and SPEC Skill Dogfood Evidence
+# Copy, PRD, and SPEC Skill Dogfood Evidence
 
 ## 2026-09-04 - OpenCode 1.18.29
 
@@ -33,6 +33,27 @@ This is real-model dogfood evidence, not part of the deterministic parity suite.
 ## Remaining
 
 Pi create/refine dogfood is deferred with user approval because Pi has no configured model-provider credentials in this environment. It remains a pre-release check owned by the release maintainer. Deterministic Pi package, discovery, and lifecycle tests pass at the pinned version without model calls.
+
+### Copy Run Matrix (12 Required Runs)
+
+No copy real-model run has been performed or evidenced. Every row below is pending and blocks the
+copy release. The deterministic copy contracts and safety fixtures are not substitutes for these
+semantic runs.
+
+| Host        | Mode        | Status  | Required evidence when run                                                                              |
+| ----------- | ----------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| OpenCode    | Generate    | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| OpenCode    | Revise      | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| OpenCode    | Source-edit | Pending | Host/model versions, prompt, payload hash, diff, approvals, validation, and human rubric assessment.    |
+| Codex       | Generate    | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| Codex       | Revise      | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| Codex       | Source-edit | Pending | Host/model versions, prompt, payload hash, diff, approvals, validation, and human rubric assessment.    |
+| Claude Code | Generate    | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| Claude Code | Revise      | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| Claude Code | Source-edit | Pending | Host/model versions, prompt, payload hash, diff, approvals, validation, and human rubric assessment.    |
+| Pi          | Generate    | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| Pi          | Revise      | Pending | Host/model versions, prompt, payload hash, output, operations, validation, and human rubric assessment. |
+| Pi          | Source-edit | Pending | Host/model versions, prompt, payload hash, diff, approvals, validation, and human rubric assessment.    |
 
 ## 2026-09-05 - SPEC Writer
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { CAPABILITY_REGISTRY, validateCapabilityRegistry } from "../lib/capability-registry.mjs";
@@ -12,6 +12,17 @@ const fail = (message) => {
 const requireMatch = (source, pattern, message) => {
   if (!pattern.test(source)) fail(message);
 };
+
+async function runtimeText(root) {
+  const entries = await readdir(root, { withFileTypes: true });
+  const contents = [];
+  for (const entry of entries.toSorted((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) contents.push(await runtimeText(path));
+    else if (entry.isFile()) contents.push(await readFile(path, "utf8"));
+  }
+  return contents.join("\n");
+}
 
 export async function validateStaticContracts(root) {
   const pluginRoot = join(root, "plugin");
@@ -29,9 +40,9 @@ export async function validateStaticContracts(root) {
     Promise.all(
       CAPABILITY_REGISTRY.map(async (descriptor) => ({
         skill: await readFile(join(pluginRoot, descriptor.canonical[0]), "utf8"),
-        template: descriptor.canonical[1]
-          ? await readFile(join(pluginRoot, descriptor.canonical[1]), "utf8")
-          : undefined,
+        supporting: await Promise.all(
+          descriptor.canonical.slice(1).map((path) => readFile(join(pluginRoot, path), "utf8")),
+        ),
         adapter: descriptor.adapter
           ? await readFile(join(pluginRoot, descriptor.adapter), "utf8")
           : undefined,
@@ -62,7 +73,11 @@ export async function validateStaticContracts(root) {
 
   for (const [index, descriptor] of CAPABILITY_REGISTRY.entries()) {
     const capability = capabilities[index];
-    if (capability.schemaVersion !== 1 || capability.name !== descriptor.name)
+    if (
+      capability.type !== "capability" ||
+      capability.schemaVersion !== 1 ||
+      capability.name !== descriptor.name
+    )
       fail(`capability identity is invalid: ${descriptor.name}`);
     if (!/^\d+\.\d+\.\d+$/.test(capability.version))
       fail(`capability version is not SemVer: ${descriptor.name}`);
@@ -139,15 +154,16 @@ export async function validateStaticContracts(root) {
         /description: .*create or refine/im,
         `authoring skill description is invalid: ${descriptor.name}`,
       );
-    if (descriptor.kind === "workflow" && (descriptor.adapter || descriptor.canonical.length !== 1))
-      fail(`workflow capability shape is invalid: ${descriptor.name}`);
     if (adapter) {
       if (adapter.split("\n").length >= 15)
         fail(`OpenCode adapter is not thin: ${descriptor.name}`);
+      const permissionContracts =
+        descriptor.name === "copy"
+          ? [/edit: ask/, /bash: ask/, /webfetch: deny/]
+          : [/"\*": deny[\s\S]*"\*\.md": allow/, /bash: deny/];
       for (const contract of [
         /mode: subagent/,
-        /"\*": deny[\s\S]*"\*\.md": allow/,
-        /bash: deny/,
+        ...permissionContracts,
         new RegExp("Use the `" + descriptor.name + "` skill for the complete procedure\\."),
       ])
         requireMatch(
@@ -158,7 +174,10 @@ export async function validateStaticContracts(root) {
     }
   }
 
-  const [{ skill, template, adapter }] = resources;
+  const { skill, supporting, adapter } = resources.find(
+    (_, index) => CAPABILITY_REGISTRY[index].name === "prd",
+  );
+  const [template] = supporting;
   for (const contract of [
     /explicit path[\s\S]*repository convention[\s\S]*specs\/<feature-slug>\/prd\.md/i,
     /one grouped set of concise questions/i,
@@ -184,14 +203,22 @@ export async function validateStaticContracts(root) {
 
   const canonicalText = resources
     .flatMap(
-      ({ skill: capabilitySkill, template: capabilityTemplate, adapter: capabilityAdapter }) => [
-        capabilitySkill,
-        capabilityTemplate ?? "",
-        capabilityAdapter ?? "",
-      ],
+      ({ skill: capabilitySkill, supporting: capabilitySupporting, adapter: capabilityAdapter }) =>
+        [capabilitySkill].concat(capabilitySupporting, capabilityAdapter ?? ""),
     )
     .join("\n");
-  if (/guidelines[\\/]/i.test(canonicalText)) fail("runtime has forbidden dependency: guidelines/");
+  const recursiveRuntimeText = (
+    await Promise.all([
+      runtimeText(join(pluginRoot, "skills")),
+      runtimeText(join(pluginRoot, "hosts")),
+      runtimeText(join(pluginRoot, "lib")),
+      runtimeText(join(pluginRoot, "bin")),
+      runtimeText(join(root, ".opencode/skills")),
+      runtimeText(join(root, ".opencode/agents")),
+    ])
+  ).join("\n");
+  if (/guidelines[\\/]/i.test(recursiveRuntimeText))
+    fail("runtime has forbidden dependency: guidelines/");
   for (const forbidden of [
     "guidelines/docs/prd.md",
     "docs/agent-toolkit/",
@@ -225,7 +252,8 @@ export async function validateStaticContracts(root) {
     "launcher verbs drifted",
   );
 
-  if (baseline.schemaVersion !== 1) fail("workflow baseline schema is invalid");
+  if (baseline.type !== "workflow-baseline" || baseline.schemaVersion !== 1)
+    fail("workflow baseline schema is invalid");
   for (const [path, expected] of Object.entries(baseline.files ?? {})) {
     if (sha256(await readFile(join(pluginRoot, path))) !== expected)
       fail(`existing workflow behavior drifted: ${path}`);

@@ -84,10 +84,13 @@ outbox) · `resume` · `poll` · `view`.
 **Three invariants, enforced in the store rather than advised in a prompt:** terminal and
 effect protection · predicate-waits stay satisfiable · effects are bounded and addressed.
 
-## Portable PRD and SPEC writers
+## Portable copy, PRD, and SPEC writers
 
-Kona ships self-contained PRD and technical SPEC creation/refinement skills as one authoring bundle
-for OpenCode, Codex, Claude Code, and Pi. Install its lifecycle CLI on macOS or Linux after
+Kona ships three self-contained capabilities as one bundle for OpenCode, Codex, Claude Code, and
+Pi. PRD and technical SPEC skills create or refine documents. Copy generates standalone drafts,
+revises supplied wording, or edits copy in explicitly agreed source files and strings. Source edits
+preserve tokens, markup, localization keys, syntax, behavior, and unrelated content; OpenCode asks
+before edits or local validation commands. Install the lifecycle CLI on macOS or Linux after
 inspecting the published bootstrap:
 
 ```bash
@@ -106,14 +109,14 @@ This requires Node.js 20+, `curl`, `tar`, and `sha256sum` or `shasum`. The boots
 versioned GitHub Release archive, uses no `sudo`, and changes no startup file. Ensure
 `~/.local/bin` (or `KONA_BIN_DIR`) is on `PATH`.
 
-| Host        | Project install                                                                                                | User install                                        | PRD / SPEC invocation          |
-| ----------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------ |
-| OpenCode    | `kona install --host opencode --scope project`                                                                 | `kona install --host opencode --scope user`         | `@prd-writer` / `@spec-writer` |
-| Codex       | `kona install --host codex --scope project`                                                                    | `kona install --host codex --scope user`            | `$prd` / `$spec`               |
-| Claude Code | `kona install --host claude --scope project --approve` or `kona install --host claude --scope local --approve` | `kona install --host claude --scope user --approve` | `/kona:prd` / `/kona:spec`     |
-| Pi          | `kona install --host pi --scope project --approve`                                                             | `kona install --host pi --scope user --approve`     | `/skill:prd` / `/skill:spec`   |
+| Host        | Scopes               | Install example                                        | Copy / PRD / SPEC invocation                    |
+| ----------- | -------------------- | ------------------------------------------------------ | ----------------------------------------------- |
+| OpenCode    | project, user        | `kona install --host opencode --scope project`         | `@copy-writer` / `@prd-writer` / `@spec-writer` |
+| Codex       | project, user        | `kona install --host codex --scope project`            | `$copy` / `$prd` / `$spec`                      |
+| Claude Code | project, local, user | `kona install --host claude --scope project --approve` | `/kona:copy` / `/kona:prd` / `/kona:spec`       |
+| Pi          | project, user        | `kona install --host pi --scope project --approve`     | `/skill:copy` / `/skill:prd` / `/skill:spec`    |
 
-Each lifecycle operation manages both writers together; there is one executable, package,
+Each lifecycle operation manages all three capabilities together; there is one executable, package,
 marketplace entry, and active scope per host. Use `verify`, `update`, `disable`, `enable`, or
 `remove` in place of `install`, retaining the same `--host` and `--scope`; Claude and Pi mutations
 show their native command plan and require `--approve`. Disable or remove an active scope before
@@ -123,16 +126,18 @@ unverifiable backup blocks mutation and retains recovery evidence. Project Pi pa
 project trust. The lifecycle CLI also defaults Pi installs to `git:github.com/open-treasury/kona`;
 `--source` remains available for explicit local validation.
 
-Existing schema-v1 `0.1.1` PRD-only installs remain verifiable, disableable, enableable, and
-removable as legacy state. Only an explicit `kona update` adds SPEC and commits schema v2; install
-and verify report `UPDATE_REQUIRED` rather than migrating implicitly.
+Existing schema-v1 `0.1.1` PRD-only and released schema-v2 `0.2.0` PRD+SPEC installs remain
+inspectable and removable as legacy state. Only an explicit `kona update` migrates either to the
+schema-v3 copy+PRD+SPEC bundle; `install` and `verify` report `UPDATE_REQUIRED` rather than migrating
+implicitly. Enable a disabled legacy install before updating it.
 
 The standalone curl/package `kona` exposes only these six lifecycle verbs. The Claude plugin's
 `kona` also forwards the existing workflow CLI verbs and requires Bun for those verbs. Authoring
-ships all normal guidance and templates, has no runtime dependency on `guidelines/`, and contains no
-network client, analytics, telemetry, or background network behavior. Only installation,
-user-approved research, and explicit native package-manager operations may access configured
-sources. Exact installed roots, native commands, trust, updates, recovery, and removal are in
+ships all normal guidance and templates and has no runtime dependency on `guidelines/`. Copy and
+PRD authoring are offline; SPEC research is user-approved when materially needed. The bundle has no
+analytics, telemetry, or background network behavior. Disable and remove affect all Kona
+capabilities, but authored copy, PRDs, SPECs, and project source are never lifecycle-owned. Exact
+installed roots, native commands, trust, updates, recovery, and removal are in
 [`plugin/README.md`](plugin/README.md).
 
 ## Try the workflow engine

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "source-edit-preservation",
+  "mode": "source-edit",
+  "acceptanceCriteria": ["AC9", "AC10", "AC14"],
+  "input": {
+    "prompt": "In src/payment.tsx, revise only the payment failure message. Preserve every token and source structure.",
+    "repository": {
+      "src/payment.tsx": "export const message = \"Payment for {{planName}} failed. Try again or contact ${supportEmail}.\";\nexport const notice = <a href=\"/billing\" aria-label=\"Review billing settings\">{t(\"billing.payment_failed\", { planName, amount })}</a>;\nexport const untouched = \"Do not change\";\n",
+      "src/other.ts": "export const other = \"Unrelated\";\n"
+    },
+    "allowedSpans": [
+      {
+        "path": "src/payment.tsx",
+        "before": "Payment for {{planName}} failed. Try again or contact ${supportEmail}."
+      }
+    ],
+    "protectedBytes": [
+      { "kind": "placeholder", "path": "src/payment.tsx", "value": "{{planName}}" },
+      { "kind": "interpolation", "path": "src/payment.tsx", "value": "${supportEmail}" },
+      { "kind": "markup", "path": "src/payment.tsx", "value": "<a" },
+      { "kind": "link-destination", "path": "src/payment.tsx", "value": "\"/billing\"" },
+      {
+        "kind": "accessibility-semantics",
+        "path": "src/payment.tsx",
+        "value": "aria-label=\"Review billing settings\""
+      },
+      { "kind": "localization-key", "path": "src/payment.tsx", "value": "billing.payment_failed" },
+      { "kind": "interpolation", "path": "src/payment.tsx", "value": "{ planName, amount }" }
+    ]
+  },
+  "expectations": {
+    "delivery": "files",
+    "destination": null,
+    "noWrite": false,
+    "changedFiles": ["src/payment.tsx"],
+    "validation": {
+      "required": true,
+      "allowedStatuses": ["passed"]
+    },
+    "manualRubric": [
+      "The revised error remains specific, kind, non-blaming, and actionable.",
+      "The copy change does not alter source behavior or meaning outside the agreed message."
+    ]
+  }
+}

@@ -3,21 +3,24 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
+import { CAPABILITY_REGISTRY } from "../lib/capability-registry.mjs";
+
 export const SEMVER = /^\d+\.\d+\.\d+$/;
+const capabilityReleasePaths = CAPABILITY_REGISTRY.flatMap(({ manifest, adapter, canonical }) => [
+  manifest,
+  ...(adapter ? [adapter] : []),
+  ...canonical,
+]);
+
 export const RELEASE_FILES = [
-  [".claude-plugin/plugin.json", 0o444],
-  ["capabilities/prd.json", 0o444],
-  ["capabilities/spec.json", 0o444],
-  ["hosts/opencode/agents/prd-writer.md", 0o444],
-  ["hosts/opencode/agents/spec-writer.md", 0o444],
-  ["lib/capability-registry.mjs", 0o444],
-  ["lib/plugin-lifecycle.mjs", 0o444],
-  ["package.json", 0o444],
-  ["skills/prd/SKILL.md", 0o444],
-  ["skills/prd/templates/prd.md", 0o444],
-  ["skills/spec/SKILL.md", 0o444],
-  ["skills/spec/templates/spec.md", 0o444],
-];
+  ".claude-plugin/plugin.json",
+  ...capabilityReleasePaths,
+  "lib/capability-registry.mjs",
+  "lib/plugin-lifecycle.mjs",
+  "package.json",
+]
+  .toSorted()
+  .map((path) => [path, 0o444]);
 
 export const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -72,16 +75,23 @@ function createTar(files) {
 
 export async function releaseIdentity(root) {
   const pluginRoot = join(root, "plugin");
-  const [packageJson, prd, spec, claude, marketplace] = await Promise.all([
+  const [packageJson, capabilities, claude, marketplace] = await Promise.all([
     readFile(join(pluginRoot, "package.json"), "utf8").then(JSON.parse),
-    readFile(join(pluginRoot, "capabilities/prd.json"), "utf8").then(JSON.parse),
-    readFile(join(pluginRoot, "capabilities/spec.json"), "utf8").then(JSON.parse),
+    Promise.all(
+      CAPABILITY_REGISTRY.map(({ manifest }) =>
+        readFile(join(pluginRoot, manifest), "utf8").then(JSON.parse),
+      ),
+    ),
     readFile(join(pluginRoot, ".claude-plugin/plugin.json"), "utf8").then(JSON.parse),
     readFile(join(root, ".claude-plugin/marketplace.json"), "utf8").then(JSON.parse),
   ]);
   const version = packageJson.version;
   if (!SEMVER.test(version)) throw new Error(`plugin version must be SemVer X.Y.Z: ${version}`);
-  const versions = [prd.version, spec.version, claude.version, marketplace.plugins?.[0]?.version];
+  const versions = [
+    ...capabilities.map(({ version: capabilityVersion }) => capabilityVersion),
+    claude.version,
+    marketplace.plugins?.[0]?.version,
+  ];
   if (versions.some((candidate) => candidate !== version))
     throw new Error(`release versions are not aligned with plugin/package.json ${version}`);
   return { version, tag: `v${version}`, packageJson };

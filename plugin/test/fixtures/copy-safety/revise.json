@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "revise-classification-sensitive-error",
+  "mode": "revise",
+  "acceptanceCriteria": ["AC5", "AC6", "AC7", "AC12", "AC13"],
+  "input": {
+    "prompt": "Review this workspace access error. Preserve the terms workspace and access request. Keep it under 140 characters, use one sentence, and do not use an exclamation mark.",
+    "suppliedCopy": "Oops! You entered the wrong details. Click here to retry your access request for this workspace.",
+    "repository": {},
+    "constraints": {
+      "component": "error",
+      "maxCharacters": 140,
+      "sentences": 1,
+      "forbiddenPunctuation": ["!"],
+      "requiredTerms": ["workspace", "access request"]
+    }
+  },
+  "expectations": {
+    "delivery": "conversation",
+    "destination": null,
+    "noWrite": true,
+    "reviewClasses": ["required", "optional"],
+    "manualRubric": [
+      "Required findings identify objective blame, generic link wording, punctuation, and recovery-action issues.",
+      "Optional findings contain only taste-based improvements and are not presented as defects.",
+      "The revision preserves workspace, access request, and the intended meaning.",
+      "The error is specific, kind, non-blaming, actionable, and free of humor.",
+      "Any apology is included only if product responsibility is established.",
+      "The revision satisfies the component, length, sentence, punctuation, and terminology constraints."
+    ]
+  }
+}

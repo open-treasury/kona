@@ -1,31 +1,289 @@
 {
-  "AC1": ["prd-contract.test.ts", "complete create and targeted-refinement contract"],
-  "AC2": ["prd-contract.test.ts", "explicit path"],
-  "AC3": ["prd-contract.test.ts", "explicit path"],
-  "AC4": ["prd-contract.test.ts", "one grouped set of concise questions"],
-  "AC5": ["prd-contract.test.ts", "facts that can be verified locally"],
-  "AC6": ["prd-contract.test.ts", "do not overwrite"],
-  "AC7": ["prd-contract.test.ts", "preserve unaffected confirmed decisions"],
-  "AC8": {
-    "automated": [
-      "adapter-payload-contract.node.mjs",
-      "adapter payload/contract parity resolves exact canonical bytes and host contracts"
-    ],
-    "manual": ["DOGFOOD.md", "This is real-model dogfood evidence"],
-    "remaining": "Collect real-model create/refine semantic parity evidence for Codex, Claude Code, and Pi before release."
+  "prd": {
+    "AC1": ["prd-contract.test.ts", "complete create and targeted-refinement contract"],
+    "AC2": ["prd-contract.test.ts", "explicit path"],
+    "AC3": ["prd-contract.test.ts", "explicit path"],
+    "AC4": ["prd-contract.test.ts", "one grouped set of concise questions"],
+    "AC5": ["prd-contract.test.ts", "facts that can be verified locally"],
+    "AC6": ["prd-contract.test.ts", "do not overwrite"],
+    "AC7": ["prd-contract.test.ts", "preserve unaffected confirmed decisions"],
+    "AC8": {
+      "automated": [
+        "adapter-payload-contract.node.mjs",
+        "adapter payload/contract parity resolves exact canonical bytes and host contracts"
+      ],
+      "manual": ["DOGFOOD.md", "This is real-model dogfood evidence"],
+      "remaining": "Collect real-model create/refine semantic parity evidence for Codex, Claude Code, and Pi before release."
+    },
+    "AC9": ["static-contract.node.mjs", "canonical hash drift"],
+    "AC10": ["prd-contract.test.ts", "invented claims"],
+    "AC11": ["prd-contract.test.ts", "bundled template"],
+    "AC12": ["prd-contract.test.ts", "optional ceremony"],
+    "AC13": ["adapter-payload-contract.node.mjs", "agreed-prd-only"],
+    "AC14": ["plugin-lifecycle.node.mjs", "Pi native package lifecycle"],
+    "AC15": ["host-validation.node.mjs", "real-host"],
+    "AC16": ["plugin-lifecycle.node.mjs", "replacement is digest-bound"],
+    "AC17": ["plugin-lifecycle.node.mjs", "crash journal recovery"],
+    "AC18": ["plugin-lifecycle.node.mjs", "scope matrix"],
+    "AC19": ["plugin-lifecycle.node.mjs", "idempotent"],
+    "AC20": ["plugin-lifecycle.node.mjs", "collaborator bootstrap"],
+    "AC21": ["plugin-lifecycle.node.mjs", "live host lock"],
+    "AC22": ["release-installer.node.mjs", "checksum failure"]
   },
-  "AC9": ["static-contract.node.mjs", "canonical hash drift"],
-  "AC10": ["prd-contract.test.ts", "invented claims"],
-  "AC11": ["prd-contract.test.ts", "bundled template"],
-  "AC12": ["prd-contract.test.ts", "optional ceremony"],
-  "AC13": ["adapter-payload-contract.node.mjs", "agreed-prd-only"],
-  "AC14": ["plugin-lifecycle.node.mjs", "Pi native package lifecycle"],
-  "AC15": ["host-validation.node.mjs", "real-host"],
-  "AC16": ["plugin-lifecycle.node.mjs", "replacement is digest-bound"],
-  "AC17": ["plugin-lifecycle.node.mjs", "crash journal recovery"],
-  "AC18": ["plugin-lifecycle.node.mjs", "scope matrix"],
-  "AC19": ["plugin-lifecycle.node.mjs", "idempotent"],
-  "AC20": ["plugin-lifecycle.node.mjs", "collaborator bootstrap"],
-  "AC21": ["plugin-lifecycle.node.mjs", "live host lock"],
-  "AC22": ["release-installer.node.mjs", "checksum failure"]
+  "copy": {
+    "AC1": {
+      "automated": [
+        [
+          "copy-safety.test.ts",
+          "clean repository run neither writes nor reaches for external writing guidance"
+        ],
+        [
+          "static-contract.node.mjs",
+          "recursive runtime and contributor mirrors have no guidelines dependency"
+        ],
+        [
+          "release-installer.node.mjs",
+          "staged release archive recursively contains no guidelines dependency"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC2": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "enforces context discovery, precedence, and grouped material questions"
+        ],
+        [
+          "copy-safety.test.ts",
+          "represents precedence, conversation fallback, revision classes, tone, and constraints"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC3": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "provides contextual tone, accessibility, localization, and component rules"
+        ],
+        [
+          "copy-safety.test.ts",
+          "represents precedence, conversation fallback, revision classes, tone, and constraints"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC4": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "defines safe generate destination and overwrite behavior without a fallback path"
+        ],
+        [
+          "copy-safety.test.ts",
+          "clean repository run neither writes nor reaches for external writing guidance"
+        ]
+      ]
+    },
+    "AC5": {
+      "automated": [
+        ["copy-contract.test.ts", "defines revision classification and preservation"],
+        [
+          "copy-safety.test.ts",
+          "represents precedence, conversation fallback, revision classes, tone, and constraints"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC6": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "provides contextual tone, accessibility, localization, and component rules"
+        ],
+        [
+          "copy-safety.test.ts",
+          "represents precedence, conversation fallback, revision classes, tone, and constraints"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC7": {
+      "automated": [
+        [
+          "copy-safety.test.ts",
+          "represents precedence, conversation fallback, revision classes, tone, and constraints"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC8": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "defines safe generate destination and overwrite behavior without a fallback path"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC9": {
+      "automated": [
+        [
+          "copy-safety.test.ts",
+          "accepts one bounded edit and records a successful local validation"
+        ],
+        ["copy-safety.test.ts", "detects changes in disallowed files and outside the allowed span"]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC10": {
+      "automated": [
+        [
+          "copy-safety.test.ts",
+          "detects byte changes to tokens, markup, links, accessibility, and localization structures"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC11": {
+      "automated": [
+        [
+          "copy-safety.test.ts",
+          "refuses an existing destination and an ambiguous source target without writes"
+        ]
+      ]
+    },
+    "AC12": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "provides contextual tone, accessibility, localization, and component rules"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC13": {
+      "automated": [
+        [
+          "copy-contract.test.ts",
+          "enforces context discovery, precedence, and grouped material questions"
+        ],
+        [
+          "copy-safety.test.ts",
+          "represents precedence, conversation fallback, revision classes, tone, and constraints"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC14": {
+      "automated": [
+        ["copy-contract.test.ts", "bounds source edits and preserves source structures"],
+        [
+          "copy-safety.test.ts",
+          "requires honest command and result recording for failed and unavailable validation"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC15": {
+      "automated": [
+        [
+          "adapter-payload-contract.node.mjs",
+          "adapter payload/contract parity resolves exact canonical bytes and host contracts"
+        ],
+        [
+          "static-contract.node.mjs",
+          "recursive runtime and contributor mirrors have no guidelines dependency"
+        ],
+        [
+          "release-installer.node.mjs",
+          "release assembly rejects an omitted copy resource and copy version skew"
+        ],
+        [
+          "release-installer.node.mjs",
+          "installer rejects an internally corrupted archive after its external checksum passes"
+        ]
+      ]
+    },
+    "AC16": {
+      "automated": [
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and preserves canaries"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-update aware, and model-free"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC15, AC18, AC20-AC21: Claude collaborator bootstrap and all scopes use approved model-free native lifecycle"
+        ],
+        [
+          "host-validation.node.mjs",
+          "host pin manifest has one evidenced strict pin for every supported host"
+        ]
+      ]
+    },
+    "AC17": {
+      "automated": [
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and preserves canaries"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "schema-v1 copied installs require update and retain their legacy lifecycle"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "released schema-v2 copied bundles expand to copy only through explicit update"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "schema-v1 copied migration rollback restores exact files, manifest, config, and backups"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "legacy allowlist validation and unknown schemas fail before copied-host mutation"
+        ]
+      ]
+    },
+    "AC18": {
+      "automated": [
+        ["copy-safety.test.ts", "covers AC1-AC14 across all modes without semantic claims"],
+        [
+          "adapter-payload-contract.node.mjs",
+          "adapter payload/contract parity resolves exact canonical bytes and host contracts"
+        ]
+      ],
+      "manual": "copy-runs"
+    },
+    "AC19": {
+      "automated": [
+        ["prd-contract.test.ts", "defines the complete create and targeted-refinement contract"],
+        [
+          "spec-contract.test.ts",
+          "defines create, refinement, destination, and overwrite behavior"
+        ],
+        [
+          "static-contract.node.mjs",
+          "recursive runtime and contributor mirrors have no guidelines dependency"
+        ],
+        [
+          "release-installer.node.mjs",
+          "release builds are byte-identical and contain only the approved assets"
+        ]
+      ]
+    }
+  },
+  "manualEvidence": {
+    "copy-runs": {
+      "file": "DOGFOOD.md",
+      "heading": "Copy Run Matrix (12 Required Runs)",
+      "status": "pending",
+      "requiredRuns": 12
+    }
+  }
 }
