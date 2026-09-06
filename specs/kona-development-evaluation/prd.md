@@ -8,7 +8,7 @@
 - Track every arm as a named DVC experiment tied to its Git baseline; store parameters and summary metrics in the experiment ref and large artifacts in DVC remote storage.
 - Compare each Kona version with the stored pure-GPT baseline and the immediately preceding compatible Kona version, task by task.
 - A new evaluation epoch, including a new pure-GPT baseline, is required when the model version, benchmark, harness, prompt envelope, tools, limits, or analysis policy changes.
-- Under current GPT-5.6 Sol Standard Global promotional pricing, one 100-task arm is estimated at **$1,000-$6,000 and 7-15 hours**. Pure GPT plus the first Kona version costs two arms; each later Kona version normally adds one arm.
+- Under current GPT-5.6 Sol Standard Global promotional pricing, one 100-task arm is estimated at **$1,000-$6,000 and 3-8 hours**, using configurable concurrency of 20 or 50 according to Azure and AWS quotas. Pure GPT plus the first Kona version costs two arms; each later Kona version normally adds one arm.
 - With 100 independent tasks, the estimated minimum detectable change is approximately **6-10 percentage points** at 80% power and two-sided 5% significance, subject to the observed paired-task variance.
 - The evaluator reports evidence. The maintainer manually decides whether to merge or upgrade and records the rationale.
 
@@ -21,6 +21,7 @@
 | Initial delivery | DVC-backed FeatureBench Fast-100 version ledger                         |
 | Model provider   | Azure OpenAI-compatible API                                             |
 | Model            | GPT-5.6-sol through a configurable Azure deployment                     |
+| Execution        | Amazon ECS on AWS Fargate, Linux x86-64                                 |
 | Pricing basis    | Standard Global, short context; promotional metered rates on 2026-09-05 |
 
 ## 2. What
@@ -54,6 +55,8 @@ Stored arms are directly comparable only while all non-Kona inputs remain identi
 - model parameters and API behavior;
 - grader and analysis policy.
 
+Concurrency is recorded but does not start a new epoch by itself. Quality comparisons across the supported concurrency presets are valid only when no arm records provider throttling, quota retries, or altered task-level limits. Cost and latency comparisons require matching concurrency.
+
 A change to any of these inputs starts a new epoch. The evaluator must run a new pure-GPT baseline before comparing Kona versions in that epoch. Results from different epochs may be displayed historically but must not be used as direct evidence for a merge or upgrade decision.
 
 ### In Scope
@@ -63,6 +66,8 @@ A change to any of these inputs starts a new epoch. The evaluator must run a new
 - One attempt per task and configuration.
 - Immutable arm provenance, validity checks, comparison, cost reporting, and decision recording.
 - DVC experiment tracking integrated with Git and a configured DVC artifact remote.
+- Amazon ECS/Fargate execution with a requested concurrency preset of 20 or 50 tasks.
+- A Fargate-compatible task package that runs one FeatureBench task, agent, and grader without privileged containers or Docker-in-Docker.
 - Manual merge and upgrade decisions.
 
 ## 3. Motivation
@@ -108,9 +113,10 @@ Rerunning pure GPT and all prior versions for every change would be prohibitivel
 
 1. The maintainer pins the Azure deployment and model version, FeatureBench version and Fast-100 manifest, harness, prompt envelope, tools, limits, grader, and analysis policy.
 2. Preflight validates the environment and verifies that the pure-GPT arm contains no Kona surface.
-3. The evaluator runs pure GPT once on every Fast-100 task.
-4. Native grading, usage, timing, failure, and provenance artifacts are stored immutably as the epoch baseline.
-5. The completed baseline is assigned a deterministic DVC experiment name and pushed with its DVC-tracked artifacts.
+3. Preflight checks Azure TPM/RPM and AWS capacity for the requested concurrency. If 50 is unavailable, the maintainer may explicitly restart scheduling at 20; the evaluator must not downgrade silently.
+4. The evaluator runs pure GPT once on every Fast-100 task.
+5. Native grading, usage, timing, failure, and provenance artifacts are stored immutably as the epoch baseline.
+6. The completed baseline is assigned a deterministic DVC experiment name and pushed with its DVC-tracked artifacts.
 
 ### Evaluate a Kona Version
 
@@ -136,31 +142,34 @@ Rerunning pure GPT and all prior versions for every change would be prohibitivel
 
 ### Functional Requirements
 
-| ID   | Requirement                                                                                                                                                                                                                                            |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| FR1  | The evaluator must create immutable evaluation epochs containing all non-secret comparison inputs.                                                                                                                                                     |
-| FR2  | Each epoch must contain exactly one valid pure-GPT baseline before a Kona version can receive a decision report.                                                                                                                                       |
-| FR3  | The pure-GPT arm must contain no Kona binary, instruction, seed, hook, graph, or Kona-generated context; automated preflight must verify this isolation.                                                                                               |
-| FR4  | Every evaluated Kona version must run exactly one primary attempt on each FeatureBench Fast-100 task.                                                                                                                                                  |
-| FR5  | A Kona arm must package matching binary and instruction assets from one immutable version; mixed-version assets invalidate the arm.                                                                                                                    |
-| FR6  | The evaluator must use the unmodified FeatureBench Fast-100 task manifest and native grader. It must not create Kona-specific tasks, alter expected solutions, or substitute an LLM judge.                                                             |
-| FR7  | The primary decision metric must be FeatureBench test pass rate (`%PASSED`). FeatureBench resolve rate (`%RESOLVED`) remains a supporting metric.                                                                                                      |
-| FR8  | Every Kona report must show task-paired and aggregate differences against pure GPT and the immediately preceding compatible Kona version.                                                                                                              |
-| FR9  | Reports must include `%PASSED`, `%RESOLVED`, input/output/cache tokens, estimated and actual API cost, wall-clock time, completion status, and classified failures.                                                                                    |
-| FR10 | Kona reports must include whether instructions were loaded, whether Kona was invoked, successful and failed invocation counts, and whether a valid graph was produced.                                                                                 |
-| FR11 | The evaluator must mark evidence `VALID`, `INCOMPLETE`, or `INVALID` according to a versioned policy without issuing an automatic merge or upgrade verdict.                                                                                            |
-| FR12 | The evaluator must record the maintainer's decision, decision maker, timestamp, and rationale separately from computed evidence.                                                                                                                       |
-| FR13 | Historical arms and reports must be append-only. A retry or policy revision creates a new record and does not rewrite prior evidence or decisions.                                                                                                     |
-| FR14 | The evaluator must refuse direct comparison across different epochs and identify every field that caused the mismatch.                                                                                                                                 |
-| FR15 | The evaluator must estimate cost before scheduling and require confirmation when projected spend exceeds the configured run budget.                                                                                                                    |
-| FR16 | Scheduling must respect container capacity and Azure TPM/RPM quota. Provider throttling must not be scored as task failure.                                                                                                                            |
-| FR17 | Each arm must run its first three tasks as a staged cost and integration probe. If valid and within budget, those same task results remain part of the arm and execution continues with the other 97 tasks without rerunning them.                     |
-| FR18 | Every arm must be recorded as a deterministically named DVC experiment tied to the Git commit that defines the run. The name must identify the evaluation epoch and either `pure-gpt` or the immutable Kona version.                                   |
-| FR19 | DVC parameters must include all epoch compatibility inputs and the evaluated Kona version. DVC metrics must include `%PASSED`, `%RESOLVED`, token usage, model cost, wall-clock time, validity status, adoption counts, and classified failure counts. |
-| FR20 | Task-level grader output, trajectories, logs, and other large artifacts must be DVC-tracked and stored in the configured DVC remote rather than committed directly to Git.                                                                             |
-| FR21 | A completed arm must be shareable with `dvc exp push` and recoverable in another clean checkout with `dvc exp pull`, including the artifacts required to regenerate its report offline.                                                                |
-| FR22 | Users must be able to compare pure GPT and Kona versions through `dvc exp show` and `dvc exp diff` without rerunning model inference.                                                                                                                  |
-| FR23 | The maintainer's manual decision and rationale must be included in the durable experiment record or a Git-tracked index that references the immutable DVC experiment.                                                                                  |
+| ID   | Requirement                                                                                                                                                                                                                                                     |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR1  | The evaluator must create immutable evaluation epochs containing all non-secret comparison inputs.                                                                                                                                                              |
+| FR2  | Each epoch must contain exactly one valid pure-GPT baseline before a Kona version can receive a decision report.                                                                                                                                                |
+| FR3  | The pure-GPT arm must contain no Kona binary, instruction, seed, hook, graph, or Kona-generated context; automated preflight must verify this isolation.                                                                                                        |
+| FR4  | Every evaluated Kona version must run exactly one primary attempt on each FeatureBench Fast-100 task.                                                                                                                                                           |
+| FR5  | A Kona arm must package matching binary and instruction assets from one immutable version; mixed-version assets invalidate the arm.                                                                                                                             |
+| FR6  | The evaluator must use the unmodified FeatureBench Fast-100 task manifest and native grader. It must not create Kona-specific tasks, alter expected solutions, or substitute an LLM judge.                                                                      |
+| FR7  | The primary decision metric must be FeatureBench test pass rate (`%PASSED`). FeatureBench resolve rate (`%RESOLVED`) remains a supporting metric.                                                                                                               |
+| FR8  | Every Kona report must show task-paired and aggregate differences against pure GPT and the immediately preceding compatible Kona version.                                                                                                                       |
+| FR9  | Reports must include `%PASSED`, `%RESOLVED`, input/output/cache tokens, estimated and actual API cost, wall-clock time, completion status, and classified failures.                                                                                             |
+| FR10 | Kona reports must include whether instructions were loaded, whether Kona was invoked, successful and failed invocation counts, and whether a valid graph was produced.                                                                                          |
+| FR11 | The evaluator must mark evidence `VALID`, `INCOMPLETE`, or `INVALID` according to a versioned policy without issuing an automatic merge or upgrade verdict.                                                                                                     |
+| FR12 | The evaluator must record the maintainer's decision, decision maker, timestamp, and rationale separately from computed evidence.                                                                                                                                |
+| FR13 | Historical arms and reports must be append-only. A retry or policy revision creates a new record and does not rewrite prior evidence or decisions.                                                                                                              |
+| FR14 | The evaluator must refuse direct comparison across different epochs and identify every field that caused the mismatch.                                                                                                                                          |
+| FR15 | The evaluator must estimate cost before scheduling and require confirmation when projected spend exceeds the configured run budget.                                                                                                                             |
+| FR16 | Scheduling must respect container capacity and Azure TPM/RPM quota. Provider throttling must not be scored as task failure.                                                                                                                                     |
+| FR17 | Each arm must run its first three tasks as a staged cost and integration probe. If valid and within budget, those same task results remain part of the arm and execution continues with the other 97 tasks without rerunning them.                              |
+| FR18 | Every arm must be recorded as a deterministically named DVC experiment tied to the Git commit that defines the run. The name must identify the evaluation epoch and either `pure-gpt` or the immutable Kona version.                                            |
+| FR19 | DVC parameters must include all epoch compatibility inputs and the evaluated Kona version. DVC metrics must include `%PASSED`, `%RESOLVED`, token usage, model cost, wall-clock time, validity status, adoption counts, and classified failure counts.          |
+| FR20 | Task-level grader output, trajectories, logs, and other large artifacts must be DVC-tracked and stored in the configured DVC remote rather than committed directly to Git.                                                                                      |
+| FR21 | A completed arm must be shareable with `dvc exp push` and recoverable in another clean checkout with `dvc exp pull`, including the artifacts required to regenerate its report offline.                                                                         |
+| FR22 | Users must be able to compare pure GPT and Kona versions through `dvc exp show` and `dvc exp diff` without rerunning model inference.                                                                                                                           |
+| FR23 | The maintainer's manual decision and rationale must be included in the durable experiment record or a Git-tracked index that references the immutable DVC experiment.                                                                                           |
+| FR24 | The evaluator must support requested concurrency values of 20 and 50. Preflight must verify Azure TPM/RPM and AWS capacity before scheduling and must require explicit confirmation to fall back from 50 to 20.                                                 |
+| FR25 | Requested and effective concurrency, throttling, retries, and quota errors must be stored as DVC parameters or metrics. Quality comparisons across concurrency presets require no quota-induced behavior change; latency comparisons require equal concurrency. |
+| FR26 | Each FeatureBench task must run directly as an isolated Linux x86-64 Fargate task. The solution must not require privileged mode, a host Docker socket, or Docker-in-Docker, which Fargate does not support.                                                    |
 
 ### Non-Functional Requirements
 
@@ -191,6 +200,8 @@ Rerunning pure GPT and all prior versions for every change would be prohibitivel
 13. **Given** two compatible arm experiments, **When** `dvc exp diff` is used, **Then** the parameter differences and metric deltas correspond to the stored version comparison report.
 14. **Given** a clean checkout with access to the Git and DVC remotes, **When** the experiment is pulled, **Then** all artifacts needed to regenerate the report offline are restored and hash-verified.
 15. **Given** a completed local run whose experiment ref or required artifacts were not pushed, **When** ledger status is evaluated, **Then** the arm is marked INCOMPLETE.
+16. **Given** requested concurrency 50 and insufficient Azure or AWS quota, **When** preflight runs, **Then** no benchmark task starts until the maintainer explicitly selects concurrency 20 or resolves the quota limitation.
+17. **Given** two otherwise compatible arms with concurrency 20 and 50, **When** reporting compares them, **Then** quality is compared only if neither arm experienced quota-induced retries or throttling, and latency is labeled non-comparable.
 
 ### Decision Metric
 
@@ -215,14 +226,15 @@ For usage measured in millions of tokens:
 
 Planning assumptions for one FeatureBench task are 3M-10M input tokens, 0.3M-1M output tokens, and a 90-minute cap. The low estimate assumes the lower token volume and approximately 80% cached input; the high estimate assumes upper token volume with no cache benefit.
 
-| Work                                                     | Trials | Estimated model cost |            Container work |                     Estimated elapsed time |
-| -------------------------------------------------------- | -----: | -------------------: | ------------------------: | -----------------------------------------: |
-| Staged probe, first 3 tasks of pure GPT and one Kona arm |      6 |           `$60-$360` |   about 9 container-hours |                 3-5 hours at concurrency 3 |
-| One FeatureBench Fast-100 arm                            |    100 |      `$1,000-$6,000` | up to 150 container-hours |  7-15 hours at effective concurrency 12-24 |
-| New epoch: pure GPT plus first Kona version              |    200 |     `$2,000-$12,000` | up to 300 container-hours | 13-28 hours at effective concurrency 12-24 |
-| Each later Kona version                                  |    100 |      `$1,000-$6,000` | up to 150 container-hours |  7-15 hours at effective concurrency 12-24 |
+| Work                                                     | Concurrency | Trials | Estimated model cost | Estimated AWS compute |    Estimated elapsed time |
+| -------------------------------------------------------- | ----------: | -----: | -------------------: | --------------------: | ------------------------: |
+| Staged probe, first 3 tasks of pure GPT and one Kona arm |           3 |      6 |           `$60-$360` |                 `<$5` | 3-5 hours including setup |
+| One FeatureBench Fast-100 arm                            |          20 |    100 |      `$1,000-$6,000` |             `$20-$40` |                 6-8 hours |
+| One FeatureBench Fast-100 arm                            |          50 |    100 |      `$1,000-$6,000` |             `$25-$60` |                 3-4 hours |
+| New epoch, two arms run sequentially                     |          20 |    200 |     `$2,000-$12,000` |             `$40-$80` |               12-16 hours |
+| New epoch, two arms run sequentially                     |          50 |    200 |     `$2,000-$12,000` |            `$50-$120` |                 6-8 hours |
 
-These estimates exclude container compute, storage, network, and engineering time. Data Zone, Regional, Priority, Provisioned Throughput, long-context, post-promotion, or contract pricing can differ. The staged probe must replace the estimates with observed cache rate, token mix, task duration, grader duration, TPM/RPM quota, and effective concurrency before the remaining tasks are scheduled.
+AWS estimates assume Linux x86 Fargate tasks sized between 2 vCPU/4 GB and 4 vCPU/8 GB and include a planning allowance for compute, storage, logging, and networking, but not the one-time engineering work required to adapt the current Docker-based runner. Data Zone, Regional, Priority, Provisioned Throughput, long-context, post-promotion, or contract model pricing can differ. The staged probe must replace the estimates with observed cache rate, token mix, task duration, grader duration, TPM/RPM quota, and effective concurrency before the remaining tasks are scheduled.
 
 For 80% power, a two-sided 5% significance level, 100 paired tasks, and paired-task SD of 0.20-0.35:
 
@@ -242,6 +254,7 @@ This is a planning estimate, not a guarantee. One attempt per task does not meas
 | Model-only accidentally receives Kona context                     | Verify the absence of all Kona surfaces before baseline execution.                                                               |
 | A failed arm is mistaken for poor model performance               | Classify infrastructure, provider, grader, setup, and task failures separately and mark incomplete evidence.                     |
 | The estimate exceeds available budget                             | Run the staged first-three-task probe, enforce a spend ceiling, and stop scheduling before the ceiling is exceeded.              |
+| Requested concurrency exceeds Azure or AWS quota                  | Validate both quotas before scheduling and require an explicit downgrade from 50 to 20 rather than allowing throttled execution. |
 | DVC experiment refs are assumed to move with plain Git push       | Require `dvc exp push`/`pull` in the lifecycle and verify remote availability before marking an arm complete.                    |
 | Large artifacts make Git history unusable                         | Commit only DVC metadata and compact decision records to normal Git; store large content-addressed artifacts in the DVC remote.  |
 
@@ -268,6 +281,7 @@ This is a planning estimate, not a guarantee. One attempt per task does not meas
 5. Define how long an epoch remains valid when Azure reports no model-version change but operational metrics drift.
 6. Select the DVC remote backend, access policy, retention period, and recovery owner.
 7. Decide whether accepted experiments are additionally promoted to ordinary Git branches with `dvc exp branch` or remain shared experiment refs plus a Git-tracked decision index.
+8. Confirm the Fargate task size, AWS region, ephemeral storage allocation, networking path, and account task quota after the staged probe.
 
 ## 9. References
 
