@@ -252,6 +252,7 @@ resource "aws_sfn_state_machine" "eval" {
                 Overrides = { ContainerOverrides = [{ Name = "prepare", "Command.$" = "$.prepareCommand" }] }
               }
               ResultPath = "$.prepareEcs"
+              Retry      = [{ ErrorEquals = ["States.TaskFailed", "AmazonECS.Unknown", "ECS.AmazonECSException", "ECS.ThrottlingException"], IntervalSeconds = 10, BackoffRate = 2, MaxAttempts = 3 }]
               Catch      = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.prepareFailure", Next = "PrepareFailed" }]
               Next       = "RunInference"
             }
@@ -276,6 +277,7 @@ resource "aws_sfn_state_machine" "eval" {
                 }
               }
               ResultPath = "$.inferenceEcs"
+              Retry      = [{ ErrorEquals = ["States.TaskFailed", "AmazonECS.Unknown", "ECS.AmazonECSException", "ECS.ThrottlingException"], IntervalSeconds = 10, BackoffRate = 2, MaxAttempts = 3 }]
               Catch      = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.inferenceFailure", Next = "InferenceFailed" }]
               Next       = "RunGrader"
             }
@@ -296,7 +298,7 @@ resource "aws_sfn_state_machine" "eval" {
                 }
                 Overrides = { ContainerOverrides = [{ Name = "grader", "Command.$" = "$.graderCommand" }] }
               }
-              Retry = [{ ErrorEquals = ["AmazonECS.Unknown", "ECS.AmazonECSException", "ECS.ThrottlingException"], IntervalSeconds = 5, BackoffRate = 2, MaxAttempts = 2 }]
+              Retry = [{ ErrorEquals = ["States.TaskFailed", "AmazonECS.Unknown", "ECS.AmazonECSException", "ECS.ThrottlingException"], IntervalSeconds = 10, BackoffRate = 2, MaxAttempts = 3 }]
               Catch = [{ ErrorEquals = ["States.ALL"], ResultPath = "$.graderFailure", Next = "GraderFailed" }]
               End   = true
             }

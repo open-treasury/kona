@@ -14,6 +14,12 @@ test("derived images use FeatureBench's supported Python runtime", () => {
   }
 });
 
+test("workspace preparation disables background Git object pruning", () => {
+  expect(readFileSync(join(runtime, "prepare.py"), "utf8")).toContain(
+    '["git", "config", "--global", "gc.auto", "0"]',
+  );
+});
+
 test("direct-container workers load without paid or external dependencies", async () => {
   for (const script of ["prepare.py", "infer.py", "grade.py"]) {
     const process = Bun.spawn(["python3", join(runtime, script), "--self-test"], {

@@ -7,6 +7,7 @@ import importlib
 import json
 import logging
 import shutil
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -28,6 +29,7 @@ def run(request_path: Path, output_dir: Path) -> int:
     instance = TaskInstance.from_dict(row)
     logger = logging.getLogger(f"kona-featurebench-prepare-{instance.instance_id}")
     logger.addHandler(logging.FileHandler(log, encoding="utf-8"))
+    subprocess.run(["git", "config", "--global", "gc.auto", "0"], check=True)
     if not RuntimeHandler(LocalTransport(), logger).initialize_runtime(
         None, instance, log, white_box=False
     ):
