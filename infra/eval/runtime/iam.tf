@@ -78,6 +78,10 @@ data "aws_iam_policy_document" "probe_verifier" {
     resources = ["arn:aws:s3:::${var.artifact_bucket}/orchestration/${var.active_run_id}/continue.json"]
   }
   statement {
+    actions   = ["kms:Decrypt"]
+    resources = [var.artifact_kms_key_arn]
+  }
+  statement {
     actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["*"]
   }
