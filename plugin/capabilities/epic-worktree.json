@@ -2,7 +2,7 @@
   "type": "capability",
   "schemaVersion": 1,
   "name": "epic-worktree",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "modes": ["propose", "start", "check", "finish"],
   "canonical": {
     "skill": {

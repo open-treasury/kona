@@ -9,7 +9,7 @@ import { RELEASE_FILES } from "../scripts/release-lib.mjs";
 
 const execute = promisify(execFile);
 const pluginRoot = resolve(import.meta.dirname, "..");
-const success = (verb, host, scope, status, version = "0.5.1") => ({
+const success = (verb, host, scope, status, version = "0.5.2") => ({
   ok: true,
   verb,
   host,
@@ -24,19 +24,19 @@ test("human lifecycle successes use consistent host-aware sentences", () => {
   const cases = [
     [
       success("install", "opencode", "project", "installed"),
-      "Installed Kona v0.5.1 for OpenCode (project).",
+      "Installed Kona v0.5.2 for OpenCode (project).",
     ],
-    [success("update", "codex", "user", "updated"), "Updated Kona to v0.5.1 for Codex (user)."],
+    [success("update", "codex", "user", "updated"), "Updated Kona to v0.5.2 for Codex (user)."],
     [
       success("verify", "claude", "local", "active"),
-      "Verified Kona v0.5.1 for Claude Code (local).",
+      "Verified Kona v0.5.2 for Claude Code (local).",
     ],
     [success("disable", "pi", "project", "disabled"), "Disabled Kona for Pi (project)."],
     [success("enable", "opencode", "user", "enabled"), "Enabled Kona for OpenCode (user)."],
     [success("remove", "claude", "project", "removed"), "Removed Kona from Claude Code (project)."],
     [
       success("install", "pi", "user", "unchanged"),
-      "Already up to date: Kona v0.5.1 for Pi (user).",
+      "Already up to date: Kona v0.5.2 for Pi (user).",
     ],
     [
       success("disable", "codex", "project", "unchanged"),

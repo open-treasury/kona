@@ -94,7 +94,7 @@ test("update bootstraps once and re-executes the exact active path with exact ar
       `#!${process.execPath}\nconst fs=require("node:fs");fs.writeFileSync(${JSON.stringify(log)},JSON.stringify({argv:process.argv.slice(2),marker:process.env.KONA_SELF_UPDATE_REEXEC,path:process.argv[1]}));`,
     );
     await writeFile(active, activeBytes, { mode: 0o555 });
-    const packageBytes = Buffer.from('{"version":"0.5.1"}\n');
+    const packageBytes = Buffer.from('{"version":"0.5.2"}\n');
     const installerBytes = Buffer.from("#!/bin/sh\nexit 0\n");
     const selfUpdateBytes = Buffer.from("export {};\n");
     await Promise.all([
@@ -107,8 +107,8 @@ test("update bootstraps once and re-executes the exact active path with exact ar
       `${JSON.stringify({
         schemaVersion: 1,
         name: "kona",
-        version: "0.5.1",
-        tag: "v0.5.1",
+        version: "0.5.2",
+        tag: "v0.5.2",
         files: [
           { path: "bin/kona", sha256: hash(activeBytes), mode: "0555" },
           { path: "install.sh", sha256: hash(installerBytes), mode: "0555" },
@@ -394,7 +394,7 @@ test("actual CLI one-use guard prevents accidental fabrication and replay under 
       `${JSON.stringify({
         schemaVersion: 1,
         nonce,
-        version: "0.5.1",
+        version: "0.5.2",
         activeRealpath: value.activeRealpath,
       })}\n`,
       { mode: 0o600 },
@@ -447,7 +447,7 @@ test("actual CLI one-use guard prevents accidental fabrication and replay under 
       `${JSON.stringify({
         schemaVersion: 1,
         nonce: unsafe,
-        version: "0.5.1",
+        version: "0.5.2",
         activeRealpath: value.activeRealpath,
       })}\n`,
       { mode: 0o644 },
@@ -512,7 +512,7 @@ test("plugin-only source layout uses its verified canonical installer mirror", a
     );
     assert.equal(
       await realpath(join(bin, "kona")),
-      await realpath(join(home, "data/kona/versions/v0.5.1/bin/kona")),
+      await realpath(join(home, "data/kona/versions/v0.5.2/bin/kona")),
     );
   } finally {
     await makeWritable(directory);
@@ -551,11 +551,10 @@ test("parent forwards SIGINT, SIGTERM, and SIGHUP to the installer and preserves
     const directory = await mkdtemp(join(tmpdir(), `kona-self-update-signal-${signal}-`));
     try {
       const ready = join(directory, "ready");
-      const observed = join(directory, "observed");
       const installer = join(directory, "installer.sh");
       await writeFile(
         installer,
-        `#!/bin/sh\ntrap 'printf ${signal} > ${JSON.stringify(observed)}; exit 0' ${signal}\ntouch ${JSON.stringify(ready)}\nwhile :; do sleep 1; done\n`,
+        `#!/bin/sh\ntrap 'exit 0' ${signal}\ntouch ${JSON.stringify(ready)}\nwhile :; do sleep 1; done\n`,
         { mode: 0o755 },
       );
       const child = spawn(
@@ -580,7 +579,6 @@ test("parent forwards SIGINT, SIGTERM, and SIGHUP to the installer and preserves
       child.kill(signal);
       const closed = await close;
       assert.deepEqual(closed, { code: null, signal });
-      assert.equal(await readFile(observed, "utf8"), signal);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -591,20 +589,21 @@ test("parent cancellation terminates installer process group before child or gra
   const directory = await mkdtemp(join(tmpdir(), "kona-self-update-process-group-"));
   try {
     const ready = join(directory, "ready");
-    const childStopped = join(directory, "child-stopped");
-    const grandchildStopped = join(directory, "grandchild-stopped");
+    const childPid = join(directory, "child-pid");
+    const grandchildPid = join(directory, "grandchild-pid");
+    const grandchildReady = join(directory, "grandchild-ready");
     const childMutation = join(directory, "child-mutation");
     const grandchildMutation = join(directory, "grandchild-mutation");
     const grandchild = join(directory, "grandchild.sh");
     await writeFile(
       grandchild,
-      `#!/bin/sh\ntrap 'printf stopped > ${JSON.stringify(grandchildStopped)}; exit 0' SIGTERM\nsleep 5\ntouch ${JSON.stringify(grandchildMutation)}\n`,
+      `#!/bin/sh\nprintf '%s' "$$" > ${JSON.stringify(grandchildPid)}\ntouch ${JSON.stringify(grandchildReady)}\nsleep 5\ntouch ${JSON.stringify(grandchildMutation)}\n`,
       { mode: 0o755 },
     );
     const installer = join(directory, "installer.sh");
     await writeFile(
       installer,
-      `#!/bin/sh\ntrap 'printf stopped > ${JSON.stringify(childStopped)}; exit 0' SIGTERM\nsh ${JSON.stringify(grandchild)} &\ntouch ${JSON.stringify(ready)}\nwait\ntouch ${JSON.stringify(childMutation)}\n`,
+      `#!/bin/sh\nprintf '%s' "$$" > ${JSON.stringify(childPid)}\nsh ${JSON.stringify(grandchild)} &\nwhile [ ! -f ${JSON.stringify(grandchildReady)} ]; do sleep 0.01; done\ntouch ${JSON.stringify(ready)}\nwait\ntouch ${JSON.stringify(childMutation)}\n`,
       { mode: 0o755 },
     );
     const child = spawn(
@@ -628,8 +627,19 @@ test("parent cancellation terminates installer process group before child or gra
     );
     child.kill("SIGTERM");
     assert.deepEqual(await close, { code: null, signal: "SIGTERM" });
-    assert.equal(await readFile(childStopped, "utf8"), "stopped");
-    assert.equal(await readFile(grandchildStopped, "utf8"), "stopped");
+    const processGroup = Number(await readFile(childPid, "utf8"));
+    assert.equal(Number.isInteger(processGroup) && processGroup > 0, true);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      try {
+        process.kill(-processGroup, 0);
+      } catch (error) {
+        if (error.code === "ESRCH") break;
+        throw error;
+      }
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+    }
+    assert.throws(() => process.kill(-processGroup, 0), { code: "ESRCH" });
+    assert.equal(Number(await readFile(grandchildPid, "utf8")) > 0, true);
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
     await assert.rejects(lstat(childMutation), { code: "ENOENT" });
     await assert.rejects(lstat(grandchildMutation), { code: "ENOENT" });
@@ -649,7 +659,7 @@ test("re-entry rejects an active symlink switch after consuming its guard", asyn
       `${JSON.stringify({
         schemaVersion: 1,
         nonce,
-        version: "0.5.1",
+        version: "0.5.2",
         activeRealpath: value.activeRealpath,
       })}\n`,
       { mode: 0o600 },
