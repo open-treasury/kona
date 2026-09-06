@@ -12,6 +12,7 @@ on:
       - "specs/portable-copy-agent-plugin/**"
       - "specs/portable-spec-agent-plugin/**"
       - "specs/portable-issues-skill/**"
+      - "specs/epic-worktree-skill/**"
   push:
     tags:
       - "v*"
