@@ -169,12 +169,11 @@ describe("canonical contracts", () => {
     });
     expect(armKey(kona)).toBe(`kona-${revision.slice(0, 12)}`);
     expect(() => validateArmRequest({ ...pure, unexpected: true })).toThrow("unknown fields");
-    expect(() =>
-      validateArmRequest({
-        ...kona,
-        kona: { ...kona.kona, revision: "c".repeat(40) },
-      }),
-    ).toThrow("must match");
+    const historical = validateArmRequest({
+      ...kona,
+      gitRevision: "c".repeat(40),
+    });
+    expect(armKey(historical)).toBe(`kona-${revision.slice(0, 12)}`);
   });
 
   test("one-attempt claim and result seal fail closed on duplicates", () => {

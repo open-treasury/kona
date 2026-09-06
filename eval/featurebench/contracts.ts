@@ -352,9 +352,6 @@ export const validateArmRequest = (value: unknown): ArmRequest => {
       "armRequest.kona",
     );
     gitRevision(kona["revision"], "armRequest.kona.revision");
-    if (kona["revision"] !== input["gitRevision"]) {
-      fail("armRequest.kona.revision must match armRequest.gitRevision");
-    }
     for (const field of [
       "binarySha256",
       "bundleSha256",
@@ -371,8 +368,12 @@ export const validateArmRequest = (value: unknown): ArmRequest => {
   return input as ArmRequest;
 };
 
-export const armKey = (request: ArmRequest): string =>
-  request.armType === "pure-gpt" ? "pure-gpt" : `kona-${request.gitRevision.slice(0, 12)}`;
+export const armKey = (request: ArmRequest): string => {
+  if (request.armType === "pure-gpt") return "pure-gpt";
+  const kona = request.kona;
+  if (kona === null) return fail("Kona arm requires Kona assets");
+  return `kona-${kona.revision.slice(0, 12)}`;
+};
 
 export const primaryClaimKey = (runId: string, taskId: string): string =>
   `staging/v1/runs/${runId}/tasks/${taskId}/claims/model-attempt-1.json`;
