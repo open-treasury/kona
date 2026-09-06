@@ -23,9 +23,13 @@ def handler(event, _context):
     if not verified["SignatureValid"]:
         raise ValueError("invalid probe signature")
     manifest = boto3.client("s3").get_object(
-        Bucket=authorization["manifestBucket"], Key=authorization["manifestKey"]
+        Bucket=authorization["manifestBucket"],
+        Key=authorization["manifestKey"],
+        VersionId=authorization["manifestVersionId"],
     )
     body = manifest["Body"].read()
-    if hashlib.sha256(body).hexdigest() != authorization["manifestSha256"]:
+    if hashlib.sha256(body).hexdigest() != authorization["continuationManifestSha256"]:
         raise ValueError("continuation manifest hash mismatch")
+    if manifest["VersionId"] != authorization["manifestVersionId"]:
+        raise ValueError("continuation manifest version mismatch")
     return {"authorization": authorization, "manifestVersionId": manifest["VersionId"]}

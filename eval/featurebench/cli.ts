@@ -182,25 +182,35 @@ if (command === "preflight") {
     request: { requestedConcurrency: number; budgetUsd: number };
     infrastructure: InfrastructureOutputs;
   };
-  if (phase === "continue") {
-    const seal = load(required("probe-seal")) as {
-      schemaVersion: number;
+  const manifestKey = `orchestration/${control.runId}/${phase}.json`;
+  const manifestPath = join(planDir, `${phase}.json`);
+  const manifestSha256 = sha256(readFileSync(manifestPath));
+  type ContinuationSeal = {
+    schemaVersion: number;
+    runId: string;
+    epochSha256: string;
+    projectedCostUsd: number;
+    approvedBudgetUsd: number;
+    approved: boolean;
+    probeEvidence: unknown;
+    probeAuthorization: {
       runId: string;
       epochSha256: string;
-      projectedCostUsd: number;
-      approvedBudgetUsd: number;
-      approved: boolean;
-      probeEvidence: unknown;
-      probeAuthorization: {
-        runId: string;
-        epochSha256: string;
-        phase: string;
-        continuationManifestSha256: string;
-      };
-      probeSealSha256: string;
-      probeMessage: string;
-      probeSignature: string;
+      phase: string;
+      requestedConcurrency: number;
+      manifestBucket: string;
+      manifestKey: string;
+      manifestVersionId: string;
+      continuationManifestSha256: string;
     };
+    probeSealSha256: string;
+    probeMessage: string;
+    probeSignature: string;
+  };
+  let continuationSeal: ContinuationSeal | null = null;
+  if (phase === "continue") {
+    continuationSeal = load(required("probe-seal")) as ContinuationSeal;
+    const seal = continuationSeal;
     const computedSeal = sha256(canonicalJson(seal.probeAuthorization));
     if (
       seal.schemaVersion !== 1 ||
@@ -210,8 +220,11 @@ if (command === "preflight") {
       seal.probeAuthorization.runId !== control.runId ||
       seal.probeAuthorization.epochSha256 !== control.epoch.epochSha256 ||
       seal.probeAuthorization.phase !== "continue" ||
-      seal.probeAuthorization.continuationManifestSha256 !==
-        sha256(readFileSync(join(planDir, "continue.json"))) ||
+      seal.probeAuthorization.requestedConcurrency !== control.request.requestedConcurrency ||
+      seal.probeAuthorization.manifestBucket !== control.infrastructure.artifactBucket ||
+      seal.probeAuthorization.manifestKey !== manifestKey ||
+      !seal.probeAuthorization.manifestVersionId ||
+      seal.probeAuthorization.continuationManifestSha256 !== manifestSha256 ||
       seal.projectedCostUsd > seal.approvedBudgetUsd ||
       seal.approvedBudgetUsd > control.request.budgetUsd ||
       seal.probeSealSha256 !== computedSeal ||
@@ -271,44 +284,35 @@ if (command === "preflight") {
       throw new Error("existing run control does not match the local immutable control");
     }
   }
-  const manifestKey = `orchestration/${control.runId}/${phase}.json`;
-  const manifestPath = join(planDir, `${phase}.json`);
-  const manifestSha256 = sha256(readFileSync(manifestPath));
-  result = await exec(
-    [
-      "aws",
-      "s3api",
-      "put-object",
-      "--bucket",
-      control.infrastructure.artifactBucket,
-      "--key",
-      manifestKey,
-      "--body",
-      manifestPath,
-    ],
-    repositoryRoot,
-  );
-  if (result.exitCode !== 0) throw new Error(result.stderr);
-  const manifestVersionId = (JSON.parse(result.stdout) as { VersionId?: string }).VersionId;
-  if (!manifestVersionId) throw new Error("manifest upload returned no S3 version ID");
+  let manifestVersionId = continuationSeal?.probeAuthorization.manifestVersionId;
+  if (phase === "probe") {
+    result = await exec(
+      [
+        "aws",
+        "s3api",
+        "put-object",
+        "--bucket",
+        control.infrastructure.artifactBucket,
+        "--key",
+        manifestKey,
+        "--body",
+        manifestPath,
+      ],
+      repositoryRoot,
+    );
+    if (result.exitCode !== 0) throw new Error(result.stderr);
+    manifestVersionId = (JSON.parse(result.stdout) as { VersionId?: string }).VersionId;
+  }
+  if (!manifestVersionId) throw new Error("manifest has no S3 version ID");
   const input = canonicalJson({
     phase,
     runId: control.runId,
     epochSha256: control.epoch.epochSha256,
     manifestSha256,
     probeApproved: phase === "continue",
-    probeSealSha256:
-      phase === "continue"
-        ? (load(required("probe-seal")) as { probeSealSha256: string }).probeSealSha256
-        : null,
-    probeMessage:
-      phase === "continue"
-        ? (load(required("probe-seal")) as { probeMessage: string }).probeMessage
-        : null,
-    probeSignature:
-      phase === "continue"
-        ? (load(required("probe-seal")) as { probeSignature: string }).probeSignature
-        : null,
+    probeSealSha256: phase === "continue" ? continuationSeal?.probeSealSha256 : null,
+    probeMessage: phase === "continue" ? continuationSeal?.probeMessage : null,
+    probeSignature: phase === "continue" ? continuationSeal?.probeSignature : null,
     requestedConcurrency: control.request.requestedConcurrency,
     manifest: {
       bucket: control.infrastructure.artifactBucket,
@@ -338,7 +342,7 @@ if (command === "preflight") {
   const control = load(join(planDir, "control.json")) as {
     runId: string;
     epoch: { epochSha256: string };
-    request: { budgetUsd: number };
+    request: { budgetUsd: number; requestedConcurrency: number };
     infrastructure: InfrastructureOutputs;
   };
   const approvedBudgetUsd = Number(required("approved-budget"));
@@ -385,12 +389,40 @@ if (command === "preflight") {
     passed: result.grade?.passed,
     total: result.grade?.total,
   }));
+  const continuationManifestKey = `orchestration/${control.runId}/continue.json`;
+  const continuationManifestPath = join(planDir, "continue.json");
+  const continuationManifestSha256 = sha256(readFileSync(continuationManifestPath));
+  const uploaded = await exec(
+    [
+      "aws",
+      "s3api",
+      "put-object",
+      "--bucket",
+      control.infrastructure.artifactBucket,
+      "--key",
+      continuationManifestKey,
+      "--body",
+      continuationManifestPath,
+    ],
+    repositoryRoot,
+  );
+  if (uploaded.exitCode !== 0)
+    throw new Error(`continuation manifest upload failed: ${uploaded.stderr}`);
+  const continuationManifestVersionId = (JSON.parse(uploaded.stdout) as { VersionId?: string })
+    .VersionId;
+  if (!continuationManifestVersionId) {
+    throw new Error("continuation manifest upload returned no S3 version ID");
+  }
   const authorization = {
     schemaVersion: 1,
     runId: control.runId,
     epochSha256: control.epoch.epochSha256,
     phase: "continue",
-    continuationManifestSha256: sha256(readFileSync(join(planDir, "continue.json"))),
+    requestedConcurrency: control.request.requestedConcurrency,
+    manifestBucket: control.infrastructure.artifactBucket,
+    manifestKey: continuationManifestKey,
+    manifestVersionId: continuationManifestVersionId,
+    continuationManifestSha256,
     projectedCostUsd,
     approvedBudgetUsd,
     probeEvidence,

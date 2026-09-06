@@ -49,4 +49,10 @@ describe("Terraform evaluation infrastructure contracts", () => {
     expect(iam).toContain('"s3:GetObjectVersion"');
     expect(iam).toContain('variable = "s3:if-none-match"');
   });
+
+  test("continuation verification reads the signed manifest version", () => {
+    const verifier = read("runtime", "probe_verifier.py");
+    expect(verifier).toContain('VersionId=authorization["manifestVersionId"]');
+    expect(verifier).toContain('authorization["continuationManifestSha256"]');
+  });
 });

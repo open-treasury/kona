@@ -231,7 +231,10 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
     }
   }
   const seal = join(directory, "probe-seal.json");
-  writeFileSync(join(bin, "aws"), "#!/bin/sh\nprintf '%s\\n' '{\"Signature\":\"c2ln\"}'\n");
+  writeFileSync(
+    join(bin, "aws"),
+    '#!/bin/sh\ncase "$*" in\n  *"kms sign"*) printf \'%s\\n\' \'{"Signature":"c2ln"}\' ;;\n  *) printf \'%s\\n\' \'{"VersionId":"continue-version"}\' ;;\nesac\n',
+  );
   chmodSync(join(bin, "aws"), 0o755);
   const approval = Bun.spawn(
     [
@@ -257,6 +260,10 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
   expect(JSON.parse(readFileSync(seal, "utf8"))).toMatchObject({
     approved: true,
     projectedCostUsd: 50,
+    probeAuthorization: {
+      manifestVersionId: "continue-version",
+      requestedConcurrency: 20,
+    },
   });
   writeFileSync(
     seal,
