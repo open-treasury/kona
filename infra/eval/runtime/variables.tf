@@ -30,6 +30,8 @@ variable "kona_bundle_sha256" {
 }
 variable "artifact_bucket" { type = string }
 variable "artifact_kms_key_arn" { type = string }
+variable "inference_repository_arn" { type = string }
+variable "grader_repository_arn" { type = string }
 variable "azure_secret_arn" {
   type      = string
   sensitive = true

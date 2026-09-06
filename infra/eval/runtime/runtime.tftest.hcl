@@ -65,6 +65,8 @@ variables {
   kona_bundle_sha256       = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   artifact_bucket          = "kona-eval-artifacts-123456789012"
   artifact_kms_key_arn     = "arn:aws:kms:us-east-1:123456789012:key/00000000-0000-0000-0000-000000000000"
+  inference_repository_arn = "arn:aws:ecr:us-east-1:123456789012:repository/kona-eval/inference"
+  grader_repository_arn    = "arn:aws:ecr:us-east-1:123456789012:repository/kona-eval/grader"
   azure_secret_arn         = "arn:aws:secretsmanager:us-east-1:123456789012:secret:kona-azure"
   azure_secret_kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
   azure_api_base           = "https://example.openai.azure.com/openai/v1/"

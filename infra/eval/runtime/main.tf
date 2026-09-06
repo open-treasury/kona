@@ -1,20 +1,8 @@
-resource "aws_ecr_repository" "inference" {
-  name                 = "${var.name_prefix}/inference"
-  image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration { scan_on_push = true }
-}
-
 resource "aws_kms_key" "probe_approval" {
   description              = "Signs approved Kona evaluation probe evidence"
   key_usage                = "SIGN_VERIFY"
   customer_master_key_spec = "RSA_2048"
   enable_key_rotation      = false
-}
-
-resource "aws_ecr_repository" "grader" {
-  name                 = "${var.name_prefix}/grader"
-  image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration { scan_on_push = true }
 }
 
 resource "aws_cloudwatch_log_group" "inference" {

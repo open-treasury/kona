@@ -60,7 +60,7 @@ data "aws_iam_policy_document" "inference_execution" {
   }
   statement {
     actions   = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
-    resources = [aws_ecr_repository.inference.arn]
+    resources = [var.inference_repository_arn]
   }
   statement {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
@@ -83,7 +83,7 @@ data "aws_iam_policy_document" "grader_execution" {
   }
   statement {
     actions   = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
-    resources = [aws_ecr_repository.grader.arn]
+    resources = [var.grader_repository_arn]
   }
   statement {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]

@@ -5,8 +5,6 @@ output "security_group_id" { value = aws_security_group.task.id }
 output "inference_task_definitions" { value = { for key, task in aws_ecs_task_definition.inference : key => task.arn } }
 output "prepare_task_definitions" { value = { for key, task in aws_ecs_task_definition.prepare : key => task.arn } }
 output "grader_task_definitions" { value = { for key, task in aws_ecs_task_definition.grader : key => task.arn } }
-output "inference_repository_url" { value = aws_ecr_repository.inference.repository_url }
-output "grader_repository_url" { value = aws_ecr_repository.grader.repository_url }
 output "pure_inference_task_role_arn" { value = aws_iam_role.inference_task.arn }
 output "kona_inference_task_role_arn" { value = aws_iam_role.kona_inference_task.arn }
 output "artifact_bucket" { value = var.artifact_bucket }
