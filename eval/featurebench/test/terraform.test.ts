@@ -46,6 +46,7 @@ describe("Terraform evaluation infrastructure contracts", () => {
     expect(main).toContain('name = "AZURE_API_KEY"');
     expect(iam).toContain('resource "aws_iam_role" "inference_task"');
     expect(iam).toContain('resource "aws_iam_role" "grader_task"');
+    expect(iam).toContain('"s3:GetObjectVersion"');
     expect(iam).toContain('variable = "s3:if-none-match"');
   });
 });

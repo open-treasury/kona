@@ -268,7 +268,7 @@ data "aws_iam_policy_document" "states" {
     resources = ["*"]
   }
   statement {
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"]
+    actions   = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"]
     resources = ["arn:aws:s3:::${var.artifact_bucket}/orchestration/*", "arn:aws:s3:::${var.artifact_bucket}/requests/*"]
   }
   statement {

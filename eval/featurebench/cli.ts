@@ -325,7 +325,7 @@ if (command === "preflight") {
       "--state-machine-arn",
       control.infrastructure.stateMachineArn,
       "--name",
-      `${control.runId}-${phase}-${manifestSha256.slice(0, 12)}`,
+      `${control.runId}-${phase}-${manifestSha256.slice(0, 8)}-${sha256(manifestVersionId).slice(0, 8)}`,
       "--input",
       input,
     ],

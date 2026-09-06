@@ -177,7 +177,7 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
   const calls = readFileSync(awsCalls, "utf8");
   expect(calls).toContain('"versionId":"version-1"');
   expect(calls).toContain(
-    `${control.runId}-probe-${sha256(readFileSync(join(paths.out, "probe.json"))).slice(0, 12)}`,
+    `${control.runId}-probe-${sha256(readFileSync(join(paths.out, "probe.json"))).slice(0, 8)}-${sha256("version-1").slice(0, 8)}`,
   );
   const probeArtifacts = join(directory, "probe-artifacts");
   for (const taskId of manifest.tasks.slice(0, 3)) {
