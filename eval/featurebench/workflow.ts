@@ -44,7 +44,6 @@ const requiredPreparationFields = [...requiredInferenceFields, "patch", "FAIL_TO
 const requiredGraderFields = [
   ...requiredPreparationFields,
   "repo",
-  "level",
   "test_patch",
   "PASS_TO_PASS",
 ] as const;
@@ -56,6 +55,12 @@ const select = (row: DatasetRow, fields: readonly string[]): Record<string, unkn
       return [field, row[field]];
     }),
   );
+
+const taskLevel = (taskId: string): number => {
+  const match = taskId.match(/\.lv(\d+)$/);
+  if (!match) throw new Error(`dataset task ${taskId} has no level suffix`);
+  return Number(match[1]);
+};
 
 export const taskKey = (taskId: string): string => {
   const slug = taskId
@@ -116,7 +121,7 @@ export const prepareTasks = (
         schema_version: 1,
         epoch_sha256: request.epochSha256,
         run_id: runId,
-        task: select(row, requiredGraderFields),
+        task: { ...select(row, requiredGraderFields), level: taskLevel(taskId) },
         inference_claim_key: `${prefix}/claims/model-attempt-1.json`,
         output_prefix: `${prefix}/grader`,
       },
