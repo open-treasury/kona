@@ -55,6 +55,11 @@ calls a model. Claude and Pi accept `--source`; Claude defaults to the approved 
 Pi defaults to `git:github.com/open-treasury/kona`, and both accept explicit local sources for
 offline validation.
 
+`update` first verifies and activates the latest trusted Kona CLI, then re-executes that immutable
+binary with the original arguments for the host update. If the host update subsequently fails, the
+verified CLI activation is intentionally retained; host lifecycle rollback remains independently
+bounded by its protected manifest and journal.
+
 Protected lifecycle state defaults to `${XDG_STATE_HOME:-$HOME/.local/state}/kona`; project and
 Claude local records are keyed by the canonical project root rather than written into project
 source.
@@ -75,7 +80,7 @@ to recover an interrupted operation. If rollback cannot be proved, Kona leaves r
 and refuses to claim success. Disable and remove affect every Kona capability, but authored copy,
 authored PRDs/SPECs, project source, and unrelated configuration are never lifecycle-owned.
 
-Release `0.5.0` writes strict schema-v5 ownership state for the ordered
+Release `0.5.1` writes strict schema-v5 ownership state for the ordered
 `copy`/`prd`/`spec`/`issues`/`epic-worktree` bundle. Schemas 1-4 retain their exact capability sets;
 schema-v4 `0.4.1` and `0.4.2` installations remain inspectable and removable. `verify` and
 `install` return `UPDATE_REQUIRED`; only an explicit `update` validates prior ownership and
@@ -193,7 +198,7 @@ natively; pinned git tags or commits must be replaced with a different pin for t
 
 ```bash
 kona update --host pi --scope user --approve
-kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.5.0 --approve
+kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.5.1 --approve
 ```
 
 The corresponding native lifecycle is:

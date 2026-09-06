@@ -5,7 +5,7 @@ import { gzipSync } from "node:zlib";
 
 import { CAPABILITY_REGISTRY } from "../lib/capability-registry.mjs";
 
-export const SEMVER = /^\d+\.\d+\.\d+$/;
+export const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const capabilityReleasePaths = CAPABILITY_REGISTRY.flatMap(({ manifest, adapter, canonical }) => [
   manifest,
   ...(adapter ? [adapter] : []),
@@ -22,6 +22,7 @@ export const RELEASE_FILES = [
   "lib/capability-registry.mjs",
   "lib/lifecycle-output.mjs",
   "lib/plugin-lifecycle.mjs",
+  "lib/self-update.mjs",
   "package.json",
 ]
   .toSorted((left, right) => left.localeCompare(right))
@@ -109,7 +110,12 @@ export async function buildRelease({ root = resolve(import.meta.dirname, "../.."
   if (requestedTag && requestedTag !== identity.tag)
     throw new Error(`KONA_RELEASE_TAG ${requestedTag} does not match ${identity.tag}`);
 
-  const installer = await readFile(join(root, "install.sh"));
+  const [installer, pluginInstaller] = await Promise.all([
+    readFile(join(root, "install.sh")),
+    readFile(join(root, "plugin/install.sh")),
+  ]);
+  if (!installer.equals(pluginInstaller))
+    throw new Error("plugin/install.sh must be byte-identical to the canonical installer");
   if (!installer.toString("utf8").includes(`KONA_VERSION='${identity.version}'`))
     throw new Error(`install.sh does not embed release version ${identity.version}`);
 
@@ -132,6 +138,7 @@ export async function buildRelease({ root = resolve(import.meta.dirname, "../.."
   }
   const launcher = await readFile(join(root, "plugin/bin/kona.mjs"));
   payload.push({ path: "kona/bin/kona", content: launcher, mode: 0o555 });
+  payload.push({ path: "kona/install.sh", content: installer, mode: 0o555 });
 
   const manifest = {
     schemaVersion: 1,

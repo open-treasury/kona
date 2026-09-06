@@ -36,22 +36,25 @@ export async function validateStaticContracts(root) {
       json(join(root, ".claude-plugin/marketplace.json")),
       json(join(pluginRoot, "capabilities/workflow-baseline.json")),
     ]);
-  const [resources, lifecycle, launcher, installer] = await Promise.all([
-    Promise.all(
-      CAPABILITY_REGISTRY.map(async (descriptor) => ({
-        skill: await readFile(join(pluginRoot, descriptor.canonical[0]), "utf8"),
-        supporting: await Promise.all(
-          descriptor.canonical.slice(1).map((path) => readFile(join(pluginRoot, path), "utf8")),
-        ),
-        adapter: descriptor.adapter
-          ? await readFile(join(pluginRoot, descriptor.adapter), "utf8")
-          : undefined,
-      })),
-    ),
-    readFile(join(pluginRoot, "lib/plugin-lifecycle.mjs"), "utf8"),
-    readFile(join(pluginRoot, "bin/kona.mjs"), "utf8"),
-    readFile(join(root, "install.sh"), "utf8"),
-  ]);
+  const [resources, lifecycle, selfUpdate, launcher, installer, pluginInstaller] =
+    await Promise.all([
+      Promise.all(
+        CAPABILITY_REGISTRY.map(async (descriptor) => ({
+          skill: await readFile(join(pluginRoot, descriptor.canonical[0]), "utf8"),
+          supporting: await Promise.all(
+            descriptor.canonical.slice(1).map((path) => readFile(join(pluginRoot, path), "utf8")),
+          ),
+          adapter: descriptor.adapter
+            ? await readFile(join(pluginRoot, descriptor.adapter), "utf8")
+            : undefined,
+        })),
+      ),
+      readFile(join(pluginRoot, "lib/plugin-lifecycle.mjs"), "utf8"),
+      readFile(join(pluginRoot, "lib/self-update.mjs"), "utf8"),
+      readFile(join(pluginRoot, "bin/kona.mjs"), "utf8"),
+      readFile(join(root, "install.sh"), "utf8"),
+      readFile(join(pluginRoot, "install.sh"), "utf8"),
+    ]);
 
   const requireUnique = (label, values) => {
     if (new Set(values).size !== values.length) fail(`duplicate ${label}`);
@@ -289,12 +292,28 @@ export async function validateStaticContracts(root) {
     "write-prd",
   ])
     if (canonicalText.includes(forbidden)) fail(`runtime has forbidden dependency: ${forbidden}`);
-  for (const source of [canonicalText, lifecycle, launcher]) {
+  for (const source of [canonicalText, lifecycle, selfUpdate, launcher]) {
     if (/\b(?:fetch|XMLHttpRequest|WebSocket)\s*\(/.test(source))
       fail("plugin runtime contains a network client");
   }
-  if (/from ["']node:(?:http|https|net|tls|dgram)["']/.test(`${lifecycle}\n${launcher}`))
+  if (
+    /from ["']node:(?:http|https|net|tls|dgram)["']/.test(
+      `${lifecycle}\n${selfUpdate}\n${launcher}`,
+    )
+  )
     fail("plugin runtime imports a network module");
+
+  for (const contract of [
+    /run\("sh", \[installer, "--latest"\]/,
+    /shell: false/,
+    /KONA_SELF_UPDATE_REEXEC/,
+    /realpath\(launcherPath\)/,
+  ])
+    requireMatch(
+      selfUpdate,
+      contract,
+      `self-update orchestration contract is missing: ${contract}`,
+    );
 
   for (const contract of [
     /assertSafeTarget/,
@@ -321,6 +340,9 @@ export async function validateStaticContracts(root) {
   }
 
   if (installer.includes("sudo")) fail("installer must not use sudo");
+  if (pluginInstaller !== installer) fail("plugin installer mirror is not byte-identical");
+  if (!selfUpdate.includes(sha256(installer)))
+    fail("source installer verification hash does not match the canonical installer");
   if (/\.(?:bashrc|zshrc|profile)|\/etc\//.test(installer))
     fail("installer must not edit startup or system configuration");
   return {

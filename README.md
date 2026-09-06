@@ -121,6 +121,11 @@ marketplace entry, and active scope per host. Use `verify`, `update`, `disable`,
 `remove` in place of `install`, retaining the same `--host` and `--scope`; Claude and Pi mutations
 show their native command plan and require `--approve`. Disable or remove an active scope before
 enabling another.
+
+`kona update` is a foreground, explicit network operation. It authenticates and activates the
+latest published Kona CLI first, then re-executes that immutable binary with the original arguments
+to update the selected host bundle. If the host update fails, the verified CLI update remains active;
+the host mutation is independently protected by its ownership manifest, lock, journal, and rollback.
 Existing unowned files require the exact reported SHA-256 through `--confirm-replace`; drift or an
 unverifiable backup blocks mutation and retains recovery evidence. Project Pi packages require
 project trust. The lifecycle CLI also defaults Pi installs to `git:github.com/open-treasury/kona`;

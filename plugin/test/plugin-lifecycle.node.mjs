@@ -373,11 +373,11 @@ async function installClaudeMock(value) {
     "claude",
     `const fs=require("node:fs");const path=require("node:path");const a=process.argv.slice(2);const p="${state}";const c="${calls}";const s=JSON.parse(fs.readFileSync(p));fs.appendFileSync(c,JSON.stringify(a)+"\\n");const save=()=>fs.writeFileSync(p,JSON.stringify(s));
  if(a.join(" ")==="plugin marketplace list --json")console.log(JSON.stringify(s.marketplaces??(s.marketplace?[{name:"kona",source:{source:"github",repo:"open-treasury/kona"}}]:[])));
- else if(a.join(" ")==="plugin list --json --available")console.log(JSON.stringify({installed:s.installed,available:s.available??(s.marketplace?[{pluginId:"kona@kona",name:"kona",marketplaceName:"kona",version:"0.5.0"}]:[])}));
-   else if(a.slice(0,2).join(" ")==="plugin details"){const installed=s.installed[0];const byVersion={"0.1.1":["prd"],"0.2.0":["prd","spec"],"0.3.0":["copy","prd","spec"],"0.4.1":["copy","prd","spec","issues"],"0.4.2":["copy","prd","spec","issues"],"0.5.0":["copy","prd","spec","issues","epic-worktree"]};const names=process.env.MOCK_CLAUDE_COMMANDS?JSON.parse(process.env.MOCK_CLAUDE_COMMANDS):byVersion[installed?.version]??[];console.log("kona "+installed?.version+"\\n  Source: "+(process.env.MOCK_CLAUDE_SOURCE||"kona@kona")+"\\n\\nComponent inventory\\n  Skills ("+names.length+")  "+names.join(", "))}
+ else if(a.join(" ")==="plugin list --json --available")console.log(JSON.stringify({installed:s.installed,available:s.available??(s.marketplace?[{pluginId:"kona@kona",name:"kona",marketplaceName:"kona",version:"0.5.1"}]:[])}));
+   else if(a.slice(0,2).join(" ")==="plugin details"){const installed=s.installed[0];const byVersion={"0.1.1":["prd"],"0.2.0":["prd","spec"],"0.3.0":["copy","prd","spec"],"0.4.1":["copy","prd","spec","issues"],"0.4.2":["copy","prd","spec","issues"],"0.5.0":["copy","prd","spec","issues","epic-worktree"],"0.5.1":["copy","prd","spec","issues","epic-worktree"]};const names=process.env.MOCK_CLAUDE_COMMANDS?JSON.parse(process.env.MOCK_CLAUDE_COMMANDS):byVersion[installed?.version]??[];console.log("kona "+installed?.version+"\\n  Source: "+(process.env.MOCK_CLAUDE_SOURCE||"kona@kona")+"\\n\\nComponent inventory\\n  Skills ("+names.length+")  "+names.join(", "))}
 else if(a.slice(0,3).join(" ")==="plugin marketplace add"){s.marketplace=true;save()}
 else if(a.slice(0,3).join(" ")==="plugin marketplace remove"){s.marketplace=false;save()}
-   else{const v=a[1],scope=a[4],i=s.installed.findIndex(x=>x.scope===scope&&(scope==="user"||x.projectPath===process.cwd()));const root=path.join("${installRoot}",scope);const version=process.env.MOCK_CLAUDE_MUTATION_VERSION||"0.5.0";if(process.env.MOCK_FAIL===v)process.exit(7);if(v==="install"||v==="update")fs.cpSync("${join(pluginRoot, "skills")}",path.join(root,"skills"),{recursive:true});if(v==="install")s.installed.push({id:"kona@kona",version,scope,enabled:true,installPath:root,projectPath:scope==="user"?undefined:process.cwd()});else if(v==="update")s.installed[i].version=version;else if(v==="uninstall")s.installed.splice(i,1);else if(v==="disable")s.installed[i].enabled=false;else if(v==="enable")s.installed[i].enabled=true;else process.exit(8);save()}`,
+   else{const v=a[1],scope=a[4],i=s.installed.findIndex(x=>x.scope===scope&&(scope==="user"||x.projectPath===process.cwd()));const root=path.join("${installRoot}",scope);const version=process.env.MOCK_CLAUDE_MUTATION_VERSION||"0.5.1";if(process.env.MOCK_FAIL===v)process.exit(7);if(v==="install"||v==="update")fs.cpSync("${join(pluginRoot, "skills")}",path.join(root,"skills"),{recursive:true});if(v==="install")s.installed.push({id:"kona@kona",version,scope,enabled:true,installPath:root,projectPath:scope==="user"?undefined:process.cwd()});else if(v==="update")s.installed[i].version=version;else if(v==="uninstall")s.installed.splice(i,1);else if(v==="disable")s.installed[i].enabled=false;else if(v==="enable")s.installed[i].enabled=true;else process.exit(8);save()}`,
   );
   return { state, calls };
 }
@@ -420,7 +420,7 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
             native: installed.body.details.verification.native,
           },
           {
-            version: "0.5.0",
+            version: "0.5.1",
             scope,
             invocation: host === "opencode" ? "@copy-writer" : "$copy",
             invocations:
@@ -485,7 +485,7 @@ test("AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and pr
         const updated = await value.run(["update", ...args]);
         assert.equal(updated.body.status, "updated");
         assert.equal(updated.body.details.verification.native, "verified");
-        assert.equal(updated.body.details.version, "0.5.0");
+        assert.equal(updated.body.details.version, "0.5.1");
         assert.equal(updated.body.details.scope, scope);
         assert.equal((await value.run(["disable", ...args])).body.status, "disabled");
         const enabled = await value.run(["enable", ...args]);
@@ -710,6 +710,58 @@ test("released schema-v2 version skew is rejected before adding copy", async () 
     await missing(join(value.project, ".opencode/skills/copy/SKILL.md"));
   } finally {
     await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("explicit update accepts released schema-5 v0.5.0 state", async () => {
+  const value = await fixture();
+  try {
+    await installCopiedHostMock(value, "opencode");
+    const args = ["--host", "opencode", "--scope", "project"];
+    assert.equal((await value.run(["install", ...args])).exitCode, 0);
+    const path = await manifestPath(value, "opencode", "project");
+    const manifest = JSON.parse(await readFile(path, "utf8"));
+    manifest.version = "0.5.0";
+    await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+
+    const updated = await value.run(["update", ...args]);
+    assert.equal(updated.exitCode, 0, JSON.stringify(updated.body));
+    assert.equal(JSON.parse(await readFile(path, "utf8")).version, "0.5.1");
+  } finally {
+    await rm(value.root, { recursive: true, force: true });
+  }
+});
+
+test("schema-5 v0.5.0 Codex state updates to v0.5.1 and rolls back exact state on discovery failure", async () => {
+  for (const rollback of [false, true]) {
+    const value = await fixture();
+    try {
+      await installCopiedHostMock(value, "codex");
+      const args = ["--host", "codex", "--scope", "project"];
+      assert.equal((await value.run(["install", ...args])).exitCode, 0);
+      const path = await manifestPath(value, "codex", "project");
+      const manifest = JSON.parse(await readFile(path, "utf8"));
+      manifest.version = "0.5.0";
+      await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+      const manifestBefore = await readFile(path);
+      const resourcesBefore = await Promise.all(
+        manifest.paths.map((resource) => readFile(resource)),
+      );
+      if (rollback) value.env.MOCK_HIDE_EPIC = "1";
+
+      const updated = await value.run(["update", ...args]);
+      if (rollback) {
+        assert.equal(updated.body.code, "DISCOVERY_FAILED", JSON.stringify(updated.body));
+        assert.deepEqual(await readFile(path), manifestBefore);
+        for (const [index, resource] of manifest.paths.entries())
+          assert.deepEqual(await readFile(resource), resourcesBefore[index]);
+      } else {
+        assert.equal(updated.exitCode, 0, JSON.stringify(updated.body));
+        assert.equal(JSON.parse(await readFile(path, "utf8")).version, "0.5.1");
+      }
+    } finally {
+      await rm(value.root, { recursive: true, force: true });
+    }
   }
 });
 
@@ -1138,7 +1190,7 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
         schema: 5,
         bundle: "authoring",
         capabilities: currentCapabilities,
-        version: "0.5.0",
+        version: "0.5.1",
         host: "pi",
         scope: "project",
         state: "active",
@@ -1192,7 +1244,7 @@ test("AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-upd
       "update",
       ...user,
       "--source",
-      "npm:@open-treasury/kona@0.5.0",
+      "npm:@open-treasury/kona@0.5.1",
       "--approve",
     ]);
     assert.equal(userUpdate.body.status, "updated", JSON.stringify(userUpdate.body));
@@ -1285,7 +1337,7 @@ test("Pi refuses pre-existing unmanaged matching packages at project and user sc
     const value = await fixture();
     try {
       const mock = await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.5.0";
+      const source = "npm:@open-treasury/kona@0.5.1";
       await writeFile(mock.state, JSON.stringify({ packages: [{ scope, source, enabled: true }] }));
       const result = await value.run([
         "install",
@@ -1294,7 +1346,7 @@ test("Pi refuses pre-existing unmanaged matching packages at project and user sc
         "--scope",
         scope,
         "--source",
-        "npm:@open-treasury/kona@0.5.0",
+        "npm:@open-treasury/kona@0.5.1",
         "--approve",
       ]);
       assert.equal(result.body.code, "UNMANAGED_NATIVE_INSTALL");
@@ -1316,7 +1368,7 @@ test("Pi blocks unmanaged Kona packages across project and user activation scope
     const value = await fixture();
     try {
       const mock = await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.5.0";
+      const source = "npm:@open-treasury/kona@0.5.1";
       await writeFile(
         mock.state,
         JSON.stringify({ packages: [{ scope: installedScope, source, enabled: true }] }),
@@ -1328,7 +1380,7 @@ test("Pi blocks unmanaged Kona packages across project and user activation scope
         "--scope",
         requestedScope,
         "--source",
-        "npm:@open-treasury/kona@0.5.0",
+        "npm:@open-treasury/kona@0.5.1",
         "--approve",
       ]);
       assert.equal(result.body.code, "UNMANAGED_NATIVE_INSTALL");
@@ -1348,7 +1400,7 @@ test("Pi blocks native active opposite scopes independently of protected state",
     const value = await fixture();
     try {
       await installPiMock(value);
-      const source = "npm:@open-treasury/kona@0.5.0";
+      const source = "npm:@open-treasury/kona@0.5.1";
       await value.run([
         "install",
         "--host",
@@ -1387,7 +1439,7 @@ test("Pi remove retains ownership when RPC hides discovery but native listing re
   try {
     await installPiMock(value);
     const args = ["--host", "pi", "--scope", "project"];
-    await value.run(["install", ...args, "--source", "npm:@open-treasury/kona@0.5.0", "--approve"]);
+    await value.run(["install", ...args, "--source", "npm:@open-treasury/kona@0.5.1", "--approve"]);
     value.env.MOCK_PI_HIDE_COMMAND = "1";
     value.env.MOCK_PI_KEEP_PACKAGE = "1";
     const result = await value.run(["remove", ...args, "--approve"]);
@@ -1416,7 +1468,7 @@ test("Pi failed-install compensation removes only the package Kona just created"
       "--scope",
       "project",
       "--source",
-      "npm:@open-treasury/kona@0.5.0",
+      "npm:@open-treasury/kona@0.5.1",
       "--approve",
     ]);
     assert.equal(result.body.code, "DISCOVERY_FAILED");
@@ -1499,11 +1551,11 @@ test("Claude refuses to commit schema 5 for non-current native install and updat
   const installing = await fixture();
   try {
     const mock = await installClaudeMock(installing);
-    installing.env.MOCK_CLAUDE_MUTATION_VERSION = "0.5.1";
+    installing.env.MOCK_CLAUDE_MUTATION_VERSION = "0.5.0";
     const args = ["--host", "claude", "--scope", "project", "--approve"];
     const result = await installing.run(["install", ...args]);
     assert.equal(result.body.code, "DISCOVERY_FAILED", JSON.stringify(result.body));
-    assert.match(result.body.message, /expected 0\.5\.0/);
+    assert.match(result.body.message, /expected 0\.5\.1/);
     assert.deepEqual(JSON.parse(await readFile(mock.state, "utf8")).installed, []);
     await missing(await manifestPath(installing, "claude", "project"));
   } finally {
@@ -1607,7 +1659,7 @@ test("Pi requires exact bundle package command provenance at project and user sc
               "install",
               ...args,
               "--source",
-              "npm:@open-treasury/kona@0.5.0",
+              "npm:@open-treasury/kona@0.5.1",
               "--approve",
             ])
           ).exitCode,
@@ -1633,7 +1685,7 @@ test("Pi requires exact bundle package command provenance at project and user sc
           "install",
           ...args,
           "--source",
-          "npm:@open-treasury/kona@0.5.0",
+          "npm:@open-treasury/kona@0.5.1",
           "--approve",
         ])
       ).exitCode,
@@ -1810,6 +1862,53 @@ test("schema-v3 native bundles migrate directly to strict schema 5 only through 
   }
 });
 
+test("schema-5 v0.5.0 Claude and Pi state updates to v0.5.1 and retains its manifest on rollback", async () => {
+  for (const host of ["claude", "pi"]) {
+    for (const rollback of [false, true]) {
+      const value = await fixture();
+      try {
+        const mock =
+          host === "claude" ? await installClaudeMock(value) : await installPiMock(value);
+        const args = ["--host", host, "--scope", "project"];
+        const installArgs =
+          host === "claude"
+            ? [...args, "--approve"]
+            : [...args, "--source", repositoryRoot, "--approve"];
+        assert.equal((await value.run(["install", ...installArgs])).exitCode, 0);
+        const path = await manifestPath(value, host, "project");
+        const manifest = JSON.parse(await readFile(path, "utf8"));
+        manifest.version = "0.5.0";
+        await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+        if (host === "claude") {
+          const native = JSON.parse(await readFile(mock.state, "utf8"));
+          native.installed[0].version = "0.5.0";
+          await writeFile(mock.state, JSON.stringify(native));
+        }
+        const manifestBefore = await readFile(path);
+        if (rollback) {
+          if (host === "claude") value.env.MOCK_CLAUDE_MUTATION_VERSION = "latest";
+          else value.env.MOCK_PI_COMMANDS = JSON.stringify(schemaV4Capabilities);
+        }
+
+        const result = await value.run(["update", ...args, "--approve"]);
+        if (rollback) {
+          assert.equal(
+            result.body.code,
+            host === "claude" ? "RECOVERY_PARTIAL" : "DISCOVERY_FAILED",
+            `${host}: ${JSON.stringify(result.body)}`,
+          );
+          assert.deepEqual(await readFile(path), manifestBefore);
+        } else {
+          assert.equal(result.exitCode, 0, `${host}: ${JSON.stringify(result.body)}`);
+          assert.equal(JSON.parse(await readFile(path, "utf8")).version, "0.5.1");
+        }
+      } finally {
+        await rm(value.root, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
 test("failed native schema-v3 and schema-v4 migrations retain exact prior state", async () => {
   for (const host of ["claude", "pi"]) {
     for (const [makePrior, names] of [
@@ -1841,7 +1940,7 @@ test("failed native schema-v3 and schema-v4 migrations retain exact prior state"
         assert.deepEqual(await readFile(previous.path), manifestBefore);
         if (host === "claude") {
           const nativeStateAfter = JSON.parse(await readFile(mock.state, "utf8"));
-          assert.equal(nativeStateAfter.installed[0].version, "0.5.0");
+          assert.equal(nativeStateAfter.installed[0].version, "0.5.1");
           assert.notDeepEqual(await readFile(mock.state), nativeStateBefore);
         } else {
           assert.notDeepEqual(await readFile(mock.state), nativeStateBefore);
@@ -1955,10 +2054,10 @@ test("v0.4.1 and v0.4.2 schema 4 state remain readable and migrate only through 
           ...(host === "claude" || host === "pi" ? ["--approve"] : []),
         ]);
         assert.equal(updated.exitCode, 0, `${host}: ${JSON.stringify(updated.body)}`);
-        assert.equal(updated.body.details.version, "0.5.0");
+        assert.equal(updated.body.details.version, "0.5.1");
         const migrated = JSON.parse(await readFile(path, "utf8"));
         assert.equal(migrated.schema, 5);
-        assert.equal(migrated.version, "0.5.0");
+        assert.equal(migrated.version, "0.5.1");
         assert.deepEqual(migrated.capabilities, currentCapabilities);
         if (host === "claude" || host === "pi") {
           const state = JSON.parse(
@@ -2070,7 +2169,7 @@ test("Claude refuses every mutation of a selected unmanaged native install", asy
           installed: [
             {
               id: "kona@kona",
-              version: "0.5.0",
+              version: "0.5.1",
               scope: "project",
               enabled: verb !== "enable",
               projectPath: value.project,
@@ -2167,8 +2266,8 @@ test("Claude accepts only consistent normalized marketplace source fields and on
       marketplace: true,
       installed: [],
       available: [
-        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.5.0" },
-        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.5.0" },
+        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.5.1" },
+        { pluginId: "kona@kona", name: "kona", marketplaceName: "kona", version: "0.5.1" },
       ],
     },
   ]) {

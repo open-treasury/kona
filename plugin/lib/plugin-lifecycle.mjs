@@ -28,7 +28,7 @@ const LEGACY_VERSION = "0.1.1";
 const RELEASED_VERSION = "0.2.0";
 const PREVIOUS_VERSION = "0.3.0";
 const SCHEMA_V4_VERSION = "0.4.2";
-const CURRENT_VERSION = "0.5.0";
+const CURRENT_VERSION = "0.5.1";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
 const CLAUDE_NON_PORTABLE_SKILLS = new Set(["plan", "run"]);
@@ -47,6 +47,7 @@ const SCHEMA_VERSIONS = new Map([
   [SCHEMA, CURRENT_VERSION],
 ]);
 const SCHEMA_V4_VERSIONS = new Set(["0.4.1", SCHEMA_V4_VERSION]);
+const SCHEMA_V5_VERSIONS = new Set(["0.5.0", CURRENT_VERSION]);
 const LEGACY_CLAUDE_PAYLOAD = {
   copy: [
     ["skills/copy/SKILL.md", "390d02d1886427f45328b20e04c865b0865c94128a6beb1c3130fbf861f606aa"],
@@ -115,7 +116,8 @@ const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const modeOf = (value) => `0${(value & 0o777).toString(8)}`;
 const validManifestVersion = (manifest) =>
   manifest.version === SCHEMA_VERSIONS.get(manifest.schema) ||
-  (manifest.schema === SCHEMA_V4 && SCHEMA_V4_VERSIONS.has(manifest.version));
+  (manifest.schema === SCHEMA_V4 && SCHEMA_V4_VERSIONS.has(manifest.version)) ||
+  (manifest.schema === SCHEMA && SCHEMA_V5_VERSIONS.has(manifest.version));
 
 async function durableWrite(path, content, mode = 0o600) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -197,6 +199,39 @@ function parseArguments(argv, cwd, env) {
     options.claudeSource = options.source || CLAUDE_SOURCE;
   }
   return options;
+}
+
+function failureResult(argv, options, error) {
+  const failure =
+    error instanceof LifecycleError
+      ? error
+      : new LifecycleError("INTERNAL", error.message || String(error), 4);
+  return {
+    exitCode: failure.exitCode,
+    json: options?.json || argv.includes("--json"),
+    body: {
+      ok: false,
+      verb: options?.verb || argv[0] || null,
+      host: options?.host || null,
+      scope: options?.scope || null,
+      code: failure.code,
+      status: "refused",
+      message: failure.message,
+      recovered: false,
+      details: failure.details,
+    },
+  };
+}
+
+export function validateLifecycleArguments(argv, context = {}) {
+  try {
+    return {
+      options: parseArguments(argv, context.cwd || process.cwd(), context.env || process.env),
+      result: null,
+    };
+  } catch (error) {
+    return { options: null, result: failureResult(argv, null, error) };
+  }
 }
 
 function resourcePlan(options, capabilities = CAPABILITY_REGISTRY) {
@@ -2847,7 +2882,9 @@ async function copiedLifecycle(options) {
 export async function runLifecycle(argv, context = {}) {
   let options;
   try {
-    options = parseArguments(argv, context.cwd || process.cwd(), context.env || process.env);
+    const validation = validateLifecycleArguments(argv, context);
+    if (validation.result) return validation.result;
+    options = validation.options;
     options.projectRoot = await realpath(options.projectRoot).catch(() => options.projectRoot);
     await prepareProtectedState(options);
     if (Number.parseInt(process.versions.node.split(".")[0], 10) < 20)
@@ -2877,24 +2914,6 @@ export async function runLifecycle(argv, context = {}) {
       },
     };
   } catch (error) {
-    const failure =
-      error instanceof LifecycleError
-        ? error
-        : new LifecycleError("INTERNAL", error.message || String(error), 4);
-    return {
-      exitCode: failure.exitCode,
-      json: options?.json || argv.includes("--json"),
-      body: {
-        ok: false,
-        verb: options?.verb || argv[0] || null,
-        host: options?.host || null,
-        scope: options?.scope || null,
-        code: failure.code,
-        status: "refused",
-        message: failure.message,
-        recovered: false,
-        details: failure.details,
-      },
-    };
+    return failureResult(argv, options, error);
   }
 }
