@@ -149,6 +149,36 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
   );
   expect(first.task.test_patch).toBeUndefined();
   const control = JSON.parse(readFileSync(join(paths.out, "control.json"), "utf8"));
+  const bin = join(directory, "bin");
+  const awsCalls = join(directory, "aws-calls.txt");
+  mkdirSync(bin);
+  writeFileSync(
+    join(bin, "aws"),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${awsCalls}'\ncase "$*" in\n  *"stepfunctions start-execution"*) printf '%s\\n' '{"executionArn":"arn:execution"}' ;;\n  *) printf '%s\\n' '{"VersionId":"version-1"}' ;;\nesac\n`,
+  );
+  chmodSync(join(bin, "aws"), 0o755);
+  const start = Bun.spawn(
+    [
+      "bun",
+      join(import.meta.dir, "..", "cli.ts"),
+      "start",
+      "--plan-dir",
+      paths.out,
+      "--phase",
+      "probe",
+    ],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    },
+  );
+  expect(await start.exited).toBe(0);
+  const calls = readFileSync(awsCalls, "utf8");
+  expect(calls).toContain('"versionId":"version-1"');
+  expect(calls).toContain(
+    `${control.runId}-probe-${sha256(readFileSync(join(paths.out, "probe.json"))).slice(0, 12)}`,
+  );
   const probeArtifacts = join(directory, "probe-artifacts");
   for (const taskId of manifest.tasks.slice(0, 3)) {
     for (const phase of ["infer", "grade"] as const) {
@@ -201,8 +231,6 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
     }
   }
   const seal = join(directory, "probe-seal.json");
-  const bin = join(directory, "bin");
-  mkdirSync(bin);
   writeFileSync(join(bin, "aws"), "#!/bin/sh\nprintf '%s\\n' '{\"Signature\":\"c2ln\"}'\n");
   chmodSync(join(bin, "aws"), 0o755);
   const approval = Bun.spawn(

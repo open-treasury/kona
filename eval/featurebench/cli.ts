@@ -250,24 +250,52 @@ if (command === "preflight") {
     ],
     repositoryRoot,
   );
-  if (result.exitCode !== 0) throw new Error(`run control publication failed: ${result.stderr}`);
+  if (result.exitCode !== 0) {
+    if (!/PreconditionFailed|412/i.test(result.stderr)) {
+      throw new Error(`run control publication failed: ${result.stderr}`);
+    }
+    const existing = await exec(
+      [
+        "aws",
+        "s3",
+        "cp",
+        `s3://${control.infrastructure.artifactBucket}/${prefix}/control.json`,
+        "-",
+      ],
+      repositoryRoot,
+    );
+    if (
+      existing.exitCode !== 0 ||
+      existing.stdout !== readFileSync(join(planDir, "control.json"), "utf8")
+    ) {
+      throw new Error("existing run control does not match the local immutable control");
+    }
+  }
   const manifestKey = `orchestration/${control.runId}/${phase}.json`;
+  const manifestPath = join(planDir, `${phase}.json`);
+  const manifestSha256 = sha256(readFileSync(manifestPath));
   result = await exec(
     [
       "aws",
-      "s3",
-      "cp",
-      join(planDir, `${phase}.json`),
-      `s3://${control.infrastructure.artifactBucket}/${manifestKey}`,
+      "s3api",
+      "put-object",
+      "--bucket",
+      control.infrastructure.artifactBucket,
+      "--key",
+      manifestKey,
+      "--body",
+      manifestPath,
     ],
     repositoryRoot,
   );
   if (result.exitCode !== 0) throw new Error(result.stderr);
+  const manifestVersionId = (JSON.parse(result.stdout) as { VersionId?: string }).VersionId;
+  if (!manifestVersionId) throw new Error("manifest upload returned no S3 version ID");
   const input = canonicalJson({
     phase,
     runId: control.runId,
     epochSha256: control.epoch.epochSha256,
-    manifestSha256: sha256(readFileSync(join(planDir, `${phase}.json`))),
+    manifestSha256,
     probeApproved: phase === "continue",
     probeSealSha256:
       phase === "continue"
@@ -282,7 +310,11 @@ if (command === "preflight") {
         ? (load(required("probe-seal")) as { probeSignature: string }).probeSignature
         : null,
     requestedConcurrency: control.request.requestedConcurrency,
-    manifest: { bucket: control.infrastructure.artifactBucket, key: manifestKey },
+    manifest: {
+      bucket: control.infrastructure.artifactBucket,
+      key: manifestKey,
+      versionId: manifestVersionId,
+    },
     resultPrefix: `orchestration/${control.runId}/${phase}-results`,
   }).trim();
   result = await exec(
@@ -293,7 +325,7 @@ if (command === "preflight") {
       "--state-machine-arn",
       control.infrastructure.stateMachineArn,
       "--name",
-      `${control.runId}-${phase}`,
+      `${control.runId}-${phase}-${manifestSha256.slice(0, 12)}`,
       "--input",
       input,
     ],
