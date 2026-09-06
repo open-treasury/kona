@@ -110,7 +110,7 @@ export const prepareTasks = (
         run_id: runId,
         arm_type: request.armType,
         task: select(row, requiredInferenceFields),
-        model: "azure/gpt-5.6-sol",
+        model: "openai/gpt-5.6-sol",
         model_reasoning_effort: "xhigh",
         output_prefix: `${prefix}/inference`,
         prepared_claim_key: `${prefix}/claims/workspace-preparation.json`,
