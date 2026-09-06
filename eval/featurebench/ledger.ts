@@ -180,7 +180,7 @@ export const saveAndPushExperiment = async (
   }
   try {
     const pulled = await run(
-      ["dvc", "pull", "-r", "eval-s3", "eval/experiments/artifacts.dvc"],
+      ["dvc", "pull", "--force", "-r", "eval-s3", "eval/experiments/artifacts.dvc"],
       repositoryRoot,
     );
     if (pulled.exitCode !== 0) {

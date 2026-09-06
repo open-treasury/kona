@@ -146,7 +146,7 @@ describe("DVC experiment ledger", () => {
       ["dvc", "exp", "show", "--json"],
       ["dvc", "status", "--cloud", "-r", "eval-s3"],
       ["dvc", "config", "--local", "cache.dir", "/tmp/kona-dvc-verify-819f0f74bbc3"],
-      ["dvc", "pull", "-r", "eval-s3", "eval/experiments/artifacts.dvc"],
+      ["dvc", "pull", "--force", "-r", "eval-s3", "eval/experiments/artifacts.dvc"],
       ["dvc", "config", "--local", "--unset", "cache.dir"],
     ]);
     expect(
