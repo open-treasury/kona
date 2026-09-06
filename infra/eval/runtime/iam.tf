@@ -18,6 +18,16 @@ data "aws_iam_policy_document" "states_assume" {
   }
 }
 
+data "aws_iam_policy_document" "lambda_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
 resource "aws_iam_role" "inference_execution" {
   name               = "${var.name_prefix}-inference-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
@@ -51,6 +61,31 @@ resource "aws_iam_role" "prepare_task" {
 resource "aws_iam_role" "states" {
   name               = "${var.name_prefix}-states"
   assume_role_policy = data.aws_iam_policy_document.states_assume.json
+}
+
+resource "aws_iam_role" "probe_verifier" {
+  name               = "${var.name_prefix}-probe-verifier"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+data "aws_iam_policy_document" "probe_verifier" {
+  statement {
+    actions   = ["kms:Verify"]
+    resources = [aws_kms_key.probe_approval.arn]
+  }
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${var.artifact_bucket}/orchestration/${var.active_run_id}/continue.json"]
+  }
+  statement {
+    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "probe_verifier" {
+  role   = aws_iam_role.probe_verifier.id
+  policy = data.aws_iam_policy_document.probe_verifier.json
 }
 
 data "aws_iam_policy_document" "inference_execution" {
@@ -204,6 +239,10 @@ resource "aws_iam_role_policy" "prepare_task" {
 }
 
 data "aws_iam_policy_document" "states" {
+  statement {
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.probe_verifier.arn]
+  }
   statement {
     actions = ["ecs:RunTask"]
     resources = concat(

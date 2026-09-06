@@ -16,6 +16,11 @@ override_data {
 }
 
 override_data {
+  target = data.aws_iam_policy_document.lambda_assume
+  values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+}
+
+override_data {
   target = data.aws_iam_policy_document.inference_execution
   values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
 }
@@ -47,6 +52,11 @@ override_data {
 
 override_data {
   target = data.aws_iam_policy_document.states
+  values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+}
+
+override_data {
+  target = data.aws_iam_policy_document.probe_verifier
   values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
 }
 

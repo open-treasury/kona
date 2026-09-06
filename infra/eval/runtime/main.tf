@@ -5,6 +5,23 @@ resource "aws_kms_key" "probe_approval" {
   enable_key_rotation      = false
 }
 
+data "archive_file" "probe_verifier" {
+  type        = "zip"
+  source_file = "${path.module}/probe_verifier.py"
+  output_path = "${path.module}/.terraform/probe-verifier.zip"
+}
+
+resource "aws_lambda_function" "probe_verifier" {
+  function_name    = "${var.name_prefix}-probe-verifier"
+  role             = aws_iam_role.probe_verifier.arn
+  runtime          = "python3.12"
+  handler          = "probe_verifier.handler"
+  filename         = data.archive_file.probe_verifier.output_path
+  source_code_hash = data.archive_file.probe_verifier.output_base64sha256
+  timeout          = 30
+  environment { variables = { SIGNING_KEY_ARN = aws_kms_key.probe_approval.arn } }
+}
+
 resource "aws_cloudwatch_log_group" "inference" {
   name              = "/${var.name_prefix}/inference"
   retention_in_days = var.log_retention_days
@@ -174,30 +191,25 @@ resource "aws_sfn_state_machine" "eval" {
       }
       VerifyProbe = {
         Type     = "Task"
-        Resource = "arn:aws:states:::aws-sdk:kms:verify"
+        Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
-          KeyId            = aws_kms_key.probe_approval.arn
-          "Message.$"      = "$.probeMessage"
-          "Signature.$"    = "$.probeSignature"
-          MessageType      = "RAW"
-          SigningAlgorithm = "RSASSA_PSS_SHA_256"
+          FunctionName = aws_lambda_function.probe_verifier.arn
+          Payload = {
+            "message.$"              = "$.probeMessage"
+            "signature.$"            = "$.probeSignature"
+            "runId.$"                = "$.runId"
+            "epochSha256.$"          = "$.epochSha256"
+            "requestedConcurrency.$" = "$.requestedConcurrency"
+          }
         }
         ResultPath = "$.probeVerification"
         Next       = "DecodeAuthorization"
       }
-      DecodeAuthorization = {
-        Type = "Pass"
-        Parameters = {
-          "authorization.$" = "States.StringToJson(States.Base64Decode($.probeMessage))"
-        }
-        ResultPath = "$.signed"
-        Next       = "ProbeVerified"
-      }
+      DecodeAuthorization = { Type = "Pass", ResultPath = "$.signed", Next = "ProbeVerified", Parameters = { "authorization.$" = "$.probeVerification.Payload.authorization", "manifestVersionId.$" = "$.probeVerification.Payload.manifestVersionId" } }
       ProbeVerified = {
         Type = "Choice"
         Choices = [{
           And = [
-            { Variable = "$.probeVerification.SignatureValid", BooleanEquals = true },
             { Variable = "$.signed.authorization.phase", StringEquals = "continue" },
             { Variable = "$.signed.authorization.runId", StringEqualsPath = "$.runId" },
             { Variable = "$.signed.authorization.epochSha256", StringEqualsPath = "$.epochSha256" },
@@ -214,8 +226,9 @@ resource "aws_sfn_state_machine" "eval" {
           Resource     = "arn:aws:states:::s3:getObject"
           ReaderConfig = { InputType = "JSON" }
           Parameters = {
-            "Bucket.$" = "$.manifest.bucket"
-            "Key.$"    = "$.manifest.key"
+            "Bucket.$"    = "$.manifest.bucket"
+            "Key.$"       = "$.manifest.key"
+            "VersionId.$" = "$.manifest.versionId"
           }
         }
         ItemProcessor = {
