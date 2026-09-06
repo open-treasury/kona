@@ -143,19 +143,11 @@ describe("DVC experiment ledger", () => {
         "origin",
         "fb11-fast-aaaaaaaaaaaaaaaa--kona-bbbbbbbbbbbb",
       ],
-      ["dvc", "exp", "show", "fb11-fast-aaaaaaaaaaaaaaaa--kona-bbbbbbbbbbbb", "--json"],
+      ["dvc", "exp", "show", "--json"],
       ["dvc", "status", "--cloud", "-r", "eval-s3"],
-      [
-        "dvc",
-        "-c",
-        "cache.dir=/tmp/kona-dvc-verify-819f0f74bbc3",
-        "exp",
-        "pull",
-        "-r",
-        "eval-s3",
-        "origin",
-        "fb11-fast-aaaaaaaaaaaaaaaa--kona-bbbbbbbbbbbb",
-      ],
+      ["dvc", "config", "--local", "cache.dir", "/tmp/kona-dvc-verify-819f0f74bbc3"],
+      ["dvc", "pull", "-r", "eval-s3", "eval/experiments/artifacts.dvc"],
+      ["dvc", "config", "--local", "--unset", "cache.dir"],
     ]);
     expect(
       JSON.parse(readFileSync(join(root, "eval", "experiments", "metrics.json"), "utf8")).quality

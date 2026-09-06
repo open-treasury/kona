@@ -163,16 +163,33 @@ export const saveAndPushExperiment = async (
     ["dvc", "add", "eval/experiments/artifacts"],
     ["dvc", "exp", "save", "--name", name],
     ["dvc", "exp", "push", "-r", "eval-s3", "origin", name],
-    ["dvc", "exp", "show", name, "--json"],
+    ["dvc", "exp", "show", "--json"],
     ["dvc", "status", "--cloud", "-r", "eval-s3"],
-    ["dvc", "-c", `cache.dir=${verificationCache}`, "exp", "pull", "-r", "eval-s3", "origin", name],
   ] as const;
   for (const argv of commands) {
     const result = await run(argv, repositoryRoot);
     if (result.exitCode !== 0)
       throw new Error(`${argv.slice(0, 3).join(" ")} failed: ${result.stderr}`);
   }
-  rmSync(verificationCache, { recursive: true, force: true });
+  const configured = await run(
+    ["dvc", "config", "--local", "cache.dir", verificationCache],
+    repositoryRoot,
+  );
+  if (configured.exitCode !== 0) {
+    throw new Error(`DVC verification cache configuration failed: ${configured.stderr}`);
+  }
+  try {
+    const pulled = await run(
+      ["dvc", "pull", "-r", "eval-s3", "eval/experiments/artifacts.dvc"],
+      repositoryRoot,
+    );
+    if (pulled.exitCode !== 0) {
+      throw new Error(`DVC recovery verification failed: ${pulled.stderr}`);
+    }
+  } finally {
+    await run(["dvc", "config", "--local", "--unset", "cache.dir"], repositoryRoot);
+    rmSync(verificationCache, { recursive: true, force: true });
+  }
 };
 
 export const validateDecision = (value: DecisionRecord): DecisionRecord => {
