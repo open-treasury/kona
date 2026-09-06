@@ -161,7 +161,17 @@ export const saveAndPushExperiment = async (
   rmSync(verificationCache, { recursive: true, force: true });
   const commands = [
     ["dvc", "add", "eval/experiments/artifacts"],
-    ["dvc", "exp", "save", "--name", name],
+    [
+      "dvc",
+      "exp",
+      "save",
+      "--name",
+      name,
+      "--include-untracked",
+      "eval/experiments/.gitignore",
+      "--include-untracked",
+      "eval/experiments/artifacts.dvc",
+    ],
     ["dvc", "exp", "push", "-r", "eval-s3", "origin", name],
     ["dvc", "exp", "show", "--json"],
     ["dvc", "status", "--cloud", "-r", "eval-s3"],

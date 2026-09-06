@@ -133,7 +133,17 @@ describe("DVC experiment ledger", () => {
       ["git", "rev-parse", "HEAD"],
       ["git", "status", "--porcelain=v1"],
       ["dvc", "add", "eval/experiments/artifacts"],
-      ["dvc", "exp", "save", "--name", "fb11-fast-aaaaaaaaaaaaaaaa--kona-bbbbbbbbbbbb"],
+      [
+        "dvc",
+        "exp",
+        "save",
+        "--name",
+        "fb11-fast-aaaaaaaaaaaaaaaa--kona-bbbbbbbbbbbb",
+        "--include-untracked",
+        "eval/experiments/.gitignore",
+        "--include-untracked",
+        "eval/experiments/artifacts.dvc",
+      ],
       [
         "dvc",
         "exp",
