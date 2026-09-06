@@ -9,6 +9,7 @@ test("derived images use FeatureBench's supported Python runtime", () => {
   for (const dockerfile of ["inference.Dockerfile", "grader.Dockerfile"]) {
     const source = readFileSync(join(images, dockerfile), "utf8");
     expect(source).toContain("python=3.12.11");
+    expect(source).toContain("apt-get install --yes --no-install-recommends tmux asciinema");
     expect(source).not.toContain("--ignore-requires-python");
   }
 });

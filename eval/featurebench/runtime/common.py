@@ -54,6 +54,8 @@ class LocalTransport:
         log_file: Path | None = None,
         **_kwargs: object,
     ) -> tuple[int, str]:
+        if command == "apt-get update && apt-get install -y tmux asciinema":
+            command = "command -v tmux >/dev/null && command -v asciinema >/dev/null"
         completed = subprocess.run(
             ["bash", "-lc", command],
             cwd=workdir,

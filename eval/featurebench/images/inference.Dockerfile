@@ -4,7 +4,11 @@ FROM ${BASE_IMAGE}
 ARG FEATUREBENCH_REVISION=3a19b110a39a13f5cd000472a2209f112219af64
 ARG MINI_SWE_AGENT_VERSION=2.4.6
 
-RUN /opt/miniconda3/bin/conda create --yes --prefix /opt/kona-eval-venv python=3.12.11 pip \
+RUN sed -i 's|http://mirrors.aliyun.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends tmux asciinema \
+    && rm -rf /var/lib/apt/lists/* \
+    && /opt/miniconda3/bin/conda create --yes --prefix /opt/kona-eval-venv python=3.12.11 pip \
     && /opt/kona-eval-venv/bin/pip install --no-cache-dir \
       "numpy==2.2.6" \
       "scipy==1.16.3" \
