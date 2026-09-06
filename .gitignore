@@ -15,6 +15,13 @@ docs/Rec2.txt
 node_modules/
 dist/
 *.log
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+infra/eval/bootstrap/backend.tf
+infra/eval/bootstrap/backend.hcl
+infra/eval/images/backend.hcl
 
 # Stryker sandboxes and reports
 .stryker-tmp/

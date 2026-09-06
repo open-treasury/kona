@@ -373,8 +373,8 @@ Outputs are non-secret: cluster ARN, state machine ARN, task-definition ARNs, su
 ### 9.3. IAM and Secrets
 
 - The Azure secret value is created and rotated outside Terraform. Terraform receives only its ARN. ECS secret injection places the value transiently in the inference process environment; it is never in source, image layers, task commands, task-definition plaintext, Terraform plan/state/output, S3 artifacts, or logs.
-- Use separate inference and grader task execution roles and task roles. Inference execution can pull only inference ECR images and resolve the Azure secret; its task role can write only its own inference staging prefix and logs. It cannot read grader repositories or grader prefixes.
-- Grader execution can pull only grader ECR images and has no Azure-secret permission. Its task role can read the selected patch, write its grader prefix, and emit logs; it cannot read inference trajectories or DVC cache.
+- Use separate inference and grader task execution roles and task roles. Inference execution can pull only inference ECR images, write its CloudWatch stream, and resolve the Azure secret; its task role can read only sanitized inference requests and write only its own inference/claim prefixes. It cannot read grader requests, grader images, or grader prefixes.
+- Grader execution can pull only grader ECR images and write its CloudWatch stream, with no Azure-secret permission. Its task role can read only grader requests, the selected patch and claim, and write its grader prefix; it cannot read inference trajectories or DVC cache.
 - The Step Functions role may start only the two task-definition families, pass only their exact roles, describe/stop tasks started by the workflow, use the managed EventBridge integration rule, start/describe child workflows, and access only orchestration result prefixes.
 - Human/CI collector credentials, not runtime roles, read sealed staging and read/write the DVC prefix. Terraform operators and backend users are separate from task roles.
 - Logs redact authorization headers, API keys, URLs with credentials, provider request bodies, and environment dumps. ECS Exec is disabled for paid runs.
