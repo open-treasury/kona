@@ -74,7 +74,7 @@ data "aws_iam_policy_document" "probe_verifier" {
     resources = [aws_kms_key.probe_approval.arn]
   }
   statement {
-    actions   = ["s3:GetObject"]
+    actions   = ["s3:GetObject", "s3:GetObjectVersion"]
     resources = ["arn:aws:s3:::${var.artifact_bucket}/orchestration/${var.active_run_id}/continue.json"]
   }
   statement {
