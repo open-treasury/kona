@@ -68,6 +68,17 @@ A change to any of these inputs starts a new epoch. The evaluator must run a new
 - DVC experiment tracking integrated with Git and a configured DVC artifact remote.
 - Amazon ECS/Fargate execution with a requested concurrency preset of 20 or 50 tasks.
 - A Fargate-compatible task package that runs one FeatureBench task, agent, and grader without privileged containers or Docker-in-Docker.
+- Terraform-managed AWS infrastructure for execution, durable DVC storage, networking, IAM, secrets references, logs, and cost attribution.
+
+### Infrastructure as Code
+
+Terraform is the only supported way to create or change the AWS evaluation infrastructure. The configuration must separate:
+
+1. **Durable data infrastructure:** the encrypted, versioned DVC remote and any compact result index that must survive execution-stack teardown.
+2. **Ephemeral execution infrastructure:** ECS cluster, Fargate task definitions, ECR repositories, networking, security groups, log groups, and orchestration resources used to run an arm.
+
+The maintainer reviews `terraform plan` before applying changes. Destroying the ephemeral stack must not delete DVC results, experiment artifacts, or Terraform state. API credentials are created outside Terraform; Terraform receives only secret ARNs and grants tasks least-privilege read access at runtime.
+
 - Manual merge and upgrade decisions.
 
 ## 3. Motivation
@@ -170,6 +181,15 @@ Rerunning pure GPT and all prior versions for every change would be prohibitivel
 | FR24 | The evaluator must support requested concurrency values of 20 and 50. Preflight must verify Azure TPM/RPM and AWS capacity before scheduling and must require explicit confirmation to fall back from 50 to 20.                                                 |
 | FR25 | Requested and effective concurrency, throttling, retries, and quota errors must be stored as DVC parameters or metrics. Quality comparisons across concurrency presets require no quota-induced behavior change; latency comparisons require equal concurrency. |
 | FR26 | Each FeatureBench task must run directly as an isolated Linux x86-64 Fargate task. The solution must not require privileged mode, a host Docker socket, or Docker-in-Docker, which Fargate does not support.                                                    |
+| FR27 | All AWS evaluation resources must be declared in Terraform using pinned Terraform and AWS provider versions with a committed dependency lock file. Manually created runtime dependencies are not permitted.                                                     |
+| FR28 | Terraform must provision or configure the ECS cluster, Fargate task definitions, ECR repositories, VPC networking, security groups, CloudWatch logging, IAM execution/task roles, and the S3-backed DVC remote required by the evaluator.                       |
+| FR29 | Terraform must expose validated inputs for AWS region, environment name, Fargate CPU/memory/storage, requested concurrency preset (`20` or `50`), image digests, log retention, cost tags, and secret ARNs.                                                     |
+| FR30 | Terraform must not accept, render, output, or store the Azure API key or other secret values. Fargate tasks must retrieve secrets at launch from AWS Secrets Manager or an equivalent approved AWS secret reference.                                            |
+| FR31 | IAM policies must grant the execution and task roles only the ECR, logging, secret-read, DVC object, and orchestration actions required by their roles. Terraform outputs must not expose credentials.                                                          |
+| FR32 | Terraform state must use an encrypted remote backend with locking and restricted access. State recovery instructions and ownership must be documented.                                                                                                          |
+| FR33 | The durable DVC storage layer must have encryption, versioning, retention/lifecycle policy, and deletion protection appropriate to the experiment ledger. Destroying the execution layer must leave durable results intact.                                     |
+| FR34 | Terraform must output the non-secret identifiers needed by the runner, including cluster, task definition, subnets, security groups, log group, ECR image, DVC bucket, and region.                                                                              |
+| FR35 | CI and local validation must run formatting, initialization without backend credentials where supported, configuration validation, and a speculative plan before infrastructure changes are approved.                                                           |
 
 ### Non-Functional Requirements
 
@@ -202,6 +222,11 @@ Rerunning pure GPT and all prior versions for every change would be prohibitivel
 15. **Given** a completed local run whose experiment ref or required artifacts were not pushed, **When** ledger status is evaluated, **Then** the arm is marked INCOMPLETE.
 16. **Given** requested concurrency 50 and insufficient Azure or AWS quota, **When** preflight runs, **Then** no benchmark task starts until the maintainer explicitly selects concurrency 20 or resolves the quota limitation.
 17. **Given** two otherwise compatible arms with concurrency 20 and 50, **When** reporting compares them, **Then** quality is compared only if neither arm experienced quota-induced retries or throttling, and latency is labeled non-comparable.
+18. **Given** a clean AWS account or approved environment, **When** the reviewed Terraform configuration is applied, **Then** all infrastructure required to launch a Fargate benchmark task and store DVC artifacts is created without manual console resources.
+19. **Given** Terraform configuration containing only secret ARNs, **When** plan, state, outputs, task definitions, and logs are inspected, **Then** no Azure API key or other secret value is present.
+20. **Given** the execution stack and completed DVC experiments, **When** the ephemeral Terraform stack is destroyed, **Then** compute and transient networking resources are removed while DVC objects, their version history, and Terraform state remain recoverable.
+21. **Given** concurrency 20 or 50, **When** Terraform plans the execution stack, **Then** the selected preset and corresponding Fargate task capacity are visible in the plan and recorded in the resulting experiment parameters.
+22. **Given** an infrastructure change, **When** validation runs, **Then** Terraform formatting and validation pass and reviewers receive a non-secret speculative plan before apply.
 
 ### Decision Metric
 
@@ -257,6 +282,9 @@ This is a planning estimate, not a guarantee. One attempt per task does not meas
 | Requested concurrency exceeds Azure or AWS quota                  | Validate both quotas before scheduling and require an explicit downgrade from 50 to 20 rather than allowing throttled execution. |
 | DVC experiment refs are assumed to move with plain Git push       | Require `dvc exp push`/`pull` in the lifecycle and verify remote availability before marking an arm complete.                    |
 | Large artifacts make Git history unusable                         | Commit only DVC metadata and compact decision records to normal Git; store large content-addressed artifacts in the DVC remote.  |
+| Terraform teardown deletes evaluation history                     | Separate durable and ephemeral state, protect the DVC bucket, and verify retained artifacts after execution-stack destroy.       |
+| Secrets leak through Terraform state or plan                      | Pass only secret ARNs through Terraform and resolve secret values inside the Fargate task at launch.                             |
+| Broad IAM permissions expose unrelated AWS resources              | Use separate least-privilege execution and task roles and validate their effective permissions before the first paid run.        |
 
 ## 7. Out of Scope
 
@@ -271,6 +299,8 @@ This is a planning estimate, not a guarantee. One attempt per task does not meas
 9. Rewriting the existing long-horizon evaluation's frozen pre-registration.
 10. Storing large benchmark outputs directly in Git objects.
 11. Requiring DVC Studio; local CLI and Git/DVC remotes are sufficient for the initial delivery.
+12. Manual creation or ongoing console management of AWS resources represented by Terraform.
+13. Creating or rotating Azure credentials through Terraform.
 
 ## 8. Open Decisions
 
@@ -282,6 +312,8 @@ This is a planning estimate, not a guarantee. One attempt per task does not meas
 6. Select the DVC remote backend, access policy, retention period, and recovery owner.
 7. Decide whether accepted experiments are additionally promoted to ordinary Git branches with `dvc exp branch` or remain shared experiment refs plus a Git-tracked decision index.
 8. Confirm the Fargate task size, AWS region, ephemeral storage allocation, networking path, and account task quota after the staged probe.
+9. Select the Terraform remote-state backend location, locking mechanism, access principals, and disaster-recovery owner.
+10. Confirm the retention period and deletion-approval process for the durable DVC bucket and experiment artifacts.
 
 ## 9. References
 
@@ -296,3 +328,5 @@ This is a planning estimate, not a guarantee. One attempt per task does not meas
 - [Azure OpenAI quota guidance](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/quota) - deployment quota and rate-limit behavior.
 - [DVC experiment tracking](https://dvc.org/doc/start/experiments/experiment-tracking) - experiment execution, metrics, parameters, and comparison workflow.
 - [DVC experiment sharing](https://dvc.org/doc/user-guide/experiment-management/sharing-experiments) - experiment refs, `dvc exp push`/`pull`, DVC remotes, and optional promotion to Git branches.
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs) - AWS infrastructure resources and provider contract.
+- [Amazon ECS task definition](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_task_definition) - Fargate task, runtime platform, CPU, memory, and container configuration.
