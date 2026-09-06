@@ -1,10 +1,11 @@
 # Kona portable capability bundle
 
-Canonical copy, PRD, SPEC, and issues skills run on OpenCode, Codex, Claude Code, and Pi. PRD and
+Canonical copy, PRD, SPEC, issues, and epic-worktree skills run on OpenCode, Codex, Claude Code, and Pi. PRD and
 SPEC create or refine agreed documents. Copy supports `generate`, `revise`, and `source-edit`: it
 returns a standalone draft, improves supplied copy, or changes only explicitly agreed project files
 and strings. Issues plans and executes Beads-backed work. One Kona release and lifecycle operation
-manages all four skills.
+manages all five skills. Epic worktree operations use one private Node.js/Git helper, require
+state-bound confirmation for creation and removal, and never refresh or destroy existing work.
 
 Copy source edits preserve placeholders, interpolation, markup, links, accessibility semantics,
 localization keys, syntax, formatting, behavior, and unrelated content. The skill requests any
@@ -60,7 +61,7 @@ source.
 
 Only one scope per host may be active. Disable or remove the active scope before installing or
 enabling another; disabled scopes may coexist. There is no per-capability selector: every verb acts
-on the copy, PRD, SPEC, and issues bundle together. Kona refuses unsafe links, ownership/version
+on the copy, PRD, SPEC, issues, and epic-worktree bundle together. Kona refuses unsafe links, ownership/version
 drift, unknown state schemas, and changed backups. If an allowed destination already contains an
 unowned file, inspect the reported conflict and consent to only those exact bytes:
 
@@ -74,19 +75,19 @@ to recover an interrupted operation. If rollback cannot be proved, Kona leaves r
 and refuses to claim success. Disable and remove affect every Kona capability, but authored copy,
 authored PRDs/SPECs, project source, and unrelated configuration are never lifecycle-owned.
 
-Release `0.4.1` writes strict schema-v4 ownership state for the ordered
-`copy`/`prd`/`spec`/`issues` bundle. Schema-v1 `0.1.1` PRD-only, schema-v2 `0.2.0` PRD+SPEC,
-and schema-v3 `0.3.0` copy+PRD+SPEC installations remain inspectable and removable. `verify` and
-`install` return `UPDATE_REQUIRED`; only an explicit `update` validates legacy ownership and
-migrates directly to schema v4. A disabled legacy install must be enabled and verified before
+Release `0.5.0` writes strict schema-v5 ownership state for the ordered
+`copy`/`prd`/`spec`/`issues`/`epic-worktree` bundle. Schemas 1-4 retain their exact capability sets;
+schema-v4 `0.4.1` and `0.4.2` installations remain inspectable and removable. `verify` and
+`install` return `UPDATE_REQUIRED`; only an explicit `update` validates prior ownership and
+migrates directly to schema v5. A disabled prior install must be enabled and verified before
 update.
 
 ## OpenCode
 
-| Scope   | Installed roots and adapters                                                                                                |
-| ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Project | `.opencode/skills/{copy,prd,spec,issues}/` and `.opencode/agents/{copy-writer,prd-writer,spec-writer}.md`                   |
-| User    | `~/.config/opencode/skills/{copy,prd,spec,issues}/` and `~/.config/opencode/agents/{copy-writer,prd-writer,spec-writer}.md` |
+| Scope   | Installed roots and adapters                                                                                                                            |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Project | `.opencode/skills/{copy,prd,spec,issues,epic-worktree}/` and `.opencode/agents/{copy-writer,prd-writer,spec-writer,epic-worktree}.md`                   |
+| User    | `~/.config/opencode/skills/{copy,prd,spec,issues,epic-worktree}/` and `~/.config/opencode/agents/{copy-writer,prd-writer,spec-writer,epic-worktree}.md` |
 
 ```bash
 kona install --host opencode --scope project
@@ -98,16 +99,16 @@ kona remove --host opencode --scope project
 ```
 
 Replace `project` with `user` for user scope. Invoke `@copy-writer <brief>`, `@prd-writer <brief>`,
-`@spec-writer <brief>`, or `issues`. Copy edits and proportionate local validation commands require
+`@spec-writer <brief>`, `issues`, or `@epic-worktree`. Copy edits and proportionate local validation commands require
 approval; network access is denied. Disable removes owned discovery files while preserving
 protected state; enable restores them. Kona does not edit unrelated `opencode.json` content.
 
 ## Codex
 
-| Scope   | Installed skill roots                      |
-| ------- | ------------------------------------------ |
-| Project | `.agents/skills/{copy,prd,spec,issues}/`   |
-| User    | `~/.agents/skills/{copy,prd,spec,issues}/` |
+| Scope   | Installed skill roots                                    |
+| ------- | -------------------------------------------------------- |
+| Project | `.agents/skills/{copy,prd,spec,issues,epic-worktree}/`   |
+| User    | `~/.agents/skills/{copy,prd,spec,issues,epic-worktree}/` |
 
 ```bash
 kona install --host codex --scope project
@@ -119,7 +120,7 @@ kona remove --host codex --scope project
 ```
 
 Replace `project` with `user` for user scope. Invoke `$copy <brief>`, `$prd <brief>`, or
-`$spec <brief>`, or `$issues`. Disable/enable changes all four entries in one bounded Kona-owned
+`$spec <brief>`, `$issues`, or `$epic-worktree`. Disable/enable changes all five entries in one bounded Kona-owned
 block in `~/.codex/config.toml`; restart Codex afterward.
 
 ## Claude Code
@@ -139,8 +140,8 @@ kona remove --host claude --scope project --approve
 
 Replace `project` with `local` for an unshared repository installation or `user` for all projects.
 Claude stores the single Kona plugin in its host-managed plugin root for that scope and discovers
-all four skills through the existing `./skills/` directory. Invoke `/kona:copy <brief>`,
-`/kona:prd <brief>`, `/kona:spec <brief>`, or `/kona:issues`. Kona registers the approved marketplace
+all five skills through the existing `./skills/` directory. Invoke `/kona:copy <brief>`,
+`/kona:prd <brief>`, `/kona:spec <brief>`, `/kona:issues`, or `/kona:epic-worktree`. Kona registers the approved marketplace
 when absent and refuses a duplicate marketplace, a same-named plugin from another source, or another
 active scope. Claude's marketplace auto-update setting remains host-controlled; `kona update`
 requests an explicit update.
@@ -168,7 +169,7 @@ reverse operation.
 
 Kona's canonical Pi source is `git:github.com/open-treasury/kona`. Pi reads the repository-root
 `package.json`, whose package metadata declares `./plugin/skills/copy`, `./plugin/skills/prd`,
-`./plugin/skills/spec`, and `./plugin/skills/issues` in deterministic order. Project scope records the one package in
+`./plugin/skills/spec`, `./plugin/skills/issues`, and `./plugin/skills/epic-worktree` in deterministic order. Project scope records the one package in
 `.pi/settings.json`; user scope records it in `~/.pi/agent/settings.json`. Both resolve those skill
 roots inside the same installed package. A project must be trusted before Pi loads local resources.
 Kona uses Pi's one-run `--approve` override and does not persist a user trust decision.
@@ -187,12 +188,12 @@ kona remove --host pi --scope project --approve
 
 Replace `project` with `user` for user scope. `--source /absolute/path/to/kona` overrides the
 canonical source for local/offline validation. Invoke `/skill:copy <brief>`, `/skill:prd <brief>`,
-`/skill:spec <brief>`, or `/skill:issues`. Unpinned sources update
+`/skill:spec <brief>`, `/skill:issues`, or `/skill:epic-worktree`. Unpinned sources update
 natively; pinned git tags or commits must be replaced with a different pin for the same package:
 
 ```bash
 kona update --host pi --scope user --approve
-kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.4.2 --approve
+kona update --host pi --scope project --source git:github.com/open-treasury/kona@v0.5.0 --approve
 ```
 
 The corresponding native lifecycle is:
@@ -210,14 +211,15 @@ pi remove git:github.com/open-treasury/kona -l
 pi remove git:github.com/open-treasury/kona
 ```
 
-Disable/enable opens `pi config -l` or `pi config`; toggle all four Kona skills and exit so Kona can
+Disable/enable opens `pi config -l` or `pi config`; toggle all five Kona skills and exit so Kona can
 verify their discovery state.
 
 ## Privacy and development
 
 The skills, templates, adapters, and lifecycle runtime contain no analytics or telemetry, no
 background network behavior, and no runtime dependency on the source repository's `guidelines/`
-directory. Copy and PRD authoring are offline. The issues skill accesses the network only for an
+directory. Copy and PRD authoring are offline. Epic-worktree network access is limited to the
+explicit `git pull --ff-only origin main` required for confirmed creation. The issues skill accesses the network only for an
 explicitly approved `br` installation. SPEC external research occurs only when a material public
 fact requires it and host/user policy permits it; private repository content is never transmitted
 without permission. The release bootstrap contacts only approved GitHub release/CDN hosts; Claude
@@ -225,7 +227,7 @@ and Pi may contact only the sources configured for their explicit native package
 
 Run the checkout directly with `claude --plugin-dir ./plugin`; Claude uses its existing skill
 directory discovery, so invoke `/kona:copy <brief>`, `/kona:prd <brief>`, `/kona:spec <brief>`,
-`/kona:plan <brief>`, or `/kona:run`. Validate changes with:
+`/kona:epic-worktree`, `/kona:plan <brief>`, or `/kona:run`. Validate changes with:
 
 ```bash
 bun run plugin:build

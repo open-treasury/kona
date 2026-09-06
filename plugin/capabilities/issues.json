@@ -2,12 +2,12 @@
   "type": "capability",
   "schemaVersion": 1,
   "name": "issues",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "modes": ["plan", "execute"],
   "canonical": {
     "skill": {
       "path": "skills/issues/SKILL.md",
-      "sha256": "4bb86d5415ac9832a763fd3bdd243d4a8ba92456c9a67159f06fb03af032e039",
+      "sha256": "f21646c0a3f663ea5850130c3372e5715564efe04be1fad26e4488c717d9d8bd",
       "mode": "0644"
     }
   },

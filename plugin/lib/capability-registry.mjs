@@ -59,11 +59,24 @@ const workflowCapability = (name) => ({
   hosts: hosts(name, name),
 });
 
+const operationalCapability = (name) => ({
+  name,
+  kind: "operational",
+  modes: ["propose", "start", "check", "finish"],
+  manifest: `capabilities/${name}.json`,
+  canonical: [`skills/${name}/SKILL.md`, `skills/${name}/scripts/${name}.mjs`],
+  copiedHostDirectory: `skills/${name}`,
+  adapter: `hosts/opencode/agents/${name}.md`,
+  adapterDestination: `agents/${name}.md`,
+  hosts: hosts(name, `@${name}`),
+});
+
 export const CAPABILITY_REGISTRY = [
   copyCapability,
   authoringCapability("prd"),
   authoringCapability("spec"),
   workflowCapability("issues"),
+  operationalCapability("epic-worktree"),
 ];
 
 export function validateCapabilityRegistry(registry) {
@@ -84,17 +97,27 @@ export function validateCapabilityRegistry(registry) {
   }
 
   for (const descriptor of registry) {
-    if (!new Set(["authoring", "copywriting", "workflow"]).has(descriptor.kind))
+    if (!new Set(["authoring", "copywriting", "workflow", "operational"]).has(descriptor.kind))
       throw new Error(`invalid capability kind: ${descriptor.name}`);
     if (descriptor.kind === "workflow" && (descriptor.adapter || descriptor.canonical.length !== 1))
       throw new Error(`invalid workflow capability: ${descriptor.name}`);
-    if (descriptor.kind !== "workflow" && (!descriptor.adapter || descriptor.canonical.length < 2))
+    if (
+      descriptor.kind === "operational" &&
+      (!descriptor.adapter || descriptor.canonical.length !== 2 || !descriptor.adapterDestination)
+    )
+      throw new Error(`invalid operational capability: ${descriptor.name}`);
+    if (
+      !new Set(["workflow", "operational"]).has(descriptor.kind) &&
+      (!descriptor.adapter || descriptor.canonical.length < 2)
+    )
       throw new Error(`invalid capability: ${descriptor.name}`);
   }
 
   if (
     JSON.stringify(registry.map(({ name }) => name)) !==
-    JSON.stringify(["copy", "prd", "spec", "issues"])
+    JSON.stringify(["copy", "prd", "spec", "issues", "epic-worktree"])
   )
-    throw new Error("capability registry order must be copy, prd, spec, then issues");
+    throw new Error(
+      "capability registry order must be copy, prd, spec, issues, then epic-worktree",
+    );
 }

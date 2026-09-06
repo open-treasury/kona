@@ -10,7 +10,8 @@
       "./plugin/skills/copy",
       "./plugin/skills/prd",
       "./plugin/skills/spec",
-      "./plugin/skills/issues"
+      "./plugin/skills/issues",
+      "./plugin/skills/epic-worktree"
     ]
   },
   "workspaces": [

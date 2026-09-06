@@ -1,0 +1,37 @@
+{
+  "type": "capability",
+  "schemaVersion": 1,
+  "name": "epic-worktree",
+  "version": "0.5.0",
+  "modes": ["propose", "start", "check", "finish"],
+  "canonical": {
+    "skill": {
+      "path": "skills/epic-worktree/SKILL.md",
+      "sha256": "0ced93bc977969deb1cf5d0f6e8a5593547e5bbb7dde9555adc14711c92da83f",
+      "mode": "0644"
+    },
+    "helper": {
+      "path": "skills/epic-worktree/scripts/epic-worktree.mjs",
+      "sha256": "3fdc44035aa8222286e8504a2b7a1fa7f24cfd2ca9dd1ae4f4bb9efa7d2f8c67",
+      "mode": "0644"
+    }
+  },
+  "hosts": {
+    "opencode": {
+      "scopes": ["project", "user"],
+      "invocation": "@epic-worktree"
+    },
+    "codex": {
+      "scopes": ["project", "user"],
+      "invocation": "$epic-worktree"
+    },
+    "claude": {
+      "scopes": ["project", "local", "user"],
+      "invocation": "/kona:epic-worktree"
+    },
+    "pi": {
+      "scopes": ["project", "user"],
+      "invocation": "/skill:epic-worktree"
+    }
+  }
+}

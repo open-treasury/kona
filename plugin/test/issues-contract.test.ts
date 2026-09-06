@@ -59,6 +59,60 @@ describe("canonical issues capability", () => {
       expect(skill).toMatch(contract);
   });
 
+  test("owns the reserved epic workspace context without replacing sibling data", () => {
+    for (const contract of [
+      /`agent_context\.kona\.epicSlugSeed`/i,
+      /`agent_context\.kona\.workspace`/i,
+      /missing `kona\.workspace`[\s\S]*only `not-started` representation/i,
+      /deep-copy[\s\S]*complete current `agent_context`/i,
+      /modify only[\s\S]*`kona\.epicSlugSeed`[\s\S]*`kona\.workspace`/i,
+      /semantic(?:ally)?(?: equality| unchanged| preservation)[\s\S]*unrelated/i,
+      /malformed or non-object `agent_context`[\s\S]*fail closed/i,
+      /reserved-key type conflict[\s\S]*fail closed/i,
+    ])
+      expect(skill).toMatch(contract);
+  });
+
+  test("discovers and verifies the advertised br metadata interface", () => {
+    for (const contract of [
+      /root,\s*`create`,\s*`show`, and `update` help/i,
+      /machine-readable JSON/i,
+      /advertised `--agent-context`/i,
+      /advertised atomic `--claim`/i,
+      /`source_repo_path`[\s\S]*canonical primary repository root/i,
+      /same Git common directory/i,
+      /not[\s\S]*mapping authority/i,
+      /Never read or edit tracker storage\s+directly/i,
+    ])
+      expect(skill).toMatch(contract);
+  });
+
+  test("uses conflict-detecting reads without inventing context CAS", () => {
+    for (const contract of [
+      /does not provide[\s\S]*compare-and-set[\s\S]*`agent_context`/i,
+      /do not\s+invent one/i,
+      /canonical(?:ized)? `agent_context`[\s\S]*digest/i,
+      /immediately before[\s\S]*write[\s\S]*re-read/i,
+      /digest differs[\s\S]*do not write/i,
+      /write\s+the complete merged context[\s\S]*re-read/i,
+      /post-write mismatch[\s\S]*do not[\s\S]*rollback/i,
+    ])
+      expect(skill).toMatch(contract);
+  });
+
+  test("makes the worktree helper an implementation authority gate", () => {
+    for (const contract of [
+      /`propose`, `start`, `check`, and `finish`/i,
+      /display[\s\S]*path[\s\S]*branch[\s\S]*base policy[\s\S]*explicit confirmation/i,
+      /declin(?:e|ing)[\s\S]*no claim[\s\S]*helper[\s\S]*context mutation/i,
+      /`kona\.workspace\.state === active`/i,
+      /host-local[\s\S]*`READY` or\s+`READY_EXISTING_WORK`/i,
+      /before[\s\S]*source-edit authority/i,
+      /`READY_EXISTING_WORK`[\s\S]*already-active/i,
+    ])
+      expect(skill).toMatch(contract);
+  });
+
   test("has no destination repository assumptions", () => {
     for (const forbidden of [
       "plugin/",
@@ -78,7 +132,7 @@ describe("canonical issues capability", () => {
       type: "capability",
       schemaVersion: 1,
       name: "issues",
-      version: "0.4.2",
+      version: "0.5.0",
       modes: ["plan", "execute"],
     });
     expect(Object.keys(manifest.canonical)).toEqual(["skill"]);

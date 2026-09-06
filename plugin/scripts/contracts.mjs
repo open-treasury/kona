@@ -155,12 +155,20 @@ export async function validateStaticContracts(root) {
         `authoring skill description is invalid: ${descriptor.name}`,
       );
     if (adapter) {
-      if (adapter.split("\n").length >= 15)
+      if (descriptor.kind !== "operational" && adapter.split("\n").length >= 15)
         fail(`OpenCode adapter is not thin: ${descriptor.name}`);
       const permissionContracts =
-        descriptor.name === "copy"
-          ? [/edit: ask/, /bash: ask/, /webfetch: deny/]
-          : [/"\*": deny[\s\S]*"\*\.md": allow/, /bash: deny/];
+        descriptor.kind === "operational"
+          ? [
+              /edit: deny/,
+              /webfetch: deny/,
+              /skill:\n\s+"\*": deny\n\s+epic-worktree: allow/,
+              /question: allow/,
+              /bash:\n\s+"\*": deny\n\s+"node \*\/skills\/epic-worktree\/scripts\/epic-worktree\.mjs \*": allow/,
+            ]
+          : descriptor.name === "copy"
+            ? [/edit: ask/, /bash: ask/, /webfetch: deny/]
+            : [/"\*": deny[\s\S]*"\*\.md": allow/, /bash: deny/];
       for (const contract of [
         /mode: subagent/,
         ...permissionContracts,
@@ -173,6 +181,24 @@ export async function validateStaticContracts(root) {
         );
     }
   }
+
+  const operational = resources.find(
+    (_, index) => CAPABILITY_REGISTRY[index].kind === "operational",
+  );
+  if (!operational) fail("epic-worktree operational capability is missing");
+  for (const contract of [
+    /sole authority for Git discovery and mutation/i,
+    /Only `start` and confirmed `finish` mutate Git/i,
+    /Never run Git mutations directly/i,
+    /HOST_TRANSITION_REQUIRED/,
+    /READY_EXISTING_WORK/,
+    /direnv allow/,
+    /mise trust/,
+  ])
+    requireMatch(operational.skill, contract, `epic-worktree contract is missing: ${contract}`);
+  const contributorAdapter = await readFile(join(root, ".opencode/agents/epic-worktree.md"));
+  if (!Buffer.from(operational.adapter).equals(contributorAdapter))
+    fail("epic-worktree contributor adapter is not byte-identical");
 
   const issuesSkill = resources.find(
     (_, index) => CAPABILITY_REGISTRY[index].name === "issues",

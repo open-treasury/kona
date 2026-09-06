@@ -19,29 +19,70 @@ const CLAUDE_MARKETPLACE = "kona";
 const CLAUDE_PLUGIN = "kona";
 const CLAUDE_SOURCE = "https://github.com/open-treasury/kona";
 const PI_SOURCE = "git:github.com/open-treasury/kona";
-const SCHEMA = 4;
+const SCHEMA = 5;
 const LEGACY_SCHEMA = 1;
 const RELEASED_SCHEMA = 2;
 const PREVIOUS_SCHEMA = 3;
+const SCHEMA_V4 = 4;
 const LEGACY_VERSION = "0.1.1";
 const RELEASED_VERSION = "0.2.0";
 const PREVIOUS_VERSION = "0.3.0";
-const CURRENT_VERSION = "0.4.2";
+const SCHEMA_V4_VERSION = "0.4.2";
+const CURRENT_VERSION = "0.5.0";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
+const CLAUDE_NON_PORTABLE_SKILLS = new Set(["plan", "run"]);
 const SCHEMA_CAPABILITIES = new Map([
   [LEGACY_SCHEMA, ["prd"]],
   [RELEASED_SCHEMA, ["prd", "spec"]],
   [PREVIOUS_SCHEMA, ["copy", "prd", "spec"]],
+  [SCHEMA_V4, ["copy", "prd", "spec", "issues"]],
   [SCHEMA, CAPABILITIES],
 ]);
 const SCHEMA_VERSIONS = new Map([
   [LEGACY_SCHEMA, LEGACY_VERSION],
   [RELEASED_SCHEMA, RELEASED_VERSION],
   [PREVIOUS_SCHEMA, PREVIOUS_VERSION],
+  [SCHEMA_V4, SCHEMA_V4_VERSION],
   [SCHEMA, CURRENT_VERSION],
 ]);
-const SCHEMA_V4_VERSIONS = new Set(["0.4.1", CURRENT_VERSION]);
+const SCHEMA_V4_VERSIONS = new Set(["0.4.1", SCHEMA_V4_VERSION]);
+const LEGACY_CLAUDE_PAYLOAD = {
+  copy: [
+    ["skills/copy/SKILL.md", "390d02d1886427f45328b20e04c865b0865c94128a6beb1c3130fbf861f606aa"],
+    [
+      "skills/copy/references/components.md",
+      "72c479cb2632194863e7d6f88cb693c9929e83896ad4e91df75d2708c1fd23e0",
+    ],
+    [
+      "skills/copy/references/style-and-safety.md",
+      "c4d268266d2bc7853e4ac51e3da0bd8495fbe8010642239a73061f0342a115f0",
+    ],
+  ],
+  prd: [
+    ["skills/prd/SKILL.md", "6f3b6b818a6d80233c05147de894713a3aca81d1482db2c37350c794f9bb9f40"],
+    [
+      "skills/prd/templates/prd.md",
+      "1bb8bbaa791854443b020a6c4c008efe944340e646eb9b4bae9c7947a61f8f5c",
+    ],
+  ],
+  spec: [
+    ["skills/spec/SKILL.md", "543587c41a499e405718d0bcfd68b00a0ee8cabde6e5a61c5bb72b0a9fcaf184"],
+    [
+      "skills/spec/templates/spec.md",
+      "0226c0641354202bcc8ae2889fe5f8212264dfd1f28185d51f6c8287808bff0d",
+    ],
+  ],
+  issues: [
+    ["skills/issues/SKILL.md", "4bb86d5415ac9832a763fd3bdd243d4a8ba92456c9a67159f06fb03af032e039"],
+  ],
+};
+const LEGACY_PAYLOAD_PATHS = new Map([
+  [
+    "4bb86d5415ac9832a763fd3bdd243d4a8ba92456c9a67159f06fb03af032e039",
+    "legacy/sha256/4bb86d5415ac9832a763fd3bdd243d4a8ba92456c9a67159f06fb03af032e039",
+  ],
+]);
 const MANIFEST = "manifest.json";
 const JOURNAL = "journal.json";
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -57,6 +98,10 @@ class LifecycleError extends Error {
 }
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+const opencodeAgentName = (capability) =>
+  capability.adapterDestination
+    ? capability.adapterDestination.slice("agents/".length, -".md".length)
+    : `${capability.name}-writer`;
 const pathExists = async (path) => {
   try {
     await lstat(path);
@@ -70,7 +115,7 @@ const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const modeOf = (value) => `0${(value & 0o777).toString(8)}`;
 const validManifestVersion = (manifest) =>
   manifest.version === SCHEMA_VERSIONS.get(manifest.schema) ||
-  (manifest.schema === SCHEMA && SCHEMA_V4_VERSIONS.has(manifest.version));
+  (manifest.schema === SCHEMA_V4 && SCHEMA_V4_VERSIONS.has(manifest.version));
 
 async function durableWrite(path, content, mode = 0o600) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -176,7 +221,10 @@ function resourcePlan(options, capabilities = CAPABILITY_REGISTRY) {
         .filter(({ adapter }) => adapter)
         .map((capability) => ({
           source: join(options.sourceRoot, capability.adapter),
-          target: join(copiedHostRoot, "agents", `${capability.name}-writer.md`),
+          target: join(
+            copiedHostRoot,
+            capability.adapterDestination || `agents/${capability.name}-writer.md`,
+          ),
           mode: "0644",
         })),
     );
@@ -318,17 +366,21 @@ async function sourceResources(options, registry = CAPABILITY_REGISTRY) {
   if (options.host === "opencode") {
     for (const capability of capabilitiesForResources(resources).filter(({ adapter }) => adapter)) {
       const adapter = resources.find((resource) =>
-        resource.target.endsWith(`${capability.name}-writer.md`),
+        resource.target.endsWith(`${opencodeAgentName(capability)}.md`),
       );
       const content = adapter?.content.toString("utf8") || "";
       const permissionContract =
-        capability.name === "copy"
-          ? /permission:\n  edit: ask\n  bash: ask\n  webfetch: deny\n/
-          : /permission:\n  edit:\n    "\*": deny\n    "\*\.md": allow\n  bash: deny\n/;
+        capability.kind === "operational"
+          ? /permission:\n  edit: deny\n  webfetch: deny\n  skill:\n    "\*": deny\n    epic-worktree: allow\n  question: allow\n  bash:\n    "\*": deny\n    "node \*\/skills\/epic-worktree\/scripts\/epic-worktree\.mjs \*": allow\n/
+          : capability.name === "copy"
+            ? /permission:\n  edit: ask\n  bash: ask\n  webfetch: deny\n/
+            : /permission:\n  edit:\n    "\*": deny\n    "\*\.md": allow\n  bash: deny\n/;
       const boundaryContract =
-        capability.name === "copy"
-          ? /Use the `copy` skill/
-          : new RegExp(`Edit only the agreed ${capability.name.toUpperCase()}`);
+        capability.kind === "operational"
+          ? /invoke only its adjacent helper/
+          : capability.name === "copy"
+            ? /Use the `copy` skill/
+            : new RegExp(`Edit only the agreed ${capability.name.toUpperCase()}`);
       if (
         !/^---\n[\s\S]*?mode: subagent\n[\s\S]*?---\n/m.test(content) ||
         !permissionContract.test(content) ||
@@ -376,13 +428,12 @@ async function verifyOpenCodeDiscovery(options, resources, enabled = true) {
     const skills = JSON.parse(skillsOutput);
     for (const capability of capabilitiesForResources(resources)) {
       if (capability.adapter) {
-        const agentDiscovered = new RegExp(`^${capability.name}-writer \\(subagent\\)$`, "m").test(
-          agents,
-        );
+        const agentName = opencodeAgentName(capability);
+        const agentDiscovered = new RegExp(`^${agentName} \\(subagent\\)$`, "m").test(agents);
         if (agentDiscovered !== enabled)
           throw new LifecycleError(
             "DISCOVERY_FAILED",
-            `OpenCode reported the ${capability.name}-writer subagent as ${agentDiscovered ? "enabled" : "disabled"}`,
+            `OpenCode reported the ${agentName} subagent as ${agentDiscovered ? "enabled" : "disabled"}`,
             4,
           );
       }
@@ -678,6 +729,14 @@ async function inspectBackups(manifest) {
   }
 }
 
+function disabledResourcePath(options, resource) {
+  return join(
+    protectedPaths(options).scopeRoot,
+    "disabled",
+    `${sha256(resource.path)}-${resource.sha256}`,
+  );
+}
+
 async function inspectDisabled(manifest, options, resources) {
   await inspectBackups(manifest);
   if (manifest.host === "codex") {
@@ -691,7 +750,28 @@ async function inspectDisabled(manifest, options, resources) {
       throw new LifecycleError("DRIFT", "Kona's bounded Codex configuration block has changed", 4);
     return;
   }
+  if (manifest.schema === SCHEMA)
+    await assertProtectedDirectory(
+      join(protectedPaths(options).scopeRoot, "disabled"),
+      "disabled resource directory",
+    );
   for (const resource of manifest.resources) {
+    if (manifest.schema === SCHEMA) {
+      const disabledPath = disabledResourcePath(options, resource);
+      await assertProtectedFile(disabledPath, "disabled managed resource").catch(() => {
+        throw new LifecycleError(
+          "DRIFT",
+          `disabled managed resource cannot be verified: ${resource.path}`,
+          4,
+        );
+      });
+      if (sha256(await readFile(disabledPath)) !== resource.sha256)
+        throw new LifecycleError(
+          "DRIFT",
+          `disabled managed resource has changed: ${resource.path}`,
+          4,
+        );
+    }
     const backup = manifest.backups.find((item) => item.path === resource.path);
     if (backup) {
       const info = await lstat(resource.path).catch(() => null);
@@ -813,6 +893,7 @@ async function recover(paths, options) {
   const recoveryConfig = codexConfig(recoveryOptions, resourcePlan(recoveryOptions));
   if (recoveryConfig) allowed.add(recoveryConfig.path);
   const backupRoot = join(recoveryPaths.scopeRoot, "backups");
+  const disabledRoot = join(recoveryPaths.scopeRoot, "disabled");
   for (const preimage of journal.preimages) {
     const backupRelative = relative(backupRoot, preimage.path);
     const isReplacementBackup =
@@ -820,9 +901,11 @@ async function recover(paths, options) {
       !backupRelative.startsWith(`..${sep}`) &&
       backupRelative !== ".." &&
       !isAbsolute(backupRelative);
+    const disabledRelative = relative(disabledRoot, preimage.path);
+    const isDisabledResource = /^[a-f0-9]{64}-[a-f0-9]{64}$/.test(disabledRelative);
     const transactionRelative = relative(journal.root, preimage.backup || "");
     if (
-      (!allowed.has(preimage.path) && !isReplacementBackup) ||
+      (!allowed.has(preimage.path) && !isReplacementBackup && !isDisabledResource) ||
       (preimage.exists &&
         (transactionRelative.startsWith(`..${sep}`) ||
           transactionRelative === ".." ||
@@ -873,6 +956,26 @@ async function writeResource(resource) {
   await chmod(resource.target, 0o644);
 }
 
+async function legacyEnableResources(options, manifest, resources) {
+  return Promise.all(
+    manifest.resources.map(async (record) => {
+      const current = resources.find((resource) => resource.target === record.path);
+      if (current?.sha256 === record.sha256) return current;
+      const relativePath = LEGACY_PAYLOAD_PATHS.get(record.sha256);
+      const path = relativePath ? join(options.sourceRoot, relativePath) : null;
+      const info = path ? await lstat(path).catch(() => null) : null;
+      const content = info?.isFile() && !info.isSymbolicLink() ? await readFile(path) : null;
+      if (!current || !content || sha256(content) !== record.sha256)
+        throw new LifecycleError(
+          "INVALID_SOURCE",
+          `verified legacy payload is unavailable for ${record.path}`,
+          4,
+        );
+      return { ...current, content, sha256: record.sha256 };
+    }),
+  );
+}
+
 async function addCodexBlock(config) {
   await assertSafeTarget(config.path, dirname(dirname(config.path)));
   const exists = await pathExists(config.path);
@@ -910,12 +1013,8 @@ async function activeOtherScope(options) {
     const path = protectedPaths(otherOptions).manifest;
     if (!(await pathExists(path))) {
       if (options.host === "codex" || options.host === "opencode") {
-        const unowned = resourcePlan(otherOptions).filter(
-          (resource) =>
-            resource.target.endsWith("SKILL.md") || resource.target.endsWith("-writer.md"),
-        );
         const occupied = [];
-        for (const resource of unowned)
+        for (const resource of resourcePlan(otherOptions))
           if (await pathExists(resource.target)) occupied.push(resource.target);
         if (occupied.length)
           throw new LifecycleError(
@@ -1241,6 +1340,12 @@ async function verifyClaudeCommands(options, installed, manifest) {
       "Claude did not report an absolute install path for the managed Kona plugin",
       4,
     );
+  if (installed.version !== manifest.version)
+    throw new LifecycleError(
+      "DISCOVERY_FAILED",
+      "Claude's installed Kona version does not match protected Kona state",
+      4,
+    );
 
   const { stdout } = await runClaude(options, [
     "plugin",
@@ -1266,30 +1371,42 @@ async function verifyClaudeCommands(options, installed, manifest) {
     .filter(Boolean);
   if (Number(inventory[1]) !== names.length)
     throw new LifecycleError("DISCOVERY_FAILED", "Claude reported a malformed skill inventory", 4);
-  const portableNames = names.filter((name) => CAPABILITIES.includes(name));
-  if (
-    manifest.schema === SCHEMA &&
-    (portableNames.length !== capabilities.length ||
-      capabilities.some((name) => !portableNames.includes(name)))
-  )
+  const reportedCapabilities = names.filter((name) => CAPABILITIES.includes(name));
+  const unexpectedNames = names.filter(
+    (name) => !CAPABILITIES.includes(name) && !CLAUDE_NON_PORTABLE_SKILLS.has(name),
+  );
+  const capabilityInventoryMatches =
+    manifest.schema === SCHEMA
+      ? reportedCapabilities.length === CAPABILITIES.length &&
+        JSON.stringify(
+          reportedCapabilities.toSorted((left, right) => left.localeCompare(right)),
+        ) === JSON.stringify(CAPABILITIES.toSorted((left, right) => left.localeCompare(right)))
+      : reportedCapabilities.length === capabilities.length &&
+        capabilities.every((name) => reportedCapabilities.includes(name));
+  if (!capabilityInventoryMatches || unexpectedNames.length > 0)
     throw new LifecycleError(
       "DISCOVERY_FAILED",
       "Claude reported a capability inventory that does not match protected Kona state",
       4,
+      { expected: capabilities, reported: reportedCapabilities, unexpected: unexpectedNames },
     );
 
   for (const name of capabilities) {
     const matches = names.filter((candidate) => candidate === name);
     const descriptor = CAPABILITY_REGISTRY.find((candidate) => candidate.name === name);
     const expectedPath = join(installPath, "skills", name, "SKILL.md");
+    const expectedPayload =
+      manifest.schema === SCHEMA
+        ? Object.values(
+            (await readJson(join(options.sourceRoot, descriptor.manifest))).canonical,
+          ).map(({ path, sha256: expectedSha256 }) => [path, expectedSha256])
+        : LEGACY_CLAUDE_PAYLOAD[name];
     const validPayload = await Promise.all(
-      descriptor.canonical.map(async (path) => {
+      expectedPayload.map(async ([path, expectedSha256]) => {
         const installedPath = join(installPath, path);
         const info = await lstat(installedPath).catch(() => null);
         if (!info?.isFile() || info.isSymbolicLink()) return false;
-        const capability = await readJson(join(options.sourceRoot, descriptor.manifest));
-        const expected = Object.values(capability.canonical).find((entry) => entry.path === path);
-        return expected && sha256(await readFile(installedPath)) === expected.sha256;
+        return sha256(await readFile(installedPath)) === expectedSha256;
       }),
     );
     if (matches.length !== 1 || validPayload.some((valid) => !valid))
@@ -1569,6 +1686,13 @@ async function claudeLifecycle(options) {
         );
 
       if (installed) {
+        if (["install", "update"].includes(options.verb) && installed.version !== CURRENT_VERSION)
+          throw new LifecycleError(
+            "DISCOVERY_FAILED",
+            `Claude installed Kona ${installed.version || "without a version"}; expected ${CURRENT_VERSION}`,
+            4,
+            { expected: CURRENT_VERSION, installed: installed.version },
+          );
         const version =
           installed.version ||
           manifest?.version ||
@@ -1878,8 +2002,8 @@ async function inspectPi(options, manifest, expectedEnabled) {
     const named = commands.filter((command) => command?.name === `skill:${name}`);
     const discovered = named.length === 1 && piCommandMatches(options, manifest, named[0], name);
     const expected = expectedEnabled && capabilities.includes(name);
-    const unexpectedCurrent = manifest.schema === SCHEMA && !expected && named.length !== 0;
-    if ((expected && !discovered) || unexpectedCurrent || (!expectedEnabled && named.length !== 0))
+    const unexpectedPortable = !expected && named.length !== 0;
+    if ((expected && !discovered) || unexpectedPortable || (!expectedEnabled && named.length !== 0))
       throw new LifecycleError(
         "DISCOVERY_FAILED",
         `Pi did not report exactly one valid /skill:${name} command in the expected lifecycle state at ${options.scope} scope`,
@@ -2504,13 +2628,30 @@ async function setEnabled(options, manifest, resources, enabled, discover) {
   await inspectBackups(manifest);
   const paths = protectedPaths(options);
   const config = codexConfig(options, resources);
+  const disabledResources =
+    config || manifest.schema !== SCHEMA
+      ? []
+      : manifest.resources.map((resource) => ({
+          resource,
+          path: disabledResourcePath(options, resource),
+        }));
+  const legacyResources =
+    enabled && !config && manifest.schema !== SCHEMA
+      ? await legacyEnableResources(options, manifest, resources)
+      : [];
   if (config) await assertSafeTarget(config.path, options.home);
+  if (disabledResources.length > 0) {
+    const disabledRoot = dirname(disabledResources[0].path);
+    await mkdir(disabledRoot, { recursive: true, mode: 0o700 });
+    await assertProtectedDirectory(disabledRoot, "disabled resource directory");
+  }
   const journal = await beginTransaction(
     paths,
     [
       ...resources.map((resource) => resource.target),
       paths.manifest,
       ...(config ? [config.path] : []),
+      ...disabledResources.map(({ path }) => path),
     ],
     options,
   );
@@ -2521,8 +2662,20 @@ async function setEnabled(options, manifest, resources, enabled, discover) {
     } else if (config) {
       manifest.managedConfig = await addCodexBlock(config);
     } else if (enabled) {
-      for (const resource of resources) await writeResource(resource);
+      if (manifest.schema === SCHEMA)
+        for (const { resource, path } of disabledResources) {
+          await durableWrite(
+            resource.path,
+            await readFile(path),
+            Number.parseInt(resource.mode, 8),
+          );
+          await chmod(resource.path, Number.parseInt(resource.mode, 8));
+          await rm(path, { force: true });
+        }
+      else for (const resource of legacyResources) await writeResource(resource);
     } else {
+      for (const { resource, path } of disabledResources)
+        await durableWrite(path, await readFile(resource.path), 0o600);
       for (const resource of resources) {
         const backup = manifest.backups.find((item) => item.path === resource.target);
         if (backup) {
@@ -2574,6 +2727,10 @@ async function removeInstall(options, manifest, resources) {
   await inspectBackups(manifest);
   const paths = protectedPaths(options);
   const config = manifest.state === "disabled" ? codexConfig(options, resources) : null;
+  const disabledResources =
+    manifest.state === "disabled" && manifest.schema === SCHEMA && !config
+      ? manifest.resources.map((resource) => disabledResourcePath(options, resource))
+      : [];
   const journal = await beginTransaction(
     paths,
     [
@@ -2581,6 +2738,7 @@ async function removeInstall(options, manifest, resources) {
       paths.manifest,
       ...manifest.backups.map((backup) => backup.backup),
       ...(config ? [config.path] : []),
+      ...disabledResources,
     ],
     options,
   );
@@ -2600,6 +2758,8 @@ async function removeInstall(options, manifest, resources) {
     }
     if (config) await removeCodexBlock(manifest.managedConfig);
     await rm(paths.scopeRoot, { recursive: true, force: true });
+    if (options.environment.KONA_TEST_FAIL_AFTER_SCOPE_REMOVE === "1")
+      throw new Error("injected failure after scope-root deletion");
     await commit(paths, journal);
   } catch (error) {
     await recover(paths, options);

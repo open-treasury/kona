@@ -30,8 +30,8 @@ async function copyContractFixture() {
 
 test("recursive runtime and contributor mirrors have no guidelines dependency", async () => {
   const result = await validateStaticContracts(root);
-  assert.equal(result.capabilityVersion, "0.4.2");
-  assert.deepEqual(result.capabilities, ["copy", "prd", "spec", "issues"]);
+  assert.equal(result.capabilityVersion, "0.5.0");
+  assert.deepEqual(result.capabilities, ["copy", "prd", "spec", "issues", "epic-worktree"]);
   assert.deepEqual(result.hosts, ["opencode", "codex", "claude", "pi"]);
 });
 
@@ -133,6 +133,18 @@ for (const control of [
     path: "plugin/hosts/opencode/agents/spec-writer.md",
     mutate: (value) => value.replace("Use the `spec` skill", "Use the `prd` skill"),
     error: /adapter contract is missing/,
+  },
+  {
+    name: "expanded epic-worktree adapter authority",
+    path: "plugin/hosts/opencode/agents/epic-worktree.md",
+    mutate: (value) => value.replace('"*": deny', '"*": allow'),
+    error: /adapter contract is missing|invalid permission boundary/,
+  },
+  {
+    name: "epic-worktree helper hash drift",
+    path: "plugin/skills/epic-worktree/scripts/epic-worktree.mjs",
+    mutate: (value) => `${value}\n// changed\n`,
+    error: /canonical hash drift/,
   },
   {
     name: "forbidden guidelines runtime reference",

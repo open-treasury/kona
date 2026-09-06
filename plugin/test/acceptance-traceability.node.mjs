@@ -90,6 +90,28 @@ test("issues PRD AC1-AC8 have concrete automated or explicit manual evidence", a
   }
 });
 
+test("epic-worktree PRD AC1-AC24 have concrete current automated evidence", async () => {
+  assert.deepEqual(Object.keys(matrix["epic-worktree"]), expectedCriteria(24));
+  for (const [acceptanceCriterion, entry] of Object.entries(matrix["epic-worktree"])) {
+    assert.deepEqual(
+      Object.keys(entry),
+      ["automated"],
+      `Epic worktree ${acceptanceCriterion} must contain only automated evidence`,
+    );
+    assert.ok(
+      Array.isArray(entry.automated) && entry.automated.length > 0,
+      `Epic worktree ${acceptanceCriterion} has no automated evidence`,
+    );
+    for (const reference of entry.automated) {
+      await requireReference(`Epic worktree ${acceptanceCriterion}`, reference, "automated", true);
+      assert.ok(
+        extname(reference[0]),
+        `Epic worktree ${acceptanceCriterion} has an invalid test path`,
+      );
+    }
+  }
+});
+
 test("copy real-model evidence ledger has exactly twelve explicitly pending host-mode runs", async () => {
   const evidence = matrix.manualEvidence["copy-runs"];
   assert.deepEqual(Object.keys(matrix.manualEvidence), ["copy-runs", "issues-runs"]);

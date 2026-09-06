@@ -20,8 +20,14 @@ const packageManifest = readJson(join(pluginRoot, "package.json"));
 const claudePlugin = readJson(join(pluginRoot, ".claude-plugin", "plugin.json"));
 
 describe("capability registry and manifests", () => {
-  test("orders copy, prd, spec, then issues and resolves each distribution surface", () => {
-    expect(CAPABILITY_REGISTRY.map(({ name }) => name)).toEqual(["copy", "prd", "spec", "issues"]);
+  test("preserves the four existing capabilities and appends epic-worktree", () => {
+    expect(CAPABILITY_REGISTRY.map(({ name }) => name)).toEqual([
+      "copy",
+      "prd",
+      "spec",
+      "issues",
+      "epic-worktree",
+    ]);
     expect(
       CAPABILITY_REGISTRY.map(({ manifest, copiedHostDirectory, adapter }) => ({
         manifest,
@@ -49,6 +55,11 @@ describe("capability registry and manifests", () => {
         copiedHostDirectory: "skills/issues",
         adapter: undefined,
       },
+      {
+        manifest: "capabilities/epic-worktree.json",
+        copiedHostDirectory: "skills/epic-worktree",
+        adapter: "hosts/opencode/agents/epic-worktree.md",
+      },
     ]);
   });
 
@@ -57,7 +68,7 @@ describe("capability registry and manifests", () => {
       expect(capability.schemaVersion).toBe(1);
       expect(capability.type).toBe("capability");
       expect(capability.name).toBe(CAPABILITY_REGISTRY[index].name);
-      expect(capability.version).toBe("0.4.2");
+      expect(capability.version).toBe("0.5.0");
       expect(capability.version).toBe(claudePlugin.version);
       expect(capability.version).toBe(packageManifest.version);
       expect(capability.version).toBe(marketplace.plugins[0].version);
@@ -88,24 +99,28 @@ describe("capability registry and manifests", () => {
       "@prd-writer",
       "@spec-writer",
       "issues",
+      "@epic-worktree",
     ]);
     expect(capabilities.map(({ hosts }) => hosts.codex.invocation)).toEqual([
       "$copy",
       "$prd",
       "$spec",
       "$issues",
+      "$epic-worktree",
     ]);
     expect(capabilities.map(({ hosts }) => hosts.claude.invocation)).toEqual([
       "/kona:copy",
       "/kona:prd",
       "/kona:spec",
       "/kona:issues",
+      "/kona:epic-worktree",
     ]);
     expect(capabilities.map(({ hosts }) => hosts.pi.invocation)).toEqual([
       "/skill:copy",
       "/skill:prd",
       "/skill:spec",
       "/skill:issues",
+      "/skill:epic-worktree",
     ]);
   });
 });
@@ -144,6 +159,7 @@ describe("distribution manifests", () => {
         "./plugin/skills/prd",
         "./plugin/skills/spec",
         "./plugin/skills/issues",
+        "./plugin/skills/epic-worktree",
       ],
     });
   });
@@ -151,7 +167,7 @@ describe("distribution manifests", () => {
   test("preserves existing Claude workflow and hook discovery", () => {
     expect(claudePlugin).toMatchObject({
       name: "kona",
-      version: "0.4.2",
+      version: "0.5.0",
       skills: "./skills/",
     });
     expect(claudePlugin.hooks).toBe("./hooks/hooks.json");

@@ -14,16 +14,40 @@ const repositoryRoot = resolve(pluginRoot, "..");
 const pins = JSON.parse(await readFile(join(import.meta.dirname, "host-versions.json"), "utf8"));
 const releaseValidation = process.env.KONA_RELEASE_VALIDATION === "1";
 const invocationsByHost = {
-  opencode: { copy: "@copy-writer", prd: "@prd-writer", spec: "@spec-writer", issues: "issues" },
-  codex: { copy: "$copy", prd: "$prd", spec: "$spec", issues: "$issues" },
+  opencode: {
+    copy: "@copy-writer",
+    prd: "@prd-writer",
+    spec: "@spec-writer",
+    issues: "issues",
+    "epic-worktree": "@epic-worktree",
+  },
+  codex: {
+    copy: "$copy",
+    prd: "$prd",
+    spec: "$spec",
+    issues: "$issues",
+    "epic-worktree": "$epic-worktree",
+  },
   claude: {
     copy: "/kona:copy",
     prd: "/kona:prd",
     spec: "/kona:spec",
     issues: "/kona:issues",
+    "epic-worktree": "/kona:epic-worktree",
   },
-  pi: { copy: "/skill:copy", prd: "/skill:prd", spec: "/skill:spec", issues: "/skill:issues" },
+  pi: {
+    copy: "/skill:copy",
+    prd: "/skill:prd",
+    spec: "/skill:spec",
+    issues: "/skill:issues",
+    "epic-worktree": "/skill:epic-worktree",
+  },
 };
+
+function piConfigKeys() {
+  const capabilityCount = Object.keys(invocationsByHost.pi).length;
+  return ` ${"\u001b[B ".repeat(capabilityCount - 1)}\u001b`;
+}
 
 async function isolatedHost(host) {
   const root = await mkdtemp(join(tmpdir(), `kona-real-${host}-`));
@@ -49,7 +73,7 @@ async function isolatedHost(host) {
     OPENAI_API_KEY: "",
     PI_OFFLINE: "1",
     PI_TELEMETRY: "0",
-    KONA_PI_CONFIG_KEYS: " \u001b[B \u001b[B \u001b[B \u001b",
+    KONA_PI_CONFIG_KEYS: piConfigKeys(),
     NO_COLOR: "1",
   };
   if (host.startsWith("claude")) {

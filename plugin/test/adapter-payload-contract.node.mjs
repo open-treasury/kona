@@ -18,16 +18,24 @@ const invocations = {
     claude: "/kona:spec",
     pi: "/skill:spec",
   },
+  "epic-worktree": {
+    opencode: "@epic-worktree",
+    codex: "$epic-worktree",
+    claude: "/kona:epic-worktree",
+    pi: "/skill:epic-worktree",
+  },
 };
 const modes = {
   copy: ["generate", "revise", "source-edit"],
   prd: ["create", "refine"],
   spec: ["create", "refine"],
+  "epic-worktree": ["propose", "start", "check", "finish"],
 };
 const writeBoundaries = {
   copy: "agreed-copy-only",
   prd: "agreed-prd-only",
   spec: "agreed-spec-only",
+  "epic-worktree": "helper-only-git-mutations",
 };
 
 async function installPayload(root, host) {
@@ -55,7 +63,7 @@ test("adapter payload/contract parity resolves exact canonical bytes and host co
   try {
     for (const host of hosts) {
       const installedRoot = await installPayload(root, host);
-      for (const capability of ["copy", "prd", "spec"]) {
+      for (const capability of ["copy", "prd", "spec", "epic-worktree"]) {
         const contracts = [
           await loadAdapterPayloadContract(
             host,

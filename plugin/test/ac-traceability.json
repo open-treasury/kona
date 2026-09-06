@@ -242,7 +242,7 @@
         ],
         [
           "plugin-lifecycle.node.mjs",
-          "copied schema-v1 and schema-v3 migration rollback restores exact files, config, manifest, and backups"
+          "copied schema-v1, schema-v3, and schema-v4 migration rollback restores exact state"
         ],
         [
           "plugin-lifecycle.node.mjs",
@@ -302,8 +302,264 @@
     },
     "AC8": [
       "plugin-lifecycle.node.mjs",
-      "schema-v3 copied bundles migrate directly to strict schema 4"
+      "schema-v3 copied bundles migrate directly to strict schema 5"
     ]
+  },
+  "epic-worktree": {
+    "AC1": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "fresh pull bases creation on remote-ahead main without a remote-tracking ref"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC2": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC3": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation rejects non-tracked or non-root ignore provenance before pull"
+        ]
+      ]
+    },
+    "AC4": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "normalizes deterministic epic identity and parses porcelain defensively"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC5": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "propose with an existing mapping inspects without running readiness commands"
+        ]
+      ]
+    },
+    "AC6": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "canonical discovery rejects bare and submodule source repositories"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC7": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "known mapping collisions fail before lock or Git mutation"
+        ]
+      ]
+    },
+    "AC8": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "pull failure preserves pre-pull HEAD and creates no branch or destination"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "primary dirtied during pull fails post-pull revalidation before worktree add"
+        ]
+      ]
+    },
+    "AC9": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "dirty active resume skips commands and preserves bytes while dirty starting blocks"
+        ]
+      ]
+    },
+    "AC10": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "setup and baseline failures remain distinct and baseline exceptions bind exact state"
+        ]
+      ]
+    },
+    "AC11": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "check reports local ahead and behind relationships without fetching"
+        ]
+      ]
+    },
+    "AC12": {
+      "automated": [
+        [
+          "issues-workflow.test.ts",
+          "declining the proposal performs no claim, start, or context mutation"
+        ]
+      ]
+    },
+    "AC13": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "propose is read-only and start token is deterministic, action-bound, and stale-safe"
+        ]
+      ]
+    },
+    "AC14": {
+      "automated": [
+        [
+          "issues-workflow.test.ts",
+          "declining the proposal performs no claim, start, or context mutation"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "propose is read-only and start token is deterministic, action-bound, and stale-safe"
+        ]
+      ]
+    },
+    "AC15": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "finish preflight is separately confirmed, refuses dirty state, removes without force, and retains branch"
+        ]
+      ]
+    },
+    "AC16": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "finish preflight is separately confirmed, refuses dirty state, removes without force, and retains branch"
+        ]
+      ]
+    },
+    "AC17": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "failed non-forced removal preserves the worktree and branch"
+        ],
+        [
+          "issues-workflow.test.ts",
+          "declined, unsafe, and failed cleanup remain pending; only REMOVED finishes"
+        ]
+      ]
+    },
+    "AC18": {
+      "automated": [
+        ["manifest-contract.test.ts", "declares every host with its exact invocation and scopes"],
+        [
+          "adapter-payload-contract.node.mjs",
+          "adapter payload/contract parity resolves exact canonical bytes and host contracts"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC14-AC19, AC21: copied-host scope matrix is canonical, idempotent, and preserves canaries"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC14-AC21: Pi native package lifecycle is approved, scope-safe, pinned-update aware, and model-free"
+        ],
+        [
+          "plugin-lifecycle.node.mjs",
+          "AC15, AC18, AC20-AC21: Claude collaborator bootstrap and all scopes use approved model-free native lifecycle"
+        ],
+        [
+          "host-validation.node.mjs",
+          "host pin manifest has one evidenced strict pin for every supported host"
+        ]
+      ]
+    },
+    "AC19": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "post-add verification failure returns a complete recovery mapping"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC20": {
+      "automated": [
+        [
+          "issues-workflow.test.ts",
+          "proposes before claim and merges workspace without replacing unrelated context"
+        ],
+        ["issues-workflow.test.ts", "starting becomes active only on READY"],
+        [
+          "issues-workflow.test.ts",
+          "dirty active resume remains active and records READY_EXISTING_WORK"
+        ]
+      ]
+    },
+    "AC21": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC22": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ]
+      ]
+    },
+    "AC23": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation verifies tracked root ignore, exact pull semantics, lock path, and host transition"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "creation rejects non-tracked or non-root ignore provenance before pull"
+        ]
+      ]
+    },
+    "AC24": {
+      "automated": [
+        [
+          "epic-worktree-helper.node.mjs",
+          "rejects visible trust commands through direct, env, shell, and embedded argv forms only"
+        ],
+        [
+          "epic-worktree-helper.node.mjs",
+          "finish preflight is separately confirmed, refuses dirty state, removes without force, and retains branch"
+        ]
+      ]
+    }
   },
   "manualEvidence": {
     "copy-runs": {

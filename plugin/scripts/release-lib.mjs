@@ -11,10 +11,14 @@ const capabilityReleasePaths = CAPABILITY_REGISTRY.flatMap(({ manifest, adapter,
   ...(adapter ? [adapter] : []),
   ...canonical,
 ]);
+const legacyReleasePaths = [
+  "legacy/sha256/4bb86d5415ac9832a763fd3bdd243d4a8ba92456c9a67159f06fb03af032e039",
+];
 
 export const RELEASE_FILES = [
   ".claude-plugin/plugin.json",
   ...capabilityReleasePaths,
+  ...legacyReleasePaths,
   "lib/capability-registry.mjs",
   "lib/lifecycle-output.mjs",
   "lib/plugin-lifecycle.mjs",
@@ -119,6 +123,11 @@ export async function buildRelease({ root = resolve(import.meta.dirname, "../.."
     } else {
       content = await readFile(join(root, "plugin", relativePath));
     }
+    if (
+      relativePath.startsWith("legacy/sha256/") &&
+      sha256(content) !== relativePath.slice("legacy/sha256/".length)
+    )
+      throw new Error(`legacy payload hash drift: ${relativePath}`);
     payload.push({ path: `kona/${relativePath}`, content, mode });
   }
   const launcher = await readFile(join(root, "plugin/bin/kona.mjs"));

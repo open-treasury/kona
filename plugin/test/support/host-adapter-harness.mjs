@@ -6,19 +6,23 @@ const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 
 async function resolvedPayload(host, root, layout, capabilityName) {
   if (host === "opencode") {
+    const adapterName =
+      capabilityName === "epic-worktree" ? capabilityName : `${capabilityName}-writer`;
     const adapterPath = join(
       root,
       layout === "distributed"
-        ? `hosts/opencode/agents/${capabilityName}-writer.md`
-        : `agents/${capabilityName}-writer.md`,
+        ? `hosts/opencode/agents/${adapterName}.md`
+        : `agents/${adapterName}.md`,
     );
     const adapter = await readFile(adapterPath, "utf8");
     if (!adapter.includes(`Use the \`${capabilityName}\` skill for the complete procedure.`))
       throw new Error(`OpenCode adapter does not delegate to the resolved ${capabilityName} skill`);
     const permissions =
-      capabilityName === "copy"
-        ? /permission:\n  edit: ask\n  bash: ask\n  webfetch: deny\n/
-        : /edit:\n\s+"\*": deny\n\s+"\*\.md": allow[\s\S]*bash: deny/;
+      capabilityName === "epic-worktree"
+        ? /edit: deny[\s\S]*webfetch: deny[\s\S]*skill:\n\s+"\*": deny\n\s+epic-worktree: allow[\s\S]*question: allow[\s\S]*bash:\n\s+"\*": deny\n\s+"node \*\/skills\/epic-worktree\/scripts\/epic-worktree\.mjs \*": allow/
+        : capabilityName === "copy"
+          ? /permission:\n  edit: ask\n  bash: ask\n  webfetch: deny\n/
+          : /edit:\n\s+"\*": deny\n\s+"\*\.md": allow[\s\S]*bash: deny/;
     if (!permissions.test(adapter))
       throw new Error(`OpenCode ${capabilityName} adapter has an invalid permission boundary`);
     return join(root, `skills/${capabilityName}`);
@@ -38,6 +42,7 @@ async function resolvedPayload(host, root, layout, capabilityName) {
       "./plugin/skills/prd",
       "./plugin/skills/spec",
       "./plugin/skills/issues",
+      "./plugin/skills/epic-worktree",
     ])
   )
     throw new Error("Pi manifest does not resolve the canonical skills in registry order");
@@ -71,12 +76,14 @@ export async function loadAdapterPayloadContract(
 
   const skill = await readFile(join(payload, "SKILL.md"), "utf8");
   const boundaryContracts =
-    capabilityName === "copy"
-      ? [/explicitly agreed files and strings/i, /Change only the agreed copy/i]
-      : [
-          new RegExp(`edit only the\\s+agreed ${capabilityName.toUpperCase()}`),
-          new RegExp(`no file other than the agreed ${capabilityName.toUpperCase()} was changed`),
-        ];
+    capabilityName === "epic-worktree"
+      ? [/only `start` and confirmed `finish` mutate Git/i, /Never run Git mutations directly/i]
+      : capabilityName === "copy"
+        ? [/explicitly agreed files and strings/i, /Change only the agreed copy/i]
+        : [
+            new RegExp(`edit only the\\s+agreed ${capabilityName.toUpperCase()}`),
+            new RegExp(`no file other than the agreed ${capabilityName.toUpperCase()} was changed`),
+          ];
   if (boundaryContracts.some((contract) => !contract.test(skill)))
     throw new Error(`${host}: installed ${capabilityName} payload has an invalid write boundary`);
   const hostContract = capability.hosts?.[host];
@@ -86,7 +93,10 @@ export async function loadAdapterPayloadContract(
     layout,
     invocation: hostContract.invocation,
     modes: capability.modes,
-    writeBoundary: `agreed-${capabilityName}-only`,
+    writeBoundary:
+      capabilityName === "epic-worktree"
+        ? "helper-only-git-mutations"
+        : `agreed-${capabilityName}-only`,
     canonicalBytes,
   };
 }

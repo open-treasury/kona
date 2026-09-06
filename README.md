@@ -84,10 +84,10 @@ outbox) · `resume` · `poll` · `view`.
 **Three invariants, enforced in the store rather than advised in a prompt:** terminal and
 effect protection · predicate-waits stay satisfiable · effects are bounded and addressed.
 
-## Portable copy, PRD, and SPEC writers
+## Portable capability bundle
 
-Kona ships three self-contained capabilities as one bundle for OpenCode, Codex, Claude Code, and
-Pi. PRD and technical SPEC skills create or refine documents. Copy generates standalone drafts,
+Kona ships copy, PRD, SPEC, issues, and epic-worktree capabilities as one bundle for OpenCode,
+Codex, Claude Code, and Pi. PRD and technical SPEC skills create or refine documents. Copy generates standalone drafts,
 revises supplied wording, or edits copy in explicitly agreed source files and strings. Source edits
 preserve tokens, markup, localization keys, syntax, behavior, and unrelated content; OpenCode asks
 before edits or local validation commands. Install the lifecycle CLI on macOS or Linux after
@@ -109,14 +109,14 @@ This requires Node.js 20+, `curl`, `tar`, and `sha256sum` or `shasum`. The boots
 versioned GitHub Release archive, uses no `sudo`, and changes no startup file. Ensure
 `~/.local/bin` (or `KONA_BIN_DIR`) is on `PATH`.
 
-| Host        | Scopes               | Install example                                        | Copy / PRD / SPEC / Issues invocation                          |
-| ----------- | -------------------- | ------------------------------------------------------ | -------------------------------------------------------------- |
-| OpenCode    | project, user        | `kona install --host opencode --scope project`         | `@copy-writer` / `@prd-writer` / `@spec-writer` / `issues`     |
-| Codex       | project, user        | `kona install --host codex --scope project`            | `$copy` / `$prd` / `$spec` / `$issues`                         |
-| Claude Code | project, local, user | `kona install --host claude --scope project --approve` | `/kona:copy` / `/kona:prd` / `/kona:spec` / `/kona:issues`     |
-| Pi          | project, user        | `kona install --host pi --scope project --approve`     | `/skill:copy` / `/skill:prd` / `/skill:spec` / `/skill:issues` |
+| Host        | Scopes               | Install example                                        | Epic worktree invocation |
+| ----------- | -------------------- | ------------------------------------------------------ | ------------------------ |
+| OpenCode    | project, user        | `kona install --host opencode --scope project`         | `@epic-worktree`         |
+| Codex       | project, user        | `kona install --host codex --scope project`            | `$epic-worktree`         |
+| Claude Code | project, local, user | `kona install --host claude --scope project --approve` | `/kona:epic-worktree`    |
+| Pi          | project, user        | `kona install --host pi --scope project --approve`     | `/skill:epic-worktree`   |
 
-Each lifecycle operation manages all four capabilities together; there is one executable, package,
+Each lifecycle operation manages all five capabilities together; there is one executable, package,
 marketplace entry, and active scope per host. Use `verify`, `update`, `disable`, `enable`, or
 `remove` in place of `install`, retaining the same `--host` and `--scope`; Claude and Pi mutations
 show their native command plan and require `--approve`. Disable or remove an active scope before
@@ -126,9 +126,9 @@ unverifiable backup blocks mutation and retains recovery evidence. Project Pi pa
 project trust. The lifecycle CLI also defaults Pi installs to `git:github.com/open-treasury/kona`;
 `--source` remains available for explicit local validation.
 
-Existing schema-v1 `0.1.1` PRD-only, schema-v2 `0.2.0` PRD+SPEC, and schema-v3 `0.3.0`
-copy+PRD+SPEC installs remain inspectable and removable as legacy state. Only an explicit
-`kona update` migrates them to the schema-v4 copy+PRD+SPEC+issues bundle; `install` and `verify`
+Existing schema-v1 through schema-v4 installs, including schema-v4 `0.4.1` and `0.4.2`, remain
+inspectable and removable with their exact capability sets. Only an explicit `kona update` migrates
+them to the schema-v5 copy+PRD+SPEC+issues+epic-worktree bundle; `install` and `verify`
 report `UPDATE_REQUIRED` rather than migrating implicitly. Enable a disabled legacy install before
 updating it.
 
@@ -136,7 +136,8 @@ The standalone curl/package `kona` exposes only these six lifecycle verbs. The C
 `kona` also forwards the existing workflow CLI verbs and requires Bun for those verbs. Authoring
 ships all normal guidance and templates and has no runtime dependency on `guidelines/`. Copy and
 PRD authoring are offline; SPEC research is user-approved when materially needed. The bundle has no
-analytics, telemetry, or background network behavior. Disable and remove affect all Kona
+analytics, telemetry, or background network behavior. The epic-worktree helper creates only
+`.worktrees/<epic-key>` after explicit confirmation and preserves existing work. Disable and remove affect all Kona
 capabilities, but authored copy, PRDs, SPECs, and project source are never lifecycle-owned. Exact
 installed roots, native commands, trust, updates, recovery, and removal are in
 [`plugin/README.md`](plugin/README.md).
