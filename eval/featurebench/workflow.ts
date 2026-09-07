@@ -78,6 +78,8 @@ export const prepareTasks = (
   runId: string,
   infrastructure: InfrastructureOutputs,
   modelDeployment = "gpt-5.6-sol",
+  modelCostLimitUsd = 3,
+  modelTokenLimit = 32768,
 ): PreparedTask[] => {
   const byId = new Map(rows.map((row) => [row.instance_id, row]));
   if (byId.size !== rows.length) throw new Error("dataset rows contain duplicate task ids");
@@ -116,6 +118,8 @@ export const prepareTasks = (
         task: select(row, requiredInferenceFields),
         model: `openai/${modelDeployment}`,
         model_reasoning_effort: "xhigh",
+        model_cost_limit_usd: modelCostLimitUsd,
+        model_token_limit: modelTokenLimit,
         output_prefix: `${prefix}/inference`,
         prepared_claim_key: `${prefix}/claims/workspace-preparation.json`,
         model_claim_key: `${prefix}/claims/model-attempt-1.json`,

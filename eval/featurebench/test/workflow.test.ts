@@ -58,6 +58,8 @@ describe("workflow preparation", () => {
     expect(tasks[0]?.inferenceRequest).not.toHaveProperty("task.test_patch");
     expect(tasks[0]?.inferenceRequest).not.toHaveProperty("task.FAIL_TO_PASS");
     expect(tasks[0]?.inferenceRequest).toHaveProperty("model", "openai/gpt-5.6-sol");
+    expect(tasks[0]?.inferenceRequest).toHaveProperty("model_cost_limit_usd", 3);
+    expect(tasks[0]?.inferenceRequest).toHaveProperty("model_token_limit", 32768);
     expect(tasks[0]?.prepareRequest).toHaveProperty("task.FAIL_TO_PASS");
     expect(tasks[0]?.graderRequest).toHaveProperty("task.test_patch", "tests");
     expect(tasks[0]?.graderRequest).toHaveProperty("task.level", 1);

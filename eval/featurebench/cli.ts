@@ -92,8 +92,13 @@ if (command === "preflight") {
     runId,
     infrastructure,
     epoch.epoch.model.deployment,
+    epoch.epoch.limits.costLimitUsd,
+    epoch.epoch.limits.tokenLimit,
   );
   if (request.epochSha256 !== epoch.epochSha256) throw new Error("arm request epoch hash mismatch");
+  if (request.budgetUsd < epoch.epoch.limits.costLimitUsd * manifest.tasks.length) {
+    throw new Error("arm budget is below the epoch's 100-task cost ceiling");
+  }
   const head = await exec(["git", "rev-parse", "HEAD"], repositoryRoot);
   const status = await exec(["git", "status", "--porcelain=v1"], repositoryRoot);
   if (head.exitCode !== 0 || head.stdout.trim() !== request.gitRevision || status.stdout.trim()) {
@@ -159,6 +164,8 @@ if (command === "preflight") {
     runId,
     infrastructure,
     epoch.epoch.model.deployment,
+    epoch.epoch.limits.costLimitUsd,
+    epoch.epoch.limits.tokenLimit,
   );
   const output = resolve(required("out"));
   mkdirSync(join(output, "requests", "inference"), { recursive: true });

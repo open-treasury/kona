@@ -149,6 +149,8 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
   );
   expect(first.task.test_patch).toBeUndefined();
   expect(first.model).toBe("openai/sol");
+  expect(first.model_cost_limit_usd).toBe(1);
+  expect(first.model_token_limit).toBe(1);
   const control = JSON.parse(readFileSync(join(paths.out, "control.json"), "utf8"));
   const bin = join(directory, "bin");
   const awsCalls = join(directory, "aws-calls.txt");

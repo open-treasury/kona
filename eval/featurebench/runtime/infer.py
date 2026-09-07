@@ -88,9 +88,15 @@ def _trajectory_succeeded(trajectory: dict[str, Any]) -> bool:
     return trajectory.get("info", {}).get("exit_status") == "Submitted"
 
 
-def _with_reasoning_effort(command: str, effort: str) -> str:
+def _with_model_settings(
+    command: str, effort: str, cost_limit_usd: float, token_limit: int
+) -> str:
     if effort not in {"low", "medium", "high", "xhigh"}:
         raise ValueError("unsupported model reasoning effort")
+    if not 0 < cost_limit_usd < 1000:
+        raise ValueError("model cost limit must be between zero and 1000 USD")
+    if token_limit < 1:
+        raise ValueError("model token limit must be positive")
     marker = " -m "
     if marker not in command:
         raise RuntimeError("mini-swe-agent command has no model marker")
@@ -99,6 +105,8 @@ def _with_reasoning_effort(command: str, effort: str) -> str:
         " -c model.model_class=litellm_response"
         " -c model.model_kwargs.drop_params=true"
         f" -c model.model_kwargs.reasoning.effort={effort}"
+        f" -c model.model_kwargs.max_output_tokens={token_limit}"
+        f" -l {cost_limit_usd}"
     )
     return command.replace(marker, f"{options}{marker}", 1)
 
@@ -148,8 +156,11 @@ def run(request_path: Path, output_dir: Path) -> int:
         setattr(
             agent,
             "get_run_command",
-            lambda instruction: _with_reasoning_effort(
-                native_command(instruction), request["model_reasoning_effort"]
+            lambda instruction: _with_model_settings(
+                native_command(instruction),
+                request["model_reasoning_effort"],
+                float(request["model_cost_limit_usd"]),
+                int(request["model_token_limit"]),
             ),
         )
         installed = Path("/opt/mini-swe-agent-venv/bin/python").is_file()
@@ -305,9 +316,11 @@ def main() -> int:
                 "repo_settings": "{}",
             }
         )
-        command = _with_reasoning_effort("python -m model", "xhigh")
+        command = _with_model_settings("python -m model", "xhigh", 1.0, 32768)
         assert "model.model_class=litellm_response" in command
         assert "model.model_kwargs.reasoning.effort=xhigh" in command
+        assert "model.model_kwargs.max_output_tokens=32768" in command
+        assert " -l 1.0" in command
         assert _trajectory_succeeded({"info": {"exit_status": "Submitted"}})
         assert not _trajectory_succeeded(
             {"info": {"exit_status": "RepeatedFormatError"}}
