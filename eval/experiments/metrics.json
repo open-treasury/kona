@@ -1,14 +1,1 @@
-{
-  "schema_version": 1,
-  "quality": {
-    "passed_pct": null,
-    "resolved_pct": null,
-    "task_count": 100,
-    "graded_count": 0
-  },
-  "evidence": {
-    "valid": false,
-    "incomplete": true,
-    "invalid": false
-  }
-}
+{"adoption":{"failed_invocations":0,"instructions_loaded_tasks":0,"invoked_tasks":0,"successful_invocations":0,"valid_graph_tasks":0},"cost":{"actual_usd":350.7878146,"estimated_usd":226.53238666666664},"evidence":{"incomplete":true,"invalid":false,"valid":false},"execution":{"effective_concurrency":50,"quota_retries":0,"requested_concurrency":20,"throttles":0},"failures":{"grader":0,"harness":8,"infrastructure":0,"kona_setup":0,"provenance":0,"provider":0,"quota":0,"task":0,"timeout":2},"latency":{"arm_wall_seconds":12456.722,"task_p50_seconds":443.217,"task_p95_seconds":1236.604},"quality":{"graded_count":89,"passed_pct":74.23371181027491,"resolved_pct":56.17977528089888,"task_count":100},"schema_version":1,"usage":{"cache_write_tokens":0,"cached_input_tokens":0,"input_tokens":200098717,"output_tokens":2004153}}
