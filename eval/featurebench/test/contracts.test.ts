@@ -200,6 +200,10 @@ describe("analysis", () => {
     expect(incomplete.evidence).toBe("INCOMPLETE");
     expect(incomplete.quality.passedPct).toBe(100);
     expect(summarizeArm(["a"], [result("a", 0), result("a", 0)], true).evidence).toBe("INVALID");
+    const noTests = result("a", 0);
+    if (noTests.grade === null) throw new Error("fixture grade is missing");
+    noTests.grade.total = 0;
+    expect(summarizeArm(["a"], [noTests], true).evidence).toBe("INCOMPLETE");
   });
 
   test("Kona evidence is incomplete when the tool was not observed", () => {

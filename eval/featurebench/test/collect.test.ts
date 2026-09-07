@@ -14,10 +14,12 @@ const manifest = (phase: "infer" | "grade", content: string) =>
     epoch_sha256: "b".repeat(64),
     run_id: "run",
     task_id: "task",
+    image_name: "image",
     attempt: 1,
     phase,
     ecs_task_arn: "arn:aws:ecs:us-east-1:123456789012:task/cluster/id",
     producer_image_digest: `ecr/image@sha256:${"c".repeat(64)}`,
+    observed_image_digest: `sha256:${"c".repeat(64)}`,
     files: {
       "result.json": {
         sha256: createHash("sha256").update(content).digest("hex"),
@@ -52,12 +54,24 @@ test("collector verifies manifests before joining inference and grader outputs",
   writeFileSync(join(grader, "result.json"), graderResult);
   writeFileSync(join(inference, "manifest.json"), manifest("infer", inferenceResult));
   writeFileSync(join(grader, "manifest.json"), manifest("grade", graderResult));
-  const identity = { epochSha256: "b".repeat(64), runId: "run", armKey: "pure-gpt" };
+  const identity = {
+    epochSha256: "b".repeat(64),
+    runId: "run",
+    armKey: "pure-gpt",
+    inferenceDigests: { image: `sha256:${"c".repeat(64)}` },
+    graderDigests: { image: `sha256:${"c".repeat(64)}` },
+  };
   const collected = collectTaskResults(directory, identity);
   expect(collected.artifactsVerified).toBe(true);
   expect(collected.results).toHaveLength(1);
   expect(collected.results[0]?.grade?.passed).toBe(4);
   expect(collected.results[0]?.inference.inputTokens).toBe(2);
+  expect(
+    collectTaskResults(directory, {
+      ...identity,
+      inferenceDigests: { image: `sha256:${"d".repeat(64)}` },
+    }).artifactsVerified,
+  ).toBe(false);
   const seal = createArtifactSeal(directory, identity);
   expect(verifyArtifactSeal(directory, seal)).toBe(true);
   writeFileSync(

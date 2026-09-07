@@ -14,6 +14,24 @@ from typing import Any
 from common import LocalTransport, atomic_json, redact
 
 
+def _validate_native_result(
+    raw: dict[str, Any],
+    f2p_map: dict[str, str],
+    p2p_maps: list[dict[str, str]],
+    expected_p2p: int,
+) -> None:
+    if raw.get("error"):
+        raise RuntimeError(f"FeatureBench native grader failed: {raw['error']}")
+    if not raw.get("patch_applied"):
+        raise RuntimeError("FeatureBench native grader did not apply the patch")
+    if not f2p_map:
+        raise RuntimeError("FeatureBench native grader produced no F2P test results")
+    if len(p2p_maps) != expected_p2p or any(not result for result in p2p_maps):
+        raise RuntimeError(
+            "FeatureBench native grader produced incomplete P2P test results"
+        )
+
+
 def run(request_path: Path, output_dir: Path) -> int:
     request = json.loads(request_path.read_text(encoding="utf-8"))
     if "AZURE_API_KEY" in __import__("os").environ:
@@ -104,6 +122,12 @@ def run(request_path: Path, output_dir: Path) -> int:
             if row["repo"] in FAIL_ONLY_REPOS
             else EvalType.PASS_AND_FAIL
         )
+        expected_p2p = (
+            len(row["PASS_TO_PASS"])
+            if int(row["level"]) == 1 and eval_type != EvalType.FAIL_ONLY
+            else 0
+        )
+        _validate_native_result(raw, f2p_map, p2p_maps, expected_p2p)
         f2p_ok, f2p_bad, p2p_ok, p2p_bad = build_test_status(
             f2p_map, p2p_maps, eval_type
         )
@@ -138,7 +162,7 @@ def run(request_path: Path, output_dir: Path) -> int:
         }
     result["wall_milliseconds"] = round((time.monotonic() - started) * 1000)
     atomic_json(output_dir / "result.json", result)
-    return 0
+    return 0 if result["status"] == "completed" else 1
 
 
 def main() -> int:
@@ -148,6 +172,20 @@ def main() -> int:
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
+        _validate_native_result(
+            {"patch_applied": True, "error": None}, {"test": "PASSED"}, [], 0
+        )
+        for raw, f2p, p2p, expected_p2p in [
+            ({"patch_applied": False, "error": None}, {"test": "FAILED"}, [], 0),
+            ({"patch_applied": True, "error": "test failed to run"}, {}, [], 0),
+            ({"patch_applied": True, "error": None}, {}, [], 0),
+            ({"patch_applied": True, "error": None}, {"test": "PASSED"}, [], 1),
+        ]:
+            try:
+                _validate_native_result(raw, f2p, p2p, expected_p2p)
+            except RuntimeError:
+                continue
+            raise AssertionError("invalid native grade was accepted")
         return 0
     if args.request is None or args.output_dir is None:
         parser.error("--request and --output-dir are required")

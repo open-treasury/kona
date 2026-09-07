@@ -148,6 +148,7 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
     ),
   );
   expect(first.task.test_patch).toBeUndefined();
+  expect(first.model).toBe("openai/sol");
   const control = JSON.parse(readFileSync(join(paths.out, "control.json"), "utf8"));
   const bin = join(directory, "bin");
   const awsCalls = join(directory, "aws-calls.txt");
@@ -216,10 +217,12 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
           epoch_sha256: identity.epochSha256,
           run_id: control.runId,
           task_id: taskId,
+          image_name: manifest.imageFamilies[manifest.tasks.indexOf(taskId) % 18],
           attempt: 1,
           phase,
           ecs_task_arn: "arn:aws:ecs:us-east-1:123456789012:task/cluster/id",
-          producer_image_digest: `ecr/image@sha256:${"c".repeat(64)}`,
+          producer_image_digest: `ecr/image@sha256:${"a".repeat(64)}`,
+          observed_image_digest: `sha256:${"a".repeat(64)}`,
           files: {
             "result.json": {
               sha256: createHash("sha256").update(result).digest("hex"),

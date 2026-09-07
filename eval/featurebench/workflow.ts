@@ -77,9 +77,13 @@ export const prepareTasks = (
   request: ArmRequest,
   runId: string,
   infrastructure: InfrastructureOutputs,
+  modelDeployment = "gpt-5.6-sol",
 ): PreparedTask[] => {
   const byId = new Map(rows.map((row) => [row.instance_id, row]));
   if (byId.size !== rows.length) throw new Error("dataset rows contain duplicate task ids");
+  if (rows.length !== manifest.tasks.length) {
+    throw new Error("dataset rows must exactly match the pinned task manifest");
+  }
   return manifest.tasks.map((taskId) => {
     const row = byId.get(taskId);
     if (row === undefined) throw new Error(`dataset is missing pinned task ${taskId}`);
@@ -110,7 +114,7 @@ export const prepareTasks = (
         run_id: runId,
         arm_type: request.armType,
         task: select(row, requiredInferenceFields),
-        model: "openai/gpt-5.6-sol",
+        model: `openai/${modelDeployment}`,
         model_reasoning_effort: "xhigh",
         output_prefix: `${prefix}/inference`,
         prepared_claim_key: `${prefix}/claims/workspace-preparation.json`,

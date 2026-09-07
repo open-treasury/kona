@@ -44,6 +44,8 @@ def _usage(node: Any) -> dict[str, int | float | None]:
                 for source, target in (
                     ("prompt_tokens", "input_tokens"),
                     ("completion_tokens", "output_tokens"),
+                    ("input_tokens", "input_tokens"),
+                    ("output_tokens", "output_tokens"),
                     ("cached_tokens", "cached_input_tokens"),
                     ("cache_creation_input_tokens", "cache_write_tokens"),
                 ):
@@ -82,6 +84,10 @@ def _validate_arm(arm_type: str) -> str:
     return "\n\nBefore your first command, read /opt/kona/skills/kona/SKILL.md and follow it."
 
 
+def _trajectory_succeeded(trajectory: dict[str, Any]) -> bool:
+    return trajectory.get("info", {}).get("exit_status") == "Submitted"
+
+
 def _with_reasoning_effort(command: str, effort: str) -> str:
     if effort not in {"low", "medium", "high", "xhigh"}:
         raise ValueError("unsupported model reasoning effort")
@@ -90,8 +96,9 @@ def _with_reasoning_effort(command: str, effort: str) -> str:
         raise RuntimeError("mini-swe-agent command has no model marker")
     options = (
         " -c mini.yaml"
+        " -c model.model_class=litellm_response"
         " -c model.model_kwargs.drop_params=true"
-        f" -c model.model_kwargs.reasoning_effort={effort}"
+        f" -c model.model_kwargs.reasoning.effort={effort}"
     )
     return command.replace(marker, f"{options}{marker}", 1)
 
@@ -223,11 +230,12 @@ def run(request_path: Path, output_dir: Path) -> int:
         patch_path = output_dir / "patch.diff"
         patch_path.write_text(patch, encoding="utf-8")
         trajectory_path = output_dir / "traj.json"
-        usage = (
-            _usage(json.loads(trajectory_path.read_text(encoding="utf-8")))
-            if trajectory_path.exists()
-            else _usage({})
-        )
+        if not trajectory_path.exists():
+            raise RuntimeError("mini-swe-agent produced no trajectory")
+        trajectory_data = json.loads(trajectory_path.read_text(encoding="utf-8"))
+        exit_status = trajectory_data.get("info", {}).get("exit_status")
+        succeeded = succeeded and _trajectory_succeeded(trajectory_data)
+        usage = _usage(trajectory_data)
         result.update(
             {
                 "status": "completed" if succeeded else "failed",
@@ -235,7 +243,11 @@ def run(request_path: Path, output_dir: Path) -> int:
                 "usage": usage,
                 "failure": None
                 if succeeded
-                else {"class": "HARNESS", "code": "AGENT_FAILED", "retryable": False},
+                else {
+                    "class": "HARNESS",
+                    "code": f"AGENT_{str(exit_status or 'UNKNOWN').upper()}",
+                    "retryable": False,
+                },
                 "adoption": {
                     "instructions_loaded": arm_type == "kona",
                     "invocation_count": 0,
@@ -275,7 +287,7 @@ def run(request_path: Path, output_dir: Path) -> int:
         }
     result["wall_milliseconds"] = round((time.monotonic() - started) * 1000)
     atomic_json(output_dir / "result.json", result)
-    return 0
+    return 0 if result["status"] == "completed" else 1
 
 
 def main() -> int:
@@ -293,9 +305,20 @@ def main() -> int:
                 "repo_settings": "{}",
             }
         )
-        assert "reasoning_effort=xhigh" in _with_reasoning_effort(
-            "python -m model", "xhigh"
+        command = _with_reasoning_effort("python -m model", "xhigh")
+        assert "model.model_class=litellm_response" in command
+        assert "model.model_kwargs.reasoning.effort=xhigh" in command
+        assert _trajectory_succeeded({"info": {"exit_status": "Submitted"}})
+        assert not _trajectory_succeeded(
+            {"info": {"exit_status": "RepeatedFormatError"}}
         )
+        assert _usage({"usage": {"input_tokens": 3, "output_tokens": 2}}) == {
+            "input_tokens": 3,
+            "output_tokens": 2,
+            "cached_input_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost_usd": None,
+        }
         return 0
     if args.request is None or args.output_dir is None:
         parser.error("--request and --output-dir are required")

@@ -30,14 +30,33 @@ def _uri(value: str) -> tuple[str, str]:
     return parsed.netloc, parsed.path.lstrip("/")
 
 
-def _task_arn() -> str:
+def _task_identity(phase: str) -> tuple[str, str]:
+    declared = os.environ.get("PRODUCER_IMAGE_DIGEST", "")
     metadata = os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
     if not metadata:
-        return "local"
+        return "local", declared.rsplit("@", 1)[-1]
     import urllib.request
 
     with urllib.request.urlopen(f"{metadata}/task", timeout=5) as response:
-        return str(json.load(response)["TaskARN"])
+        payload = json.load(response)
+    container_name = {"prepare": "prepare", "infer": "inference", "grade": "grader"}[
+        phase
+    ]
+    container = next(
+        (
+            item
+            for item in payload.get("Containers", [])
+            if item.get("Name") == container_name
+        ),
+        None,
+    )
+    observed = container.get("ImageID") if container else None
+    expected = declared.rsplit("@", 1)[-1]
+    if not observed or observed != expected:
+        raise RuntimeError(
+            "running container image digest does not match task definition"
+        )
+    return str(payload["TaskARN"]), observed
 
 
 def _download_json(uri: str) -> tuple[dict, str, str]:
@@ -67,6 +86,7 @@ def _publish_manifest(
     request: dict,
     phase: str,
     invocation_id: str,
+    observed_image_digest: str,
     files: dict,
 ) -> None:
     manifest = {
@@ -74,11 +94,13 @@ def _publish_manifest(
         "epoch_sha256": request["epoch_sha256"],
         "run_id": request["run_id"],
         "task_id": request["task"]["instance_id"],
+        "image_name": request["task"]["image_name"],
         "attempt": 1,
         "phase": phase,
         "invocation_id": invocation_id,
         "ecs_task_arn": os.environ.get("ECS_TASK_ARN", invocation_id),
         "producer_image_digest": os.environ.get("PRODUCER_IMAGE_DIGEST"),
+        "observed_image_digest": observed_image_digest,
         "files": files,
     }
     _s3().put_object(
@@ -166,6 +188,7 @@ def _install_kona(request: dict, bucket: str, root: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(skill, target)
     shutil.copy2(config, "/opt/kona/config.json")
+    shutil.copytree(hooks, "/opt/kona/hooks")
     completed = subprocess.run(
         [
             "/usr/local/bin/kona",
@@ -182,11 +205,55 @@ def _install_kona(request: dict, bucket: str, root: Path) -> None:
     )
     if completed.returncode != 0:
         raise RuntimeError("Kona initialization failed")
+    seeded = subprocess.run(
+        [
+            "/usr/local/bin/kona",
+            "mutate",
+            "--ops",
+            "/opt/kona/skills/kona/seed.json",
+            "--base-version",
+            "0",
+            "--why",
+            "Initialize the task-agnostic evaluation workflow.",
+            "--reason-code",
+            "MISSING_STEP",
+        ],
+        cwd="/",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if seeded.returncode != 0:
+        raise RuntimeError("Kona seed failed")
+    verified = subprocess.run(
+        ["/usr/local/bin/kona", "next", "--json"],
+        cwd="/",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if verified.returncode != 0:
+        raise RuntimeError("Kona operational verification failed")
+    try:
+        frontier = json.loads(verified.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Kona verification returned invalid JSON") from error
+    if not isinstance(frontier.get("nodes"), list) or not frontier["nodes"]:
+        raise RuntimeError("Kona seed produced no ready work")
+
+
+def _restore_workspace(archive: Path, root: Path = Path("/")) -> None:
+    testbed = root / "testbed"
+    shutil.rmtree(testbed, ignore_errors=True)
+    with tarfile.open(archive, "r:gz") as source:
+        source.extractall(root, filter="data")
+    if not (testbed / ".git").is_dir():
+        raise RuntimeError("prepared workspace has no Git baseline")
 
 
 def run(phase: str, request_uri: str) -> int:
     request, bucket, _ = _download_json(request_uri)
-    task_arn = _task_arn()
+    task_arn, observed_image_digest = _task_identity(phase)
     invocation_id = task_arn.rsplit("/", 1)[-1]
     os.environ["ECS_TASK_ARN"] = task_arn
     with tempfile.TemporaryDirectory(prefix="kona-featurebench-") as raw:
@@ -196,10 +263,6 @@ def run(phase: str, request_uri: str) -> int:
         _install_kona(request, bucket, root)
         atomic_json(request_path, request)
         if phase == "prepare":
-            claim_key = request["output_prefix"].replace(
-                "/prepared", "/claims/workspace-preparation.json"
-            )
-            _claim(bucket, claim_key, invocation_id)
             script = Path(__file__).with_name("prepare.py")
         elif phase == "infer":
             claim = _s3().get_object(Bucket=bucket, Key=request["prepared_claim_key"])
@@ -212,8 +275,7 @@ def run(phase: str, request_uri: str) -> int:
             workspace.write_bytes(
                 _s3().get_object(Bucket=bucket, Key=workspace_key)["Body"].read()
             )
-            with tarfile.open(workspace, "r:gz") as source:
-                source.extractall("/", filter="data")
+            _restore_workspace(workspace)
             _claim(bucket, request["model_claim_key"], invocation_id)
             script = Path(__file__).with_name("infer.py")
         elif phase == "grade":
@@ -242,7 +304,13 @@ def run(phase: str, request_uri: str) -> int:
         )
         output_prefix = f"{request['output_prefix'].rstrip('/')}/{invocation_id}"
         files = _publish_directory(bucket, output_prefix, output)
-        if phase == "prepare" and (output / "workspace.tar.gz").is_file():
+        if phase == "prepare" and completed.returncode != 0:
+            return completed.returncode
+        if (
+            phase == "prepare"
+            and completed.returncode == 0
+            and (output / "workspace.tar.gz").is_file()
+        ):
             workspace_prefix = request["output_prefix"].replace(
                 "/prepared", "/workspaces"
             )
@@ -260,15 +328,49 @@ def run(phase: str, request_uri: str) -> int:
                 Body=(output / "patch.diff").read_bytes(),
                 IfNoneMatch="*",
             )
-        _publish_manifest(bucket, output_prefix, request, phase, invocation_id, files)
+        _publish_manifest(
+            bucket,
+            output_prefix,
+            request,
+            phase,
+            invocation_id,
+            observed_image_digest,
+            files,
+        )
+        if phase == "prepare" and completed.returncode == 0:
+            claim_key = request["output_prefix"].replace(
+                "/prepared", "/claims/workspace-preparation.json"
+            )
+            _claim(bucket, claim_key, invocation_id)
         return completed.returncode
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("phase", choices=["prepare", "infer", "grade"])
-    parser.add_argument("request_uri")
+    parser.add_argument("phase", nargs="?", choices=["prepare", "infer", "grade"])
+    parser.add_argument("request_uri", nargs="?")
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        with tempfile.TemporaryDirectory(prefix="kona-workspace-test-") as raw:
+            root = Path(raw)
+            source = root / "source" / "testbed"
+            (source / ".git").mkdir(parents=True)
+            (source / "kept.py").write_text("kept\n", encoding="utf-8")
+            archive = root / "workspace.tar.gz"
+            with tarfile.open(archive, "w:gz") as target:
+                target.add(source, arcname="testbed")
+            destination = root / "destination"
+            (destination / "testbed").mkdir(parents=True)
+            (destination / "testbed" / "hidden_test.py").write_text(
+                "must disappear\n", encoding="utf-8"
+            )
+            _restore_workspace(archive, destination)
+            assert (destination / "testbed" / "kept.py").is_file()
+            assert not (destination / "testbed" / "hidden_test.py").exists()
+        return 0
+    if args.phase is None or args.request_uri is None:
+        parser.error("phase and request_uri are required")
     return run(args.phase, args.request_uri)
 
 

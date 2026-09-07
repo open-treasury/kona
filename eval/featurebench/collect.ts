@@ -26,10 +26,12 @@ type ArtifactManifest = {
   epoch_sha256?: string;
   run_id?: string;
   task_id?: string;
+  image_name?: string;
   attempt?: number;
   phase?: "prepare" | "infer" | "grade";
   ecs_task_arn?: string;
   producer_image_digest?: string;
+  observed_image_digest?: string;
   files?: Record<string, { sha256?: string; bytes?: number }>;
 };
 
@@ -120,7 +122,13 @@ const failure = (value: WorkerFailure | null | undefined): Failure | null => {
 
 export const collectTaskResults = (
   root: string,
-  identity: { epochSha256: string; runId: string; armKey: string },
+  identity: {
+    epochSha256: string;
+    runId: string;
+    armKey: string;
+    inferenceDigests?: Record<string, string>;
+    graderDigests?: Record<string, string>;
+  },
 ): { results: TaskResult[]; artifactsVerified: boolean } => {
   const inference = new Map<string, WorkerResult>();
   const grades = new Map<string, WorkerResult>();
@@ -139,12 +147,25 @@ export const collectTaskResults = (
       manifest.run_id !== identity.runId ||
       manifest.attempt !== 1 ||
       !manifest.task_id ||
+      !manifest.image_name ||
       !manifest.ecs_task_arn ||
       !manifest.producer_image_digest?.match(/@sha256:[a-f0-9]{64}$/) ||
+      !manifest.observed_image_digest?.match(/^sha256:[a-f0-9]{64}$/) ||
       !manifest.files
     ) {
       artifactsVerified = false;
       continue;
+    }
+    const expectedDigests =
+      manifest.phase === "infer" ? identity.inferenceDigests : identity.graderDigests;
+    const expectedDigest = expectedDigests?.[manifest.image_name];
+    if (
+      expectedDigests !== undefined &&
+      (expectedDigest === undefined ||
+        !manifest.producer_image_digest.endsWith(`@${expectedDigest}`) ||
+        manifest.observed_image_digest !== expectedDigest)
+    ) {
+      artifactsVerified = false;
     }
     for (const [artifactName, expected] of Object.entries(manifest.files)) {
       const artifact = join(dirname(path), artifactName);

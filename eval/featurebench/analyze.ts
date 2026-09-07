@@ -79,7 +79,11 @@ export const summarizeArm = (
       result.inference.status !== "completed" ||
       result.inference.providerThrottles > 0 ||
       result.inference.quotaRetries > 0 ||
-      (result.inference.failure !== null && result.inference.failure.class !== "TASK"),
+      (result.inference.failure !== null && result.inference.failure.class !== "TASK") ||
+      result.grade === null ||
+      result.grade.status !== "completed" ||
+      result.grade.failure !== null ||
+      result.grade.total === 0,
   );
   const adoptionMissing = armType === "kona" && results.some((result) => result.adoption === null);
   const passedPct =

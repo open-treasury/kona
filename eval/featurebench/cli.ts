@@ -85,7 +85,14 @@ if (command === "preflight") {
   const request = validateArmRequest(load(required("request")));
   const infrastructure = load(required("infra")) as InfrastructureOutputs;
   const runId = `${epoch.epochId}--${armKey(request)}`;
-  prepareTasks(manifest, load(required("rows")) as DatasetRow[], request, runId, infrastructure);
+  prepareTasks(
+    manifest,
+    load(required("rows")) as DatasetRow[],
+    request,
+    runId,
+    infrastructure,
+    epoch.epoch.model.deployment,
+  );
   if (request.epochSha256 !== epoch.epochSha256) throw new Error("arm request epoch hash mismatch");
   const head = await exec(["git", "rev-parse", "HEAD"], repositoryRoot);
   const status = await exec(["git", "status", "--porcelain=v1"], repositoryRoot);
@@ -151,6 +158,7 @@ if (command === "preflight") {
     request,
     runId,
     infrastructure,
+    epoch.epoch.model.deployment,
   );
   const output = resolve(required("out"));
   mkdirSync(join(output, "requests", "inference"), { recursive: true });
@@ -178,7 +186,15 @@ if (command === "preflight") {
     throw new Error("--phase must be probe or continue");
   const control = load(join(planDir, "control.json")) as {
     runId: string;
-    epoch: { epochSha256: string };
+    epoch: {
+      epochSha256: string;
+      epoch: {
+        images: {
+          inferenceDigests: Record<string, string>;
+          graderDigests: Record<string, string>;
+        };
+      };
+    };
     request: { requestedConcurrency: number; budgetUsd: number };
     infrastructure: InfrastructureOutputs;
   };
@@ -341,7 +357,15 @@ if (command === "preflight") {
   const planDir = resolve(required("plan-dir"));
   const control = load(join(planDir, "control.json")) as {
     runId: string;
-    epoch: { epochSha256: string };
+    epoch: {
+      epochSha256: string;
+      epoch: {
+        images: {
+          inferenceDigests: Record<string, string>;
+          graderDigests: Record<string, string>;
+        };
+      };
+    };
     request: { budgetUsd: number; requestedConcurrency: number };
     infrastructure: InfrastructureOutputs;
   };
@@ -350,6 +374,8 @@ if (command === "preflight") {
     epochSha256: control.epoch.epochSha256,
     runId: control.runId,
     armKey: control.runId.split("--").slice(1).join("--"),
+    inferenceDigests: control.epoch.epoch.images.inferenceDigests,
+    graderDigests: control.epoch.epoch.images.graderDigests,
   });
   if (
     !collected.artifactsVerified ||
@@ -478,6 +504,14 @@ if (command === "preflight") {
   const runId = required("run-id");
   const artifacts = resolve(required("artifacts"));
   const params = load(required("params")) as ExperimentParams;
+  const epochImages = (
+    params.epoch as unknown as {
+      images: {
+        inferenceDigests: Record<string, string>;
+        graderDigests: Record<string, string>;
+      };
+    }
+  ).images;
   const seal = load(required("seal")) as ArtifactSeal;
   if (
     seal.epochSha256 !== params.epoch.epochSha256 ||
@@ -494,6 +528,8 @@ if (command === "preflight") {
     epochSha256: params.epoch.epochSha256,
     runId,
     armKey: params.arm.key,
+    inferenceDigests: epochImages.inferenceDigests,
+    graderDigests: epochImages.graderDigests,
   });
   const summary = summarizeArm(
     (load(required("manifest")) as { tasks: string[] }).tasks,
