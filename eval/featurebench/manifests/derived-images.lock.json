@@ -3,93 +3,93 @@
   "platform": "linux/amd64",
   "images": {
     "libercoders/featurebench-specs_astropy-instance_493bb78b": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:739773c2fba92c1933f14bf2f1c179a0227c4d81239e652b1e721494d8528535",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:519f46e3e775ad9e230decda8a73e095fc47d7a844f3439441c61003c93a689d",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:4bfb7f1afc344771036df0d30c149fdf42f6ae427a256b67a3b34f89ad709193",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:6c01e4a0c1a86d3e1b7e27f9403930a8460811950e410f39354b9e3e4b089bcc",
       "source": "docker.io/libercoders/featurebench-specs_astropy-instance_493bb78b@sha256:4b5e7489d8bee8e20b53f94c74833e6d9ee0163673ac4a36eecb0372ef01fda2"
     },
     "libercoders/featurebench-specs_fastapi-instance_835a08db": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:3d8a95132b6ca4eb8f4d7fca66d59e99f9ad3bae297bce4cb5ff9d8bbf43fc94",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:4acfc44901b0306a440d8e903e6f22e2ab9a9c7aac8cb3e56f6743869e80e209",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:cc65835bab0171eda90f08d3be1eaab7d920578281651e651b879027e1abc109",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:bc33eea897ae56e6cb2573568c76b96213b20c3ee4fa276abd9c2c432121b8e1",
       "source": "docker.io/libercoders/featurebench-specs_fastapi-instance_835a08db@sha256:f98cb81c4d36a7f5edcecfaf53028db48c1df2ec53f8e53cd9accc9ac322dd5e"
     },
     "libercoders/featurebench-specs_hatch-instance_02086956": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:1133fa991c7595dfec8f5366a52271aa6b3e9ac9bed0eff7882fd9d43262b7c9",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:9f3d37b222f18945df46d70fe4c3c96370a6c4827a2065c5a03f85a600713943",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:bee54133a080e8a545ca30b36b586045d4afaf4dbf81a52af39c1a533337ea4e",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:b23a10cb8f69d690b86d4e28da24897ead6f116cd00f1c6267924218ccfc9aa7",
       "source": "docker.io/libercoders/featurebench-specs_hatch-instance_02086956@sha256:70c443280ebe701fe0b6ca24d22c139f3b5c92817a5c1c16c2fc5762b67a4fb1"
     },
     "libercoders/featurebench-specs_matplotlib-instance_1a84341f": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:0d0bbcff7826aa0ac57eea11b2e442e1369df5f76edc4d108ded4fed7a893d31",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:3780e358acbb27747f31c34d42ce48477bf6c787757c9474fb80d32f4b972e8d",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:360447560219da54ebf2e5699b3851f3c11348ad6ea69373d44d68a4b8f36c3d",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:a27f144029081f52ac809e08bf4fb4a1edb6d890e70489d4859eaaa5d584afdd",
       "source": "docker.io/libercoders/featurebench-specs_matplotlib-instance_1a84341f@sha256:6356bd09b20e4291aadfaa649146b3e59c57446ea2fcb36e959147b756bd5dbc"
     },
     "libercoders/featurebench-specs_meson-instance_80dbfb11": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:52d350250ff02056c8ae424fb43ca5e781f9d0d7ac9447b10732f83f5595b2ac",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:00f1a983ad5bed11def62220557405a0d00b6da5099fdc7f7f8f4ecc25392e6f",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:03a41dc10880ef933954dcec1ba646a1f1f6be6c1445947d1d1d2d3c5b11fcdc",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:f8aa34b37e813dba2d93049511c9acaf0316199fdc6827f57929ecf6c8748586",
       "source": "docker.io/libercoders/featurebench-specs_meson-instance_80dbfb11@sha256:fa8e46b573d2153376c6e089996712d3aa67c3cb8b8569ec232e7a4b7934ec24"
     },
     "libercoders/featurebench-specs_metaflow-instance_87a4ffa7": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:3e0489d05a118eb4a3ccac74d8ebefb6ce1aa4aa2514b62a46ee4dcc8ef3b657",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:7b640407db80e73f38467c67c71bc2dd7f3c2ec0aa7390744882c1aba11aa0ee",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:c989e24197be458017dca729a39c6d40796202813b1bc9d20485bf1b2a5e0146",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:8fc92b8d66bd6793c12e0249bf575946172e0e7f413f0a09a5041daea3c271e4",
       "source": "docker.io/libercoders/featurebench-specs_metaflow-instance_87a4ffa7@sha256:b319caebd869643983a3302839c3604cd885b4b2fe6dafb79686564bfcd52654"
     },
     "libercoders/featurebench-specs_mlflow-instance_efffa87e": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:5075e787a3e1a5ede7085b9cb8dde3b1ee8a599d0218a26427cdc852be012aef",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:8e848228b4e06a782f745ec8ccb24969470a5192015f9aba35ecd038caa2efdf",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:73301e620f0fa79d2d4f0ea57ec1e023b71d384b145e864bc9e6f701884b8f0a",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:9219c1ac97aecf891647285df2bdc3e0406bcb03e98c8be53511a9f7f6f92f6f",
       "source": "docker.io/libercoders/featurebench-specs_mlflow-instance_efffa87e@sha256:5a63b594bc99a6dcd876289974979606b276edd49e966020111db3590c40add4"
     },
     "libercoders/featurebench-specs_mypy-instance_289f68ef": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:9fef26cb6d94a61616c2b2e0e8930b5926b668aee72ebb2aa281a0a5851fea16",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:10404a3e2da9217bad073ad91d117945b1667e6f74692620bad8c5384bfb3c43",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:0ff01d486f03bd13c785da4a8e8a84628c5d54beef69ebc9d6c1db17d7e8feb3",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:cbdda58e3a356511217c99b6fd60019b89bd732ecc6ad38261a1214d0d75c89b",
       "source": "docker.io/libercoders/featurebench-specs_mypy-instance_289f68ef@sha256:132f20b7c4a8bb55fc71a914c81f659fe47c0581698edf23ee64ebb83437c7ca"
     },
     "libercoders/featurebench-specs_packaging-instance_c393a6a8": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:9b04e80341a99e2973768170ee887f0a8ef126c0a6f0d2a164f38e2a9feddb2b",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:bcba9a9ddb8208ac740dea96f6976f259e802b41f393ca9758b0ae551eff0358",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:35c25d1da24dde7da336ac3528676411a69e7a273fee0b9cf7dd076ae0e927ac",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:b7c109bd075612aa67ca2d5adee456b182c1ee5e6ebb4a371b43411d48208191",
       "source": "docker.io/libercoders/featurebench-specs_packaging-instance_c393a6a8@sha256:96b12548b35b5983ac1dab9a101b4a49946fceb6a05c97690cd942ff014be916"
     },
     "libercoders/featurebench-specs_pandas-instance_15f634a6": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:950e3bfd75c95fe3ac60f122ddbe8e476784a4f3f3533181401a489279bb5562",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:fee91ee1c70af5376cc4f84f6ca5886711b541c20f6438227618943d3a969639",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:644cb17ccebeb97aa9d68784a014c82467e56c6b0d381ae4664061aa94fad10c",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:77be9e32c1bc4276dbefc77c692e8679c17d49b723e513591fe29e15282bc131",
       "source": "docker.io/libercoders/featurebench-specs_pandas-instance_15f634a6@sha256:e484ae407255b4c2c481a842e476c3c3285d2032738adf0abd410fb5f776dab7"
     },
     "libercoders/featurebench-specs_pydantic-instance_78693714": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:961214c771b0805cbe149485e9e2d70a815bfe86997d7ea4ffafe3dad20c053f",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:653c94fb5b48a26430a81120f12daf941db251069883662538818f67d4607833",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:ad8b35bfc4581bff27ba568a755c25db506ff61efdde0a5e5f88ef02b9211014",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:d962f911b34c5a9fdcbeba07ec8bbf91dd636034aa74be66a6082abb5896af1d",
       "source": "docker.io/libercoders/featurebench-specs_pydantic-instance_78693714@sha256:755c424c73170faf66d88006022ed2733f8e269446f330f301d762b0d0ab7d6b"
     },
     "libercoders/featurebench-specs_pytest-instance_2b74d6c4": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:20d393e0721d5b36a2c19cc108960de2a60408d70557bdec08e69d41a79af952",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:7e72a414c8d07dd5c3c70b0ec11d5a37e169e2f6d699769e9362251377c1000b",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:5bf4e04b745b0d65d07fac1d74b11ae760eed4f32ed3137d51a2813b2031e6d9",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:989653b836c1059245c39b8e79961cd92cae82828cc3ea4ecd543cf8af5c6b1b",
       "source": "docker.io/libercoders/featurebench-specs_pytest-instance_2b74d6c4@sha256:90aad241a5422d096bff4b5a796300bcb737fbe347531f5c0dc71ea93421f291"
     },
     "libercoders/featurebench-specs_scikit_learn-instance_d734ea34": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:ef906c9dc405e380728cb90939de6b9d24d158924b196300d346c240b4ea73cc",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:b959a0b2083f8e157b70614f22a78053d7dc900025119c748934bf552c1bd863",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:969dd5ff9ccf376d25011fac32dc5c654fcac2e63c19a74f9c0bdd1759506e86",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:d4190fd50aed6fcf8d254518e92c8dda74afba60be1392cfc47c2758fc996cb2",
       "source": "docker.io/libercoders/featurebench-specs_scikit_learn-instance_d734ea34@sha256:a9bd4207ee63bfdc8e96f99b0867c6248c3bf2700fdc4deb2442d316ce6a3ade"
     },
     "libercoders/featurebench-specs_seaborn-instance_52738fbb": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:3cf160b6ecc781f76099f5c0683ce22827d9d072f5fc71c0b10e648c7d1d4ef6",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:f159d77e3426b2351e7e949f26b6576ac1117fde65c46e711034d8b29520c477",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:029c0b96b89605a0c264c3a55e982f65bea0bc0af7fa168ea28805dcfd73b7b6",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:b4b28d6b7b76c1768c31a335e9bf0766bc603df7ca0de8f719d395279b1927f5",
       "source": "docker.io/libercoders/featurebench-specs_seaborn-instance_52738fbb@sha256:fe27a1a5205fa0939453e79d0f40c74cb402bad8ea1d42fff7de5e2106e77ce1"
     },
     "libercoders/featurebench-specs_setuptools-instance_732b794d": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:ef5f74a3891d04d9d669c70046dd805ace074b37dade9f03ff28c9aae5860a1a",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:7e7d908fa1af8b98c6e73f24b6e36073cd2f8f78206b0c1b3d5ff18871942fac",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:f99afad28bdf25b22096c0dbfeb15fbfba404ced26412ca48a07f3198728b381",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:c654cad903ddd29ff5e5418238bc0e8613fb3538b83bd39a9d65d83802de842c",
       "source": "docker.io/libercoders/featurebench-specs_setuptools-instance_732b794d@sha256:f3d9abad25bc0f3c32208d33115df07ee6af2d34e00de8e0a004e1af127072a2"
     },
     "libercoders/featurebench-specs_sphinx-instance_6191afb1": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:4c71bd975b703f01fc5f84534d773bb8facdc633275e853644aa1e814b65f284",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:ed03ce114c0efe47616f42752a606c9246a4ab4b3aafa95184d716906b83fd0e",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:d228f0cd35c8b7f797d7aa5c3476bfebcf02b63b1aab9684edfda59acc7af421",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:709411bd596453525c78d626a954d5de7232368ff4f865561edfaa682183e655",
       "source": "docker.io/libercoders/featurebench-specs_sphinx-instance_6191afb1@sha256:15b434473e16386e33c864d8b7f4a3bddb9c5585961758c0ed0f06b51b3f0268"
     },
     "libercoders/featurebench-specs_sympy-instance_3d889fef": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:feb3bf6f6f7df71e9b5c09053f921e27533f2d00516bb7eaa378940dd51ce982",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:96955c68cdb14dbc01a1f2219ada94fc48017789ec354bbf1c5e30fa0c637dcb",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:c4afc12bb8dbb2d01e7d8a143ddd8e36bc39ddf782e3cf4ce70e693308ccdfc0",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:c9d19876e5f30c4d46ca98337de4f76c91e090daa3ff6431a1bd79f353edb66b",
       "source": "docker.io/libercoders/featurebench-specs_sympy-instance_3d889fef@sha256:207ff124011e74d2b6abbdce2f8d3244546949cd0abfb7949d7dd414368f8935"
     },
     "libercoders/featurebench-specs_xarray-instance_62de996a": {
-      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:92db2e8a239b288c7487e59f1730f1a926c96f7f8b64f65bbeb18c3cab52660f",
-      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:2a0b471706441fe168ae66f74f807c4cdc5ec1c0a0e7581c0c9f5f5ef2cee1b6",
+      "grader": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/grader@sha256:aae4e09794de47dead276f25ccd5df823c6b3a10be4a568feee3266f535e5b45",
+      "inference": "655355946475.dkr.ecr.us-east-1.amazonaws.com/kona-eval/inference@sha256:71e285ba23d69e8a072d0933b42bc3c586bff8f9b3d8b0a945eacdebfd623edd",
       "source": "docker.io/libercoders/featurebench-specs_xarray-instance_62de996a@sha256:075803e6495efc4aa64c015effcae52986a62352655127f69a262dfbedfbb7d7"
     }
   }
