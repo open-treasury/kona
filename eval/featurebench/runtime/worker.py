@@ -15,6 +15,7 @@ import tempfile
 import urllib.parse
 from pathlib import Path
 
+from common import _self_test as common_self_test
 from common import atomic_json
 
 
@@ -352,6 +353,7 @@ def main() -> int:
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
+        common_self_test()
         with tempfile.TemporaryDirectory(prefix="kona-workspace-test-") as raw:
             root = Path(raw)
             source = root / "source" / "testbed"
