@@ -33,6 +33,7 @@ describe("Terraform evaluation infrastructure contracts", () => {
     expect(runtime).toContain('cpu_architecture        = "X86_64"');
     expect(runtime).toContain("contains([20, 50], var.requested_concurrency)");
     expect(runtime).toContain('MaxConcurrencyPath = "$.requestedConcurrency"');
+    expect(runtime).toContain("TimeoutSeconds = 3900");
     expect(runtime).toContain('AssignPublicIp = "ENABLED"');
     expect(runtime.match(/"States.TaskFailed"/g)).toHaveLength(1);
     expect(runtime).not.toMatch(/\bingress\s*\{/);

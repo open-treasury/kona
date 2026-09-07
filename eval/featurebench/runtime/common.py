@@ -5,8 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
 import shutil
 import subprocess
+import sys
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +53,7 @@ class LocalTransport:
     def exec_command(
         _container: object,
         command: str,
-        timeout: int | None = None,
+        timeout: float | None = None,
         workdir: str | None = None,
         log_file: Path | None = None,
         **_kwargs: object,
@@ -75,7 +79,7 @@ class LocalTransport:
         _container: object,
         command: str,
         log_file: Path,
-        timeout: int | None = None,
+        timeout: float | None = None,
         workdir: str | None = None,
         skip_bashrc: bool = False,
         **_kwargs: object,
@@ -86,15 +90,21 @@ class LocalTransport:
             else f"source ~/.bashrc 2>/dev/null || true; {command}"
         )
         with log_file.open("a", encoding="utf-8") as target:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 ["bash", "-lc", shell_command],
                 cwd=workdir,
                 stdout=target,
                 stderr=subprocess.STDOUT,
-                timeout=timeout,
-                check=False,
+                start_new_session=True,
             )
-        return completed.returncode
+            try:
+                return process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                target.write(f"\n[TIMEOUT after {timeout} seconds]\n")
+                target.flush()
+                return -1
 
     @staticmethod
     def copy_to_container(
@@ -120,3 +130,29 @@ def redact(message: str) -> str:
         if value and ("KEY" in name or "TOKEN" in name or "SECRET" in name):
             redacted = redacted.replace(value, "[REDACTED]")
     return redacted
+
+
+def _self_test() -> None:
+    with tempfile.TemporaryDirectory(prefix="kona-timeout-test-") as raw:
+        root = Path(raw)
+        marker = root / "survived"
+        log = root / "process.log"
+        started = time.monotonic()
+        code = LocalTransport.exec_command_stream(
+            None,
+            f"(sleep 1; touch {marker}) & wait",
+            log,
+            timeout=0.1,
+            skip_bashrc=True,
+        )
+        assert code == -1
+        assert time.monotonic() - started < 2
+        time.sleep(1.1)
+        assert not marker.exists()
+        assert "[TIMEOUT after 0.1 seconds]" in log.read_text(encoding="utf-8")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] != ["--self-test"]:
+        raise SystemExit("usage: common.py --self-test")
+    _self_test()

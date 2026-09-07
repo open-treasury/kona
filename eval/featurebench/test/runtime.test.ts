@@ -21,7 +21,7 @@ test("workspace preparation disables background Git object pruning", () => {
 });
 
 test("direct-container workers load without paid or external dependencies", async () => {
-  for (const script of ["prepare.py", "infer.py", "grade.py", "worker.py"]) {
+  for (const script of ["common.py", "prepare.py", "infer.py", "grade.py", "worker.py"]) {
     const process = Bun.spawn(["python3", join(runtime, script), "--self-test"], {
       stdout: "pipe",
       stderr: "pipe",

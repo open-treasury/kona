@@ -258,8 +258,9 @@ resource "aws_sfn_state_machine" "eval" {
             }
             PrepareFailed = { Type = "Pass", End = true }
             RunInference = {
-              Type     = "Task"
-              Resource = "arn:aws:states:::ecs:runTask.sync"
+              Type           = "Task"
+              Resource       = "arn:aws:states:::ecs:runTask.sync"
+              TimeoutSeconds = 3900
               Parameters = {
                 LaunchType         = "FARGATE"
                 Cluster            = aws_ecs_cluster.eval.arn
