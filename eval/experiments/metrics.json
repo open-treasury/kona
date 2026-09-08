@@ -1,14 +1,1 @@
-{
-  "schema_version": 1,
-  "quality": {
-    "passed_pct": null,
-    "resolved_pct": null,
-    "task_count": 100,
-    "graded_count": 0
-  },
-  "evidence": {
-    "valid": false,
-    "incomplete": true,
-    "invalid": false
-  }
-}
+{"adoption":{"failed_invocations":0,"instructions_loaded_tasks":0,"invoked_tasks":0,"successful_invocations":0,"valid_graph_tasks":0},"cost":{"actual_usd":null,"estimated_usd":0},"evidence":{"incomplete":true,"invalid":false,"valid":false},"failures":{"grader":0,"harness":2,"infrastructure":0,"kona_setup":0,"provenance":0,"provider":0,"quota":0,"task":0,"timeout":0},"latency":{"arm_wall_seconds":0,"task_p50_seconds":394.853,"task_p95_seconds":1352.603},"quality":{"graded_count":95,"passed_pct":70.14680655496872,"resolved_pct":51,"task_count":100},"schema_version":1,"usage":{"cache_write_tokens":0,"cached_input_tokens":0,"input_tokens":237458306,"output_tokens":2265569}}
