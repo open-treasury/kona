@@ -2,7 +2,7 @@
   "type": "capability",
   "schemaVersion": 1,
   "name": "spec",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "modes": ["create", "refine"],
   "canonical": {
     "skill": {

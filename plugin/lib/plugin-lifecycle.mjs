@@ -28,7 +28,7 @@ const LEGACY_VERSION = "0.1.1";
 const RELEASED_VERSION = "0.2.0";
 const PREVIOUS_VERSION = "0.3.0";
 const SCHEMA_V4_VERSION = "0.4.2";
-const CURRENT_VERSION = "0.5.2";
+const CURRENT_VERSION = "0.5.3";
 const BUNDLE = "authoring";
 const CAPABILITIES = CAPABILITY_REGISTRY.map(({ name }) => name);
 const CLAUDE_NON_PORTABLE_SKILLS = new Set(["plan", "run"]);
@@ -47,7 +47,7 @@ const SCHEMA_VERSIONS = new Map([
   [SCHEMA, CURRENT_VERSION],
 ]);
 const SCHEMA_V4_VERSIONS = new Set(["0.4.1", SCHEMA_V4_VERSION]);
-const SCHEMA_V5_VERSIONS = new Set(["0.5.0", "0.5.1", CURRENT_VERSION]);
+const SCHEMA_V5_VERSIONS = new Set(["0.5.0", "0.5.1", "0.5.2", CURRENT_VERSION]);
 const LEGACY_CLAUDE_PAYLOAD = {
   copy: [
     ["skills/copy/SKILL.md", "390d02d1886427f45328b20e04c865b0865c94128a6beb1c3130fbf861f606aa"],

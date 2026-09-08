@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-KONA_VERSION='0.5.2'
+KONA_VERSION='0.5.3'
 KONA_TAG="v${KONA_VERSION}"
 KONA_ARCHIVE="kona-${KONA_TAG}-portable.tar.gz"
 KONA_RELEASE_URL="https://github.com/open-treasury/kona/releases/download/v${KONA_VERSION}"

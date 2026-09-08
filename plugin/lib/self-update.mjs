@@ -20,7 +20,7 @@ export const SELF_UPDATE_MARKER = "KONA_SELF_UPDATE_REEXEC";
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_ERROR_BYTES = 8 * 1024;
-const SOURCE_INSTALLER_SHA256 = "70e884cfbc552f260b42c84a97e1efab56da56b89487eec18d5a0c531713274f";
+const SOURCE_INSTALLER_SHA256 = "74f3e49d3963cdcfd30ae034cccede74dd0ec51c57692a55437ab60692e6481c";
 const REQUIRED_FILES = new Map([
   ["bin/kona", "0555"],
   ["install.sh", "0555"],

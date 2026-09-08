@@ -94,7 +94,7 @@ test("update bootstraps once and re-executes the exact active path with exact ar
       `#!${process.execPath}\nconst fs=require("node:fs");fs.writeFileSync(${JSON.stringify(log)},JSON.stringify({argv:process.argv.slice(2),marker:process.env.KONA_SELF_UPDATE_REEXEC,path:process.argv[1]}));`,
     );
     await writeFile(active, activeBytes, { mode: 0o555 });
-    const packageBytes = Buffer.from('{"version":"0.5.2"}\n');
+    const packageBytes = Buffer.from('{"version":"0.5.3"}\n');
     const installerBytes = Buffer.from("#!/bin/sh\nexit 0\n");
     const selfUpdateBytes = Buffer.from("export {};\n");
     await Promise.all([
@@ -107,8 +107,8 @@ test("update bootstraps once and re-executes the exact active path with exact ar
       `${JSON.stringify({
         schemaVersion: 1,
         name: "kona",
-        version: "0.5.2",
-        tag: "v0.5.2",
+        version: "0.5.3",
+        tag: "v0.5.3",
         files: [
           { path: "bin/kona", sha256: hash(activeBytes), mode: "0555" },
           { path: "install.sh", sha256: hash(installerBytes), mode: "0555" },
@@ -394,7 +394,7 @@ test("actual CLI one-use guard prevents accidental fabrication and replay under 
       `${JSON.stringify({
         schemaVersion: 1,
         nonce,
-        version: "0.5.2",
+        version: "0.5.3",
         activeRealpath: value.activeRealpath,
       })}\n`,
       { mode: 0o600 },
@@ -447,7 +447,7 @@ test("actual CLI one-use guard prevents accidental fabrication and replay under 
       `${JSON.stringify({
         schemaVersion: 1,
         nonce: unsafe,
-        version: "0.5.2",
+        version: "0.5.3",
         activeRealpath: value.activeRealpath,
       })}\n`,
       { mode: 0o644 },
@@ -512,7 +512,7 @@ test("plugin-only source layout uses its verified canonical installer mirror", a
     );
     assert.equal(
       await realpath(join(bin, "kona")),
-      await realpath(join(home, "data/kona/versions/v0.5.2/bin/kona")),
+      await realpath(join(home, "data/kona/versions/v0.5.3/bin/kona")),
     );
   } finally {
     await makeWritable(directory);
@@ -659,7 +659,7 @@ test("re-entry rejects an active symlink switch after consuming its guard", asyn
       `${JSON.stringify({
         schemaVersion: 1,
         nonce,
-        version: "0.5.2",
+        version: "0.5.3",
         activeRealpath: value.activeRealpath,
       })}\n`,
       { mode: 0o600 },
