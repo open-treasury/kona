@@ -330,6 +330,7 @@ The Standard state machine accepts only validated schema-version-1 input and has
 3. `RunTasks`: Distributed Map with child `ExecutionType: STANDARD`, `MaxConcurrencyPath: $.requestedConcurrency`, and a result writer under the execution-specific S3 prefix.
 4. Child `RunInference`: `arn:aws:states:::ecs:runTask.sync`, Linux x86-64 inference task, no state-level retry. Its 4,800-second outer timeout preserves the 3,600-second agent limit while allowing 20 minutes for cold image startup, shutdown, and durable result publication.
 5. Child `RunGrader`: only after a sealed inference patch, separate `ecs:runTask.sync` grader task. Retry only ECS launch/service failures, maximum two retries with exponential backoff; native grader failures are recorded once and not retried automatically.
+   The pinned FeatureBench adapter derives P2P output names from each complete test path so files with identical basenames remain distinct.
 6. Child catches return a structured failure item so the map continues. `ToleratedFailurePercentage` is 100; evidence policy, not Map failure threshold, determines validity.
 7. `SealPhase`: writes orchestration summary and expected item count. `PROBE` returns `AWAITING_APPROVAL`; `CONTINUE` returns `READY_TO_COLLECT`.
 

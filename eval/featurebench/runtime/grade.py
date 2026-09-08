@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import logging
@@ -12,6 +13,36 @@ from pathlib import Path
 from typing import Any
 
 from common import LocalTransport, atomic_json, redact
+
+
+def _p2p_basename(path: object, native_path: Any) -> str:
+    name = native_path.basename(path)
+    stem, suffix = native_path.splitext(name)
+    digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:8]
+    return f"{stem}-{digest}{suffix}"
+
+
+class _PathProxy:
+    def __init__(self, native_path: Any, p2p_paths: set[str]) -> None:
+        self._native_path = native_path
+        self._p2p_paths = p2p_paths
+
+    def basename(self, path: object) -> str:
+        if str(path) in self._p2p_paths:
+            return _p2p_basename(path, self._native_path)
+        return self._native_path.basename(path)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._native_path, name)
+
+
+class _OsProxy:
+    def __init__(self, native_os: Any, p2p_paths: list[str]) -> None:
+        self._native_os = native_os
+        self.path = _PathProxy(native_os.path, set(p2p_paths))
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._native_os, name)
 
 
 def _validate_native_result(
@@ -95,25 +126,30 @@ def run(request_path: Path, output_dir: Path) -> int:
         logger.addHandler(
             logging.FileHandler(output_dir / "run_instance.log", encoding="utf-8")
         )
-        if int(row["level"]) == 1:
-            raw = native_runtime.run_instance_level1(
-                instance,
-                prediction,
-                None,
-                logger,
-                output_dir,
-                timeout=request.get("timeout"),
-                white=False,
-            )
-        else:
-            raw = native_runtime.run_instance_level2(
-                instance,
-                prediction,
-                None,
-                logger,
-                output_dir,
-                timeout=request.get("timeout"),
-            )
+        native_os = getattr(native_runtime, "os")
+        setattr(native_runtime, "os", _OsProxy(native_os, row["PASS_TO_PASS"]))
+        try:
+            if int(row["level"]) == 1:
+                raw = native_runtime.run_instance_level1(
+                    instance,
+                    prediction,
+                    None,
+                    logger,
+                    output_dir,
+                    timeout=request.get("timeout"),
+                    white=False,
+                )
+            else:
+                raw = native_runtime.run_instance_level2(
+                    instance,
+                    prediction,
+                    None,
+                    logger,
+                    output_dir,
+                    timeout=request.get("timeout"),
+                )
+        finally:
+            setattr(native_runtime, "os", native_os)
         f2p_map, p2p_maps = parse_test_outputs(
             output_dir, row["repo"], int(row["level"])
         )
@@ -172,6 +208,22 @@ def main() -> int:
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test:
+        import os
+
+        p2p_paths = [
+            "tests/arrays/numpy_/test_indexing.py",
+            "tests/groupby/test_apply.py",
+            "tests/scalar/period/test_asfreq.py",
+            "tests/indexes/ranges/test_setops.py",
+            "tests/indexing/test_indexing.py",
+        ]
+        proxy = _OsProxy(os, p2p_paths)
+        output_names = [
+            proxy.path.basename(path).replace(".py", "") for path in p2p_paths
+        ]
+        assert len(set(output_names)) == len(p2p_paths)
+        assert all("/" not in name for name in output_names)
+        assert proxy.path.basename("tests/not-selected.py") == "not-selected.py"
         _validate_native_result(
             {"patch_applied": True, "error": None}, {"test": "PASSED"}, [], 0
         )
