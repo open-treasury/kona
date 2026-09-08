@@ -60,7 +60,7 @@ export type Epoch = {
   limits: {
     inferenceTimeoutSeconds: 3600;
     tokenLimit: number;
-    costLimitUsd: number;
+    costLimitUsd: 50;
     networkPolicyVersion: string;
   };
   policy: {
@@ -292,9 +292,11 @@ export const epochIdentity = (value: unknown, manifest: FastManifest): EpochIden
   if (epoch.limits?.inferenceTimeoutSeconds !== 3600) {
     fail("epoch must preserve FeatureBench's 3600-second inference timeout");
   }
+  if (epoch.limits?.costLimitUsd !== 50) {
+    fail("epoch must use the approved USD 50 per-task cost limit");
+  }
   for (const [name, limit] of Object.entries({
     tokenLimit: epoch.limits?.tokenLimit,
-    costLimitUsd: epoch.limits?.costLimitUsd,
   })) {
     integer(limit, `epoch.limits.${name}`, 1);
   }

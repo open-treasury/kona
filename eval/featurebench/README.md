@@ -11,6 +11,7 @@ It does not replace the historical Harbor rig in `eval/run/`.
   `76b4a4566e04f4bcc13c35125d4f301791efa736`, split `fast`
 - mini-swe-agent `2.4.6`
 - one attempt and a 3,600-second inference timeout per task
+- a USD 50 model-cost limit per task
 - Linux x86-64 Fargate task images
 
 `manifests/fast-v1.1.json` pins the 100 task IDs and 18 image families. Before deployment, resolve

@@ -184,7 +184,7 @@ The hashed object contains:
 | Images    | 18 source digests, 18 inference digests, 18 grader digests, platform `linux/amd64`                                                                                       |
 | Harness   | FeatureBench commit/package version, mini-SWE-agent version, agent `mini_swe_agent`, stock prompt SHA-256, transport-adapter SHA-256, `nAttempts: 1`                     |
 | Model     | provider `azure`, logical model `gpt-5.6-sol`, deployment name, provider-reported immutable model version, API version, endpoint host, all sampling/reasoning parameters |
-| Limits    | inference timeout `3600`, grader timeouts from pinned native settings, token/cost limits, network policy version                                                         |
+| Limits    | inference timeout `3600`, grader timeouts from pinned native settings, token limit, USD `50` per-task cost limit, network policy version                                 |
 | Policy    | grader commit/hash, analysis schema/policy version and hash, failure taxonomy version                                                                                    |
 
 Concurrency, timestamps, run IDs, S3 locations, and cost ceilings are arm execution parameters and do not change the epoch. A provider throttle, quota retry, or different effective concurrency makes latency non-comparable; it makes quality non-comparable when it changes task behavior, as required by the PRD.

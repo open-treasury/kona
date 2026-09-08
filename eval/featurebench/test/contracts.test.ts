@@ -67,7 +67,7 @@ const epoch = (source: FastManifest): Epoch => {
     limits: {
       inferenceTimeoutSeconds: 3600,
       tokenLimit: 1,
-      costLimitUsd: 1,
+      costLimitUsd: 50,
       networkPolicyVersion: "v1",
     },
     policy: { graderSha256: hash, analysisVersion: "v1", failureTaxonomyVersion: "v1" },
@@ -136,6 +136,13 @@ describe("canonical contracts", () => {
     changed.model.deployment = "sol-next";
     expect(epochIdentity(changed, source).epochSha256).not.toBe(first.epochSha256);
     expect(first.epochId).toMatch(/^fb11-fast-[a-f0-9]{16}$/);
+  });
+
+  test("epoch requires the approved USD 50 per-task budget", () => {
+    const source = manifest();
+    const changed = epoch(source);
+    changed.limits.costLimitUsd = 10 as 50;
+    expect(() => epochIdentity(changed, source)).toThrow("USD 50 per-task cost limit");
   });
 
   test("pure rejects Kona assets and Kona requires exact hashes", () => {

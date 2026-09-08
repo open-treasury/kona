@@ -56,7 +56,7 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
     limits: {
       inferenceTimeoutSeconds: 3600,
       tokenLimit: 1,
-      costLimitUsd: 1,
+      costLimitUsd: 50,
       networkPolicyVersion: "v1",
     },
     policy: {
@@ -97,7 +97,7 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
       armType: "pure-gpt",
       gitRevision: "b".repeat(40),
       requestedConcurrency: 20,
-      budgetUsd: 100,
+      budgetUsd: 5000,
       azureSecretArn: "arn:aws:secretsmanager:us-east-1:123456789012:secret:azure",
       kona: null,
     }),
@@ -149,7 +149,7 @@ test("prepare creates isolated 3/97 workflow inputs without model calls", async 
   );
   expect(first.task.test_patch).toBeUndefined();
   expect(first.model).toBe("openai/sol");
-  expect(first.model_cost_limit_usd).toBe(1);
+  expect(first.model_cost_limit_usd).toBe(50);
   expect(first.model_token_limit).toBe(1);
   const control = JSON.parse(readFileSync(join(paths.out, "control.json"), "utf8"));
   const bin = join(directory, "bin");
