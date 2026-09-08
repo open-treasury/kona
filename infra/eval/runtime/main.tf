@@ -260,7 +260,7 @@ resource "aws_sfn_state_machine" "eval" {
             RunInference = {
               Type           = "Task"
               Resource       = "arn:aws:states:::ecs:runTask.sync"
-              TimeoutSeconds = 3900
+              TimeoutSeconds = 4800
               Parameters = {
                 LaunchType         = "FARGATE"
                 Cluster            = aws_ecs_cluster.eval.arn

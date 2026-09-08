@@ -10,7 +10,8 @@ It does not replace the historical Harbor rig in `eval/run/`.
 - Dataset `LiberCoders/FeatureBench` v1.1, commit
   `76b4a4566e04f4bcc13c35125d4f301791efa736`, split `fast`
 - mini-swe-agent `2.4.6`
-- one attempt and a 3,600-second inference timeout per task
+- one attempt and a 3,600-second inference timeout per task, protected by a 4,800-second
+  orchestration timeout that includes cold image startup and result publication
 - a USD 50 model-cost limit per task
 - Linux x86-64 Fargate task images
 
