@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "quality": {
+    "passed_pct": null,
+    "resolved_pct": null,
+    "task_count": 100,
+    "graded_count": 0
+  },
+  "evidence": {
+    "valid": false,
+    "incomplete": true,
+    "invalid": false
+  }
+}

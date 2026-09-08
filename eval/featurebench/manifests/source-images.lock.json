@@ -1,0 +1,24 @@
+{
+  "images": {
+    "libercoders/featurebench-specs_astropy-instance_493bb78b": "docker.io/libercoders/featurebench-specs_astropy-instance_493bb78b@sha256:4b5e7489d8bee8e20b53f94c74833e6d9ee0163673ac4a36eecb0372ef01fda2",
+    "libercoders/featurebench-specs_fastapi-instance_835a08db": "docker.io/libercoders/featurebench-specs_fastapi-instance_835a08db@sha256:f98cb81c4d36a7f5edcecfaf53028db48c1df2ec53f8e53cd9accc9ac322dd5e",
+    "libercoders/featurebench-specs_hatch-instance_02086956": "docker.io/libercoders/featurebench-specs_hatch-instance_02086956@sha256:70c443280ebe701fe0b6ca24d22c139f3b5c92817a5c1c16c2fc5762b67a4fb1",
+    "libercoders/featurebench-specs_matplotlib-instance_1a84341f": "docker.io/libercoders/featurebench-specs_matplotlib-instance_1a84341f@sha256:6356bd09b20e4291aadfaa649146b3e59c57446ea2fcb36e959147b756bd5dbc",
+    "libercoders/featurebench-specs_meson-instance_80dbfb11": "docker.io/libercoders/featurebench-specs_meson-instance_80dbfb11@sha256:fa8e46b573d2153376c6e089996712d3aa67c3cb8b8569ec232e7a4b7934ec24",
+    "libercoders/featurebench-specs_metaflow-instance_87a4ffa7": "docker.io/libercoders/featurebench-specs_metaflow-instance_87a4ffa7@sha256:b319caebd869643983a3302839c3604cd885b4b2fe6dafb79686564bfcd52654",
+    "libercoders/featurebench-specs_mlflow-instance_efffa87e": "docker.io/libercoders/featurebench-specs_mlflow-instance_efffa87e@sha256:5a63b594bc99a6dcd876289974979606b276edd49e966020111db3590c40add4",
+    "libercoders/featurebench-specs_mypy-instance_289f68ef": "docker.io/libercoders/featurebench-specs_mypy-instance_289f68ef@sha256:132f20b7c4a8bb55fc71a914c81f659fe47c0581698edf23ee64ebb83437c7ca",
+    "libercoders/featurebench-specs_packaging-instance_c393a6a8": "docker.io/libercoders/featurebench-specs_packaging-instance_c393a6a8@sha256:96b12548b35b5983ac1dab9a101b4a49946fceb6a05c97690cd942ff014be916",
+    "libercoders/featurebench-specs_pandas-instance_15f634a6": "docker.io/libercoders/featurebench-specs_pandas-instance_15f634a6@sha256:e484ae407255b4c2c481a842e476c3c3285d2032738adf0abd410fb5f776dab7",
+    "libercoders/featurebench-specs_pydantic-instance_78693714": "docker.io/libercoders/featurebench-specs_pydantic-instance_78693714@sha256:755c424c73170faf66d88006022ed2733f8e269446f330f301d762b0d0ab7d6b",
+    "libercoders/featurebench-specs_pytest-instance_2b74d6c4": "docker.io/libercoders/featurebench-specs_pytest-instance_2b74d6c4@sha256:90aad241a5422d096bff4b5a796300bcb737fbe347531f5c0dc71ea93421f291",
+    "libercoders/featurebench-specs_scikit_learn-instance_d734ea34": "docker.io/libercoders/featurebench-specs_scikit_learn-instance_d734ea34@sha256:a9bd4207ee63bfdc8e96f99b0867c6248c3bf2700fdc4deb2442d316ce6a3ade",
+    "libercoders/featurebench-specs_seaborn-instance_52738fbb": "docker.io/libercoders/featurebench-specs_seaborn-instance_52738fbb@sha256:fe27a1a5205fa0939453e79d0f40c74cb402bad8ea1d42fff7de5e2106e77ce1",
+    "libercoders/featurebench-specs_setuptools-instance_732b794d": "docker.io/libercoders/featurebench-specs_setuptools-instance_732b794d@sha256:f3d9abad25bc0f3c32208d33115df07ee6af2d34e00de8e0a004e1af127072a2",
+    "libercoders/featurebench-specs_sphinx-instance_6191afb1": "docker.io/libercoders/featurebench-specs_sphinx-instance_6191afb1@sha256:15b434473e16386e33c864d8b7f4a3bddb9c5585961758c0ed0f06b51b3f0268",
+    "libercoders/featurebench-specs_sympy-instance_3d889fef": "docker.io/libercoders/featurebench-specs_sympy-instance_3d889fef@sha256:207ff124011e74d2b6abbdce2f8d3244546949cd0abfb7949d7dd414368f8935",
+    "libercoders/featurebench-specs_xarray-instance_62de996a": "docker.io/libercoders/featurebench-specs_xarray-instance_62de996a@sha256:075803e6495efc4aa64c015effcae52986a62352655127f69a262dfbedfbb7d7"
+  },
+  "platform": "linux/amd64",
+  "schemaVersion": 1
+}

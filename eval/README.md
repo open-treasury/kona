@@ -1,5 +1,31 @@
 # `eval/` — the rig
 
+## Development evaluation
+
+`featurebench/` implements the versioned development evaluation defined by
+[`specs/kona-development-evaluation/spec.md`](../specs/kona-development-evaluation/spec.md). It is
+separate from the historical Terminal-Bench experiment below:
+
+- FeatureBench v1.1 Fast-100, one attempt per task
+- pure GPT once per compatible epoch; one arm per manually selected Kona revision
+- FeatureBench-native mini-SWE-agent in both arms
+- direct Linux x86-64 Fargate inference and isolated grader tasks
+- Step Functions concurrency explicitly set to 20 or 50
+- DVC experiment refs plus an S3 artifact remote
+- Terraform under `infra/eval/{bootstrap,runtime}`
+
+The local entry point is `bun run eval:featurebench -- <command>`. `prepare` validates and
+materializes sanitized inference requests, grader-only requests, and the three-task/97-task workflow
+manifests. `start` uploads one phase and starts the Terraform-provisioned state machine. `collect`
+builds and pushes the named DVC experiment after artifacts have been downloaded and sealed.
+`decision` appends the maintainer's decision separately from computed evidence.
+
+Neither plain `git push` nor the S3 staging prefix completes the ledger: use `dvc exp push`/`pull`
+for experiment refs and DVC objects. The Azure secret value is stored in Secrets Manager and never
+belongs in Terraform state, DVC, task requests, or this repository.
+
+The remainder of this document describes the original Terminal-Bench rig and remains valid for it.
+
 A paired A/B on **Terminal-Bench 3 / Frontier-Bench v0.1**: the same model, on the same
 tasks, with and without Kona. Proposal, costings and the frozen pre-registration:
 [`docs/eval.md`](../docs/eval.md).

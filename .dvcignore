@@ -1,0 +1,3 @@
+# DVC should not traverse dependency and linked-worktree caches.
+node_modules/
+.worktrees/
