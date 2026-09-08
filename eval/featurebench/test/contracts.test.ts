@@ -198,7 +198,9 @@ describe("analysis", () => {
   test("missing and duplicate tasks are not ordinary zero scores", () => {
     const incomplete = summarizeArm(["a", "b"], [result("a", 10)], true);
     expect(incomplete.evidence).toBe("INCOMPLETE");
-    expect(incomplete.quality.passedPct).toBe(100);
+    expect(incomplete.quality.passedPct).toBe(50);
+    expect(incomplete.quality.resolvedPct).toBe(50);
+    expect(incomplete.cost.actualUsd).toBeNull();
     expect(summarizeArm(["a"], [result("a", 0), result("a", 0)], true).evidence).toBe("INVALID");
     const noTests = result("a", 0);
     if (noTests.grade === null) throw new Error("fixture grade is missing");

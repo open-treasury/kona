@@ -87,18 +87,20 @@ export const summarizeArm = (
   );
   const adoptionMissing = armType === "kona" && results.some((result) => result.adoption === null);
   const passedPct =
-    graded.length === 0
+    expectedTaskIds.length === 0
       ? null
       : (graded.reduce((sum, result) => {
           const grade = result.grade;
           return sum + (grade && grade.total > 0 ? grade.passed / grade.total : 0);
         }, 0) /
-          graded.length) *
+          expectedTaskIds.length) *
         100;
   const resolvedPct =
-    graded.length === 0
+    expectedTaskIds.length === 0
       ? null
-      : (graded.filter((result) => result.grade?.resolved === true).length / graded.length) * 100;
+      : (graded.filter((result) => result.grade?.resolved === true).length /
+          expectedTaskIds.length) *
+        100;
   const costs = results
     .map((result) => result.inference.costUsd)
     .filter((v): v is number => v !== null);
@@ -130,7 +132,9 @@ export const summarizeArm = (
     },
     cost: {
       actualUsd:
-        costs.length === results.length ? costs.reduce((sum, value) => sum + value, 0) : null,
+        costs.length === expectedTaskIds.length
+          ? costs.reduce((sum, value) => sum + value, 0)
+          : null,
     },
     latency: {
       taskP50Seconds: percentile(seconds, 0.5),
