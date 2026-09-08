@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { imageBuildPlan } from "../images.ts";
+import { imageBuildPlan, validateRunnableManifest } from "../images.ts";
 import type { FastManifest } from "../contracts.ts";
 
 test("image plan creates digest-based inference and grader builds for all families", () => {
@@ -26,5 +26,21 @@ test("image plan creates digest-based inference and grader builds for all famili
   expect(plan).toHaveLength(36);
   expect(plan.filter((build) => build.kind === "inference")).toHaveLength(18);
   expect(plan[0]?.argv).toContain("linux/amd64");
+  expect(plan[0]?.argv).toContain("--provenance=false");
+  expect(plan[0]?.argv).toContain("--sbom=false");
   expect(plan[0]?.source).toContain("@sha256:");
+});
+
+test("image publication accepts runnable manifests and rejects indexes", () => {
+  expect(() =>
+    validateRunnableManifest({ mediaType: "application/vnd.oci.image.manifest.v1+json" }),
+  ).not.toThrow();
+  expect(() =>
+    validateRunnableManifest({
+      mediaType: "application/vnd.docker.distribution.manifest.v2+json",
+    }),
+  ).not.toThrow();
+  expect(() =>
+    validateRunnableManifest({ mediaType: "application/vnd.oci.image.index.v1+json" }),
+  ).toThrow("single-platform manifest");
 });

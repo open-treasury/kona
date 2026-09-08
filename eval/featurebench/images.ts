@@ -19,6 +19,21 @@ export type ImageBuild = {
   argv: string[];
 };
 
+const RUNNABLE_MANIFEST_TYPES = new Set([
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.v2+json",
+]);
+
+export const validateRunnableManifest = (value: unknown): void => {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !RUNNABLE_MANIFEST_TYPES.has((value as { mediaType?: string }).mediaType ?? "")
+  ) {
+    throw new Error("built image digest must identify a runnable single-platform manifest");
+  }
+};
+
 export const imageBuildPlan = (
   manifestValue: unknown,
   lock: SourceImageLock,
@@ -49,6 +64,8 @@ export const imageBuildPlan = (
           "build",
           "--platform",
           "linux/amd64",
+          "--provenance=false",
+          "--sbom=false",
           "--build-arg",
           `BASE_IMAGE=${source}`,
           "--file",
@@ -97,19 +114,35 @@ const main = async (): Promise<void> => {
         metadata,
         build.argv.at(-1) ?? ".",
       ];
-      const process = Bun.spawn(argv, {
+      const buildProcess = Bun.spawn(argv, {
         cwd: resolve(import.meta.dir, "..", ".."),
         stdout: "inherit",
         stderr: "inherit",
       });
-      if ((await process.exited) !== 0)
+      if ((await buildProcess.exited) !== 0)
         throw new Error(`image build failed for ${build.family} ${build.kind}`);
       const detail = JSON.parse(readFileSync(metadata, "utf8")) as Record<string, unknown>;
       const digest = detail["containerimage.digest"];
       if (typeof digest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
         throw new Error(`build returned no digest for ${build.family} ${build.kind}`);
       }
-      build.tag = `${build.tag.slice(0, build.tag.lastIndexOf(":"))}@${digest}`;
+      const reference = `${build.tag.slice(0, build.tag.lastIndexOf(":"))}@${digest}`;
+      const inspectProcess = Bun.spawn(
+        ["docker", "buildx", "imagetools", "inspect", "--raw", reference],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      const [inspectOutput, inspectError, inspectExit] = await Promise.all([
+        new Response(inspectProcess.stdout).text(),
+        new Response(inspectProcess.stderr).text(),
+        inspectProcess.exited,
+      ]);
+      if (inspectExit !== 0) {
+        throw new Error(
+          `image manifest inspection failed for ${build.family} ${build.kind}: ${inspectError.trim()}`,
+        );
+      }
+      validateRunnableManifest(JSON.parse(inspectOutput));
+      build.tag = reference;
       rmSync(directory, { recursive: true, force: true });
     }
   }
