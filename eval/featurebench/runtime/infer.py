@@ -88,6 +88,25 @@ def _trajectory_succeeded(trajectory: dict[str, Any]) -> bool:
     return trajectory.get("info", {}).get("exit_status") == "Submitted"
 
 
+def _bounded_agent_failure(
+    exit_status: object, transport: LocalTransport
+) -> dict[str, object]:
+    if transport.last_stream_timed_out:
+        code = "AGENT_TIMEOUT"
+    elif transport.last_stream_exit_code is not None:
+        exit_code = transport.last_stream_exit_code
+        code = (
+            f"AGENT_SIGNAL_{-exit_code}"
+            if exit_code < 0
+            else f"AGENT_PROCESS_EXIT_{exit_code}"
+        )
+    elif isinstance(exit_status, str) and exit_status:
+        code = f"AGENT_{exit_status.upper()}"
+    else:
+        code = "AGENT_NO_TERMINAL_STATUS"
+    return {"class": "TASK", "code": code, "retryable": False}
+
+
 def _with_model_settings(
     command: str, effort: str, cost_limit_usd: float, token_limit: int
 ) -> str:
@@ -249,16 +268,14 @@ def run(request_path: Path, output_dir: Path) -> int:
         usage = _usage(trajectory_data)
         result.update(
             {
-                "status": "completed" if succeeded else "failed",
+                # A bounded attempt with a captured patch is complete evidence even when
+                # the agent did not submit. The native grader determines patch quality.
+                "status": "completed",
                 "patch_sha256": sha256_file(patch_path),
                 "usage": usage,
                 "failure": None
                 if succeeded
-                else {
-                    "class": "HARNESS",
-                    "code": f"AGENT_{str(exit_status or 'UNKNOWN').upper()}",
-                    "retryable": False,
-                },
+                else _bounded_agent_failure(exit_status, transport),
                 "adoption": {
                     "instructions_loaded": arm_type == "kona",
                     "invocation_count": 0,
@@ -324,6 +341,19 @@ def main() -> int:
         assert _trajectory_succeeded({"info": {"exit_status": "Submitted"}})
         assert not _trajectory_succeeded(
             {"info": {"exit_status": "RepeatedFormatError"}}
+        )
+        transport = LocalTransport()
+        transport.last_stream_timed_out = True
+        assert _bounded_agent_failure("", transport)["code"] == "AGENT_TIMEOUT"
+        transport.last_stream_timed_out = False
+        transport.last_stream_exit_code = -9
+        assert _bounded_agent_failure("", transport)["code"] == "AGENT_SIGNAL_9"
+        transport.last_stream_exit_code = 0
+        assert _bounded_agent_failure("", transport)["code"] == "AGENT_PROCESS_EXIT_0"
+        transport.last_stream_exit_code = None
+        assert (
+            _bounded_agent_failure("LimitsExceeded", transport)["code"]
+            == "AGENT_LIMITSEXCEEDED"
         )
         assert _usage({"usage": {"input_tokens": 3, "output_tokens": 2}}) == {
             "input_tokens": 3,
