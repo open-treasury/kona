@@ -202,6 +202,19 @@ describe("analysis", () => {
     expect(summary.adoption.invokedTasks).toBe(2);
   });
 
+  test("a bounded agent exit with a graded patch is valid task evidence", () => {
+    const bounded = result("a", 4);
+    bounded.inference.failure = {
+      class: "TASK",
+      code: "AGENT_TIMEOUT",
+      message: "agent reached its execution limit",
+      retryable: false,
+    };
+    const summary = summarizeArm(["a"], [bounded], true);
+    expect(summary.evidence).toBe("VALID");
+    expect(summary.quality.passedPct).toBe(40);
+  });
+
   test("missing and duplicate tasks are not ordinary zero scores", () => {
     const incomplete = summarizeArm(["a", "b"], [result("a", 10)], true);
     expect(incomplete.evidence).toBe("INCOMPLETE");
