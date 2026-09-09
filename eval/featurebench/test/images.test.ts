@@ -28,13 +28,11 @@ test("image plan creates digest-based inference and grader builds for all famili
   expect(plan[0]?.argv).toContain("linux/amd64");
   expect(plan[0]?.argv).toContain("--provenance=false");
   expect(plan[0]?.argv).toContain("--sbom=false");
+  expect(plan[0]?.argv).toContain("type=image,push=true,oci-mediatypes=false");
   expect(plan[0]?.source).toContain("@sha256:");
 });
 
-test("image publication accepts runnable manifests and rejects indexes", () => {
-  expect(() =>
-    validateRunnableManifest({ mediaType: "application/vnd.oci.image.manifest.v1+json" }),
-  ).not.toThrow();
+test("image publication requires Docker V2 schema-2 manifests", () => {
   expect(() =>
     validateRunnableManifest({
       mediaType: "application/vnd.docker.distribution.manifest.v2+json",
@@ -42,5 +40,8 @@ test("image publication accepts runnable manifests and rejects indexes", () => {
   ).not.toThrow();
   expect(() =>
     validateRunnableManifest({ mediaType: "application/vnd.oci.image.index.v1+json" }),
-  ).toThrow("single-platform manifest");
+  ).toThrow("Docker V2 schema-2 manifest");
+  expect(() =>
+    validateRunnableManifest({ mediaType: "application/vnd.oci.image.manifest.v1+json" }),
+  ).toThrow("Docker V2 schema-2 manifest");
 });

@@ -19,18 +19,16 @@ export type ImageBuild = {
   argv: string[];
 };
 
-const RUNNABLE_MANIFEST_TYPES = new Set([
-  "application/vnd.oci.image.manifest.v1+json",
-  "application/vnd.docker.distribution.manifest.v2+json",
-]);
+const DOCKER_V2_MANIFEST = "application/vnd.docker.distribution.manifest.v2+json";
+const IMAGE_EXPORT_REVISION = "docker-v2-schema2-v1";
 
 export const validateRunnableManifest = (value: unknown): void => {
   if (
     !value ||
     typeof value !== "object" ||
-    !RUNNABLE_MANIFEST_TYPES.has((value as { mediaType?: string }).mediaType ?? "")
+    (value as { mediaType?: string }).mediaType !== DOCKER_V2_MANIFEST
   ) {
-    throw new Error("built image digest must identify a runnable single-platform manifest");
+    throw new Error("built image digest must identify a Docker V2 schema-2 manifest");
   }
 };
 
@@ -50,7 +48,7 @@ export const imageBuildPlan = (
     if (!source || !/@sha256:[a-f0-9]{64}$/.test(source)) {
       throw new Error(`source image ${family} is not digest-pinned`);
     }
-    const key = sha256(family).slice(0, 12);
+    const key = sha256(`${family}\0${IMAGE_EXPORT_REVISION}`).slice(0, 12);
     return (["inference", "grader"] as const).map((kind) => {
       const tag = `${repositories[kind]}:${key}`;
       return {
@@ -72,7 +70,8 @@ export const imageBuildPlan = (
           `eval/featurebench/images/${kind}.Dockerfile`,
           "--tag",
           tag,
-          "--push",
+          "--output",
+          "type=image,push=true,oci-mediatypes=false",
           ".",
         ],
       };
