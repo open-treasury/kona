@@ -184,7 +184,7 @@ The hashed object contains:
 | Images    | 18 source digests, 18 inference digests, 18 grader digests, platform `linux/amd64`                                                                                       |
 | Harness   | FeatureBench commit/package version, mini-SWE-agent version, agent `mini_swe_agent`, stock prompt SHA-256, transport-adapter SHA-256, `nAttempts: 1`                     |
 | Model     | provider `azure`, logical model `gpt-5.6-sol`, deployment name, provider-reported immutable model version, API version, endpoint host, all sampling/reasoning parameters |
-| Limits    | inference timeout `3600`, grader timeouts from pinned native settings, token/cost limits, network policy version                                                         |
+| Limits    | inference timeout `3600`, grader timeouts from pinned native settings, token limit, USD `50` per-task cost limit, network policy version                                 |
 | Policy    | grader commit/hash, analysis schema/policy version and hash, failure taxonomy version                                                                                    |
 
 Concurrency, timestamps, run IDs, S3 locations, and cost ceilings are arm execution parameters and do not change the epoch. A provider throttle, quota retry, or different effective concurrency makes latency non-comparable; it makes quality non-comparable when it changes task behavior, as required by the PRD.
@@ -328,8 +328,9 @@ The Standard state machine accepts only validated schema-version-1 input and has
 1. `ValidateRequest`: reject wrong region, epoch, arm, manifest, phase, budget approval, or concurrency.
 2. `SelectTasks`: `PROBE` selects canonical tasks 1-3; `CONTINUE` verifies the probe seal and selects tasks 4-100.
 3. `RunTasks`: Distributed Map with child `ExecutionType: STANDARD`, `MaxConcurrencyPath: $.requestedConcurrency`, and a result writer under the execution-specific S3 prefix.
-4. Child `RunInference`: `arn:aws:states:::ecs:runTask.sync`, Linux x86-64 inference task, no state-level retry.
+4. Child `RunInference`: `arn:aws:states:::ecs:runTask.sync`, Linux x86-64 inference task, no state-level retry. Its 4,800-second outer timeout preserves the 3,600-second agent limit while allowing 20 minutes for cold image startup, shutdown, and durable result publication.
 5. Child `RunGrader`: only after a sealed inference patch, separate `ecs:runTask.sync` grader task. Retry only ECS launch/service failures, maximum two retries with exponential backoff; native grader failures are recorded once and not retried automatically.
+   The pinned FeatureBench adapter derives P2P output names from each complete test path so files with identical basenames remain distinct.
 6. Child catches return a structured failure item so the map continues. `ToleratedFailurePercentage` is 100; evidence policy, not Map failure threshold, determines validity.
 7. `SealPhase`: writes orchestration summary and expected item count. `PROBE` returns `AWAITING_APPROVAL`; `CONTINUE` returns `READY_TO_COLLECT`.
 

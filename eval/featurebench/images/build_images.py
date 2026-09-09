@@ -45,6 +45,8 @@ for family in families:
                 "build",
                 "--platform",
                 "linux/amd64",
+                "--provenance=false",
+                "--sbom=false",
                 "--build-arg",
                 f"BASE_IMAGE={source}",
                 "--file",
@@ -60,7 +62,23 @@ for family in families:
             check=True,
         )
         digest = json.loads(metadata.read_text())["containerimage.digest"]
-        built[kind] = f"{repositories[kind]}@{digest}"
+        reference = f"{repositories[kind]}@{digest}"
+        manifest = json.loads(
+            subprocess.run(
+                ["docker", "buildx", "imagetools", "inspect", "--raw", reference],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        )
+        if manifest.get("mediaType") not in {
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.docker.distribution.manifest.v2+json",
+        }:
+            raise RuntimeError(
+                f"build returned a non-runnable image index for {family} {kind}"
+            )
+        built[kind] = reference
     result["images"][family] = built
 
 output = root / "eval/featurebench/manifests/derived-images.lock.json"
