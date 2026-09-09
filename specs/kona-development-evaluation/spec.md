@@ -222,14 +222,14 @@ Every inference and grade invocation writes a schema-versioned `result.json` plu
 | Grade     | native `%PASSED` numerator/denominator, `resolved`, native report hash/path, wall milliseconds                                                                                                 |
 | Failure   | `class`, `code`, redacted message, retryability, provider throttling count, quota retry count                                                                                                  |
 
-Failure classes are `TASK`, `PROVIDER`, `HARNESS`, `KONA_SETUP`, `GRADER`, `INFRASTRUCTURE`, `TIMEOUT`, `QUOTA`, and `PROVENANCE`. A valid native failing solution is `TASK` with a valid grade, not an infrastructure error. Missing output is never converted to zero.
+Failure classes are `TASK`, `PROVIDER`, `HARNESS`, `KONA_SETUP`, `GRADER`, `INFRASTRUCTURE`, `TIMEOUT`, `QUOTA`, and `PROVENANCE`. A valid native failing solution is `TASK` with a valid grade, not an infrastructure error. A bounded agent exit after a patch and trajectory are captured is also a `TASK` outcome and proceeds to native grading with its explicit timeout, signal, process-exit, or agent terminal code. Missing output is never converted to zero.
 
 Process exits are stable interfaces. Local CLI exit `0` means the requested operation completed, `2` means request/preflight refusal, `3` means collected evidence is incomplete, `4` means evidence is invalid, and `5` means an orchestration, S3, Git, or DVC control-plane failure. Fargate exit `0` means a schema-valid result envelope was durably written, including ordinary task, provider, timeout, or grader outcomes; exit `20` means invalid input/provenance before work, `21` means durable result publication failed, and `22` means an unclassified runtime failure. Native test failure is data in a grader envelope, never a non-zero container exit.
 
 Arm evidence status is:
 
 - `VALID`: exact epoch match; all 100 unique attempt-1 inference and native grade records present; no ambiguous model execution; artifact hashes and remote experiment objects verified.
-- `INCOMPLETE`: any task/grade missing, any provider/infrastructure/setup ambiguity, pending probe approval, budget stop, throttling that altered execution, or failed DVC experiment/object push.
+- `INCOMPLETE`: any task/grade missing, any provider/infrastructure/setup ambiguity, a budget or timeout stop without a captured graded patch, pending probe approval, throttling that altered execution, or failed DVC experiment/object push.
 - `INVALID`: epoch mismatch, duplicate primary model attempt, pure-arm Kona surface, mixed Kona revision, modified task manifest/grader, digest mismatch, or secret exposure.
 
 ### 6.5. Params and Metrics Schemas
@@ -328,7 +328,7 @@ The Standard state machine accepts only validated schema-version-1 input and has
 1. `ValidateRequest`: reject wrong region, epoch, arm, manifest, phase, budget approval, or concurrency.
 2. `SelectTasks`: `PROBE` selects canonical tasks 1-3; `CONTINUE` verifies the probe seal and selects tasks 4-100.
 3. `RunTasks`: Distributed Map with child `ExecutionType: STANDARD`, `MaxConcurrencyPath: $.requestedConcurrency`, and a result writer under the execution-specific S3 prefix.
-4. Child `RunInference`: `arn:aws:states:::ecs:runTask.sync`, Linux x86-64 inference task, no state-level retry. Its 4,800-second outer timeout preserves the 3,600-second agent limit while allowing 20 minutes for cold image startup, shutdown, and durable result publication.
+4. Child `RunInference`: `arn:aws:states:::ecs:runTask.sync`, Linux x86-64 inference task, no state-level retry. Its 6,000-second outer timeout preserves the 3,600-second agent limit while allowing 40 minutes for cold image startup, shutdown, and durable result publication.
 5. Child `RunGrader`: only after a sealed inference patch, separate `ecs:runTask.sync` grader task. Retry only ECS launch/service failures, maximum two retries with exponential backoff; native grader failures are recorded once and not retried automatically.
    The pinned FeatureBench adapter derives P2P output names from each complete test path so files with identical basenames remain distinct.
 6. Child catches return a structured failure item so the map continues. `ToleratedFailurePercentage` is 100; evidence policy, not Map failure threshold, determines validity.

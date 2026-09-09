@@ -49,6 +49,10 @@ def validate_inference_row(row: dict[str, Any]) -> None:
 class LocalTransport:
     """FeatureBench container-manager protocol implemented in the current container."""
 
+    def __init__(self) -> None:
+        self.last_stream_exit_code: int | None = None
+        self.last_stream_timed_out = False
+
     @staticmethod
     def exec_command(
         _container: object,
@@ -74,8 +78,8 @@ class LocalTransport:
                 target.write(output)
         return completed.returncode, output
 
-    @staticmethod
     def exec_command_stream(
+        self,
         _container: object,
         command: str,
         log_file: Path,
@@ -84,6 +88,8 @@ class LocalTransport:
         skip_bashrc: bool = False,
         **_kwargs: object,
     ) -> int:
+        self.last_stream_exit_code = None
+        self.last_stream_timed_out = False
         shell_command = (
             command
             if skip_bashrc
@@ -98,8 +104,10 @@ class LocalTransport:
                 start_new_session=True,
             )
             try:
-                return process.wait(timeout=timeout)
+                self.last_stream_exit_code = process.wait(timeout=timeout)
+                return self.last_stream_exit_code
             except subprocess.TimeoutExpired:
+                self.last_stream_timed_out = True
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
                 target.write(f"\n[TIMEOUT after {timeout} seconds]\n")
@@ -138,7 +146,8 @@ def _self_test() -> None:
         marker = root / "survived"
         log = root / "process.log"
         started = time.monotonic()
-        code = LocalTransport.exec_command_stream(
+        transport = LocalTransport()
+        code = transport.exec_command_stream(
             None,
             f"(sleep 1; touch {marker}) & wait",
             log,
@@ -146,6 +155,8 @@ def _self_test() -> None:
             skip_bashrc=True,
         )
         assert code == -1
+        assert transport.last_stream_timed_out
+        assert transport.last_stream_exit_code is None
         assert time.monotonic() - started < 2
         time.sleep(1.1)
         assert not marker.exists()

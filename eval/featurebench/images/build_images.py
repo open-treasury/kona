@@ -19,6 +19,7 @@ repositories = {
     "grader": os.environ["GRADER_REPOSITORY"],
 }
 result = {"schemaVersion": 1, "platform": "linux/amd64", "images": {}}
+IMAGE_EXPORT_REVISION = b"docker-v2-schema2-v1"
 
 selected = os.environ.get("IMAGE_FAMILY")
 families = [selected] if selected else manifest["imageFamilies"]
@@ -27,6 +28,7 @@ for family in families:
         raise RuntimeError(f"Unknown image family: {family}")
     source = source_lock["images"][family]
     build_identity = hashlib.sha256(family.encode())
+    build_identity.update(IMAGE_EXPORT_REVISION)
     for path in sorted((root / "eval/featurebench/runtime").glob("*.py")):
         build_identity.update(path.name.encode())
         build_identity.update(path.read_bytes())
@@ -53,7 +55,8 @@ for family in families:
                 f"eval/featurebench/images/{kind}.Dockerfile",
                 "--tag",
                 tag,
-                "--push",
+                "--output",
+                "type=image,push=true,oci-mediatypes=false",
                 "--metadata-file",
                 str(metadata),
                 ".",
@@ -71,12 +74,11 @@ for family in families:
                 check=True,
             ).stdout
         )
-        if manifest.get("mediaType") not in {
-            "application/vnd.oci.image.manifest.v1+json",
-            "application/vnd.docker.distribution.manifest.v2+json",
-        }:
+        if manifest.get("mediaType") != (
+            "application/vnd.docker.distribution.manifest.v2+json"
+        ):
             raise RuntimeError(
-                f"build returned a non-runnable image index for {family} {kind}"
+                f"build returned a non-Docker-V2 image for {family} {kind}"
             )
         built[kind] = reference
     result["images"][family] = built
